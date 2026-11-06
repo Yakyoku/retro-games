@@ -1,0 +1,8 @@
+# 7 作品共通。サイトごとに環境変数 GAME（games/ 配下のフォルダ名）と VARIANT（2d / vr / all）を設定する。
+# このファイルは作品のセッションから変更しない（全作品の公開が壊れるため）。
+[build]
+  command = "node tools/build-game.js"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"

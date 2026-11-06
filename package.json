@@ -1,0 +1,12 @@
+{
+  "name": "retro-games",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code のクラウドセッションで作るレトロゲーム 7 作品（2D ブラウザ版 + Meta Quest 3 WebXR 版）",
+  "scripts": {
+    "build": "node tools/build-game.js"
+  },
+  "devDependencies": {
+    "three": "^0.187.0"
+  }
+}

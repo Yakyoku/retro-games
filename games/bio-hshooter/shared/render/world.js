@@ -40,6 +40,21 @@ export class World {
     this.enemyObjs = new Map(); this.itemObjs = new Map(); this.burstObjs = [];
     this.stageObjs = []; this.blockObjs = [];
     this.t = 0; this.stage = null;
+    this.clipPlanes = opts.clip ? [0, 1, 2, 3].map(() => new THREE.Plane()) : null;
+    if (this.clipPlanes) for (const m of Object.values(this.M)) if (m.isMaterial) m.clippingPlanes = this.clipPlanes;
+  }
+
+  // VR: 盤面の長方形（＋余白 margin u）の外の地形・壁・敵を切り落とす。root の世界行列から毎フレーム計算
+  updateClip(margin = 1.6) {
+    if (!this.clipPlanes) return;
+    this.root.updateWorldMatrix(true, false);
+    const M = this.root.matrixWorld, n = new THREE.Vector3(), p = new THREE.Vector3();
+    const defs = [[1, 0, -margin, 0], [-1, 0, FIELD_W + margin, 0], [0, 1, 0, -margin], [0, -1, 0, FIELD_H + margin]];
+    defs.forEach(([nx, ny, px, py], k) => {
+      p.set(nx ? px : FIELD_W / 2, ny ? py : FIELD_H / 2, 0).applyMatrix4(M);
+      n.set(nx, ny, 0).transformDirection(M);
+      this.clipPlanes[k].setFromNormalAndCoplanarPoint(n, p);
+    });
   }
 
   // ---------------------------------------------------------------- 面の構築
@@ -60,24 +75,38 @@ export class World {
 
   add(o, parent = this.scroll) { parent.add(o); this.stageObjs.push(o); return o; }
 
+  // 星雲は面ごとに 1 回だけテクスチャへ焼く（毎フレームのノイズ計算をやめて Quest の GPU を節約）
   buildSky(pal) {
     const [c1, c2] = pal.nebula.map((h) => new THREE.Color(h));
-    const mat = new THREE.ShaderMaterial({
-      side: THREE.BackSide, depthWrite: false, toneMapped: false,
-      uniforms: { c1: { value: c1 }, c2: { value: c2 }, sky: { value: new THREE.Color(pal.sky) }, uTime: U.time },
-      vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-      fragmentShader: `uniform vec3 c1; uniform vec3 c2; uniform vec3 sky; varying vec3 vD;
-        float h(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
-        float n(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
-          return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
-        float fbm(vec3 p){ float a=0.5, s=0.; for(int k=0;k<5;k++){ s+=a*n(p); p*=2.03; a*=0.5; } return s; }
-        void main(){ vec3 d = vD; float a = fbm(d*2.2+vec3(3.1)); float b = fbm(d*3.7-vec3(1.7));
-          float band = exp(-pow(d.y*2.2 - 0.25*sin(d.x*3.), 2.));
-          vec3 col = sky + c1 * smoothstep(0.5, 0.95, a) * 0.55 * (0.35+band) + c2 * smoothstep(0.55, 0.97, b) * 0.5;
-          float st = step(0.9985, h(floor(d*900.))); col += st * vec3(0.7,0.8,1.0) * (0.4 + h(floor(d*900.)+1.));
-          gl_FragColor = vec4(col, 1.); }`,
-    });
-    const sky = new THREE.Mesh(new THREE.SphereGeometry(this.vr ? 900 : 1500, 48, 24), mat);
+    const W = this.lite ? 2048 : 4096, H = W / 2;
+    if (!this.skyRT) {
+      this.skyRT = new THREE.WebGLRenderTarget(W, H, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+      this.bakeMat = new THREE.ShaderMaterial({
+        uniforms: { c1: { value: c1 }, c2: { value: c2 }, sky: { value: new THREE.Color() } }, depthTest: false, depthWrite: false,
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
+        fragmentShader: `uniform vec3 c1; uniform vec3 c2; uniform vec3 sky; varying vec2 vUv;
+          float h(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
+          float n(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+            return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
+          float fbm(vec3 p){ float a=0.5, s=0.; for(int k=0;k<6;k++){ s+=a*n(p); p*=2.03; a*=0.5; } return s; }
+          void main(){ float phi = vUv.x * 6.2831853, th = (1.0 - vUv.y) * 3.1415927;
+            vec3 d = vec3(-cos(phi)*sin(th), cos(th), sin(phi)*sin(th));
+            float a = fbm(d*2.2+vec3(3.1)); float b = fbm(d*3.7-vec3(1.7));
+            float band = exp(-pow(d.y*2.2 - 0.25*sin(d.x*3.), 2.));
+            vec3 col = sky + c1 * smoothstep(0.5, 0.95, a) * 0.55 * (0.35+band) + c2 * smoothstep(0.55, 0.97, b) * 0.5;
+            gl_FragColor = vec4(col, 1.); }`,
+      });
+      this.bakeScene = new THREE.Scene();
+      const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.bakeMat); q.frustumCulled = false; this.bakeScene.add(q);
+      this.bakeCam = new THREE.Camera();
+    }
+    this.bakeMat.uniforms.c1.value.copy(c1); this.bakeMat.uniforms.c2.value.copy(c2); this.bakeMat.uniforms.sky.value.set(pal.sky);
+    const r = this.renderer, xr = r.xr.enabled, prevRT = r.getRenderTarget(), tm = r.toneMapping;
+    r.xr.enabled = false; r.toneMapping = THREE.NoToneMapping;
+    r.setRenderTarget(this.skyRT); r.render(this.bakeScene, this.bakeCam);
+    r.setRenderTarget(prevRT); r.xr.enabled = xr; r.toneMapping = tm;
+    const geo = new THREE.SphereGeometry(this.vr ? 900 : 1500, 64, 32); geo.userData.shared = false;
+    const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.skyRT.texture, side: THREE.BackSide, depthWrite: false, toneMapped: false }));
     sky.position.set(FIELD_W / 2, FIELD_H / 2, 0); sky.renderOrder = -10; sky.frustumCulled = false;
     this.add(sky, this.skyG);
   }
@@ -136,7 +165,7 @@ export class World {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aMetal', new THREE.BufferAttribute(metal, 1)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setIndex(idx); g.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.42, envMap: this.env });
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.42, envMap: this.env, clippingPlanes: this.clipPlanes });
     const vein = new THREE.Color(pal.glow).multiplyScalar(1.2);
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = U.time; sh.uniforms.uVein = { value: vein };
@@ -146,9 +175,9 @@ export class World {
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.55, 0.24, vMetal);')
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float mask = smoothstep(0.55, 0.8, sin(vWP.x * 0.13 + vWP.z * 0.4) * 0.5 + 0.5 + sin(vWP.x * 0.31 - vWP.y * 0.2) * 0.25);
-          float vv = abs(sin(vWP.x * 2.3 + sin(vWP.z * 1.1 + vWP.x * 0.37) * 2.4 + uTime * 0.35));
+          float vv = abs(sin(vWP.x * 2.3 + sin(vWP.z * 1.1 + vWP.y * 1.3 + vWP.x * 0.37) * 2.4 + uTime * 0.35));
           vv = smoothstep(0.985, 1.0, vv) * (1.0 - vMetal) * mask * (0.5 + 0.5 * sin(uTime * 2.0 + vWP.x * 0.5)) * 0.4;
-          float seam = smoothstep(0.985, 1.0, abs(sin(vWP.x * 3.14159 * 0.25))) * vMetal * 0.12;
+          float seam = 0.0;
           totalEmissiveRadiance += uVein * (vv + seam);`);
     };
     const m = new THREE.Mesh(g, mat); m.frustumCulled = false;
@@ -211,6 +240,7 @@ export class World {
         if (b.kind === 'plate') { const e = new THREE.Mesh(new THREE.BoxGeometry(b.w * 1.02, 0.08, 1.7), M.gAmber); e.position.y = b.h / 2 - 0.05; o.add(e); }
         if (b.kind === 'nozzle') { o.geometry.dispose(); o.geometry = new THREE.CylinderGeometry(0.75, 0.6, b.w, 14); o.rotation.z = Math.PI / 2; }
       }
+      if (this.clipPlanes) o.traverse((x) => { if (x.material && !x.material.clippingPlanes) x.material.clippingPlanes = this.clipPlanes; });
       const holder = new THREE.Group(); holder.position.set(cx, cy, 0); holder.add(o);
       if (o.position.z === 0 && b.kind !== 'hull' && b.kind !== 'bow') o.position.z = -0.2;
       this.add(holder);
@@ -225,6 +255,7 @@ export class World {
     if (s.stage !== this.stage) this.setStage(s.stage);
     const scroll = lerp(s.pscroll ?? s.scrollX, s.scrollX, alpha);
     this.scroll.position.x = -scroll;
+    this.updateClip();
     const L = (e) => [lerp(e.px ?? e.x, e.x, alpha), lerp(e.py ?? e.y, e.y, alpha)];
     // 壁
     for (const bo of this.blockObjs) {
@@ -244,7 +275,7 @@ export class World {
     for (const e of s.enemies) {
       seen.add(e.id);
       let m = this.enemyObjs.get(e.id);
-      if (!m) { m = buildEnemy(e); this.enemyObjs.set(e.id, m); this.field.add(m.obj); }
+      if (!m) { m = buildEnemy(e); this.enemyObjs.set(e.id, m); this.field.add(m.obj); if (this.clipPlanes) m.obj.traverse((x) => { if (x.material && x.material.clippingPlanes) x.material.clippingPlanes = this.clipPlanes; }); }
       const [x, y] = L(e);
       let jx = 0, jy = 0;
       if (e.dying) { jx = (Math.random() - 0.5) * 0.3; jy = (Math.random() - 0.5) * 0.3; }

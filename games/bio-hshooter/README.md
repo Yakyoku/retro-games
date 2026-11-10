@@ -10,4 +10,12 @@
 - Meta Quest 3（WebXR）版: `experiments/02-vr-quest3/`
 - 設定資料ギャラリー: `gallery.html` ／ サウンドテスト: `sound-test.html`
 
-公開 URL は `netlify-sites.json` を参照。
+## 公開 URL
+- 入口: https://voidbloom-yk.netlify.app/
+- 大画面: https://voidbloom-yk.netlify.app/experiments/01-bigscreen/
+- Quest 3: https://voidbloom-yk.netlify.app/experiments/02-vr-quest3/
+- 設定資料: https://voidbloom-yk.netlify.app/gallery.html ／ サウンドテスト: https://voidbloom-yk.netlify.app/sound-test.html
+
+## 開発
+- 単体ビルド（リポジトリのルートで）: `GAME=bio-hshooter VARIANT=all node tools/build-game.js`
+- 点検・テスト（作品フォルダで）: `node tools/check.js` ／ `node --test tests/*.test.js`

@@ -17,7 +17,8 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
 const copy = (rel) => cpSync(join(here, rel), join(dist, rel), { recursive: true });
-for (const f of ['index.html', 'gallery.html', 'sound-test.html', 'shared']) copy(f);
+for (const f of readdirSync(here)) if (/\.(html|js|css)$/.test(f)) copy(f);
+copy('shared');
 const has = { bigscreen: variant !== 'vr', vr: variant !== '2d' };
 mkdirSync(join(dist, 'experiments'), { recursive: true });
 if (has.bigscreen) copy('experiments/01-bigscreen');

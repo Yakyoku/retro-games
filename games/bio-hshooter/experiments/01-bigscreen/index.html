@@ -1,2 +1,55 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="generator" content="Claude Code"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VOIDBLOOM</title><script src="../../shared/error-overlay.js"></script></head>
-<body style="background:#05070b;color:#ccd;font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0"><p>準備中 — MADE WITH CLAUDE</p></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>VOIDBLOOM — 大画面</title>
+<script src="../../shared/error-overlay.js"></script>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl"></canvas>
+  <div id="hud" hidden>
+    <div class="top">
+      <div><span class="lbl">1P</span> <span id="score">0</span></div>
+      <div><span class="lbl">HI</span> <span id="hi">0</span></div>
+      <div id="stname"></div>
+    </div>
+    <div id="bossbar" hidden><div class="name" id="bossname"></div><div class="bar"><i id="bosshp"></i></div></div>
+    <div class="bottom">
+      <div id="lives"></div>
+      <div class="beam"><span class="lbl">BEAM</span><div class="gauge"><i id="beam"></i></div></div>
+      <div id="equip"></div>
+    </div>
+  </div>
+  <div id="banner" hidden></div>
+  <div id="warn" hidden><div>WARNING</div><small id="warnname"></small></div>
+
+  <div id="boot" class="screen">
+    <h1 class="logo">VOIDBLOOM</h1>
+    <p class="blink">クリック／いずれかのキー／ボタンで開始</p>
+    <p class="small">音が鳴ります。フルスクリーンは F キー</p>
+    <span class="made">MADE WITH CLAUDE</span>
+  </div>
+  <div id="title" class="screen" hidden>
+    <h1 class="logo">VOIDBLOOM</h1>
+    <p class="sub">虚空に咲いた金属の花を焼き払え</p>
+    <ul class="menu" id="menu"></ul>
+    <p class="help" id="help"></p>
+    <span class="hi-title">HI-SCORE <b id="hi2">0</b></span>
+    <span class="made">MADE WITH CLAUDE</span>
+  </div>
+  <div id="pause" class="screen dim" hidden><h2>PAUSE</h2><ul class="menu" id="pmenu"></ul></div>
+  <div id="cont" class="screen dim" hidden><h2>CONTINUE?</h2><div class="count" id="count">9</div><p>撃つボタンで続ける（得点は 0 に戻ります）</p></div>
+  <div id="ending" class="screen dim" hidden><div class="roll" id="roll"></div></div>
+  <div id="debug" hidden></div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,2 +1,56 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="generator" content="Claude Code"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VOIDBLOOM</title><script src="shared/error-overlay.js"></script></head>
-<body style="background:#05070b;color:#ccd;font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0"><p>準備中 — MADE WITH CLAUDE</p></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>VOIDBLOOM — サウンドテスト</title>
+<script src="shared/error-overlay.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #05070b; color: #dbe6ef; font: 15px/1.6 system-ui, "Segoe UI", "Hiragino Sans", sans-serif; }
+  header { padding: 32px clamp(16px, 4vw, 56px) 8px; }
+  h1 { margin: 0; font: 800 clamp(28px, 4vw, 52px) ui-monospace, Consolas, monospace; letter-spacing: .2em; background: linear-gradient(90deg, #bff1ff, #ff9ad6, #ffcf8f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header p { color: #7d8b99; margin: 6px 0 0; max-width: 80ch; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; padding: 20px clamp(16px, 4vw, 56px) 60px; }
+  section { border: 1px solid #16202b; border-radius: 16px; padding: 18px 20px; background: linear-gradient(160deg, #0b121a, #070a0f); }
+  h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: .3em; color: #4fe3ff; }
+  button { font: inherit; color: #dbe6ef; background: #111b25; border: 1px solid #1f2d3b; border-radius: 10px; padding: 8px 12px; cursor: pointer; text-align: left; }
+  button:hover { border-color: #4fe3ff; } button.on { background: #12324a; border-color: #4fe3ff; color: #fff; }
+  .songs button { display: flex; width: 100%; justify-content: space-between; margin-bottom: 6px; }
+  .songs small, .sfx small { color: #6c7c8c; }
+  .sfx { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+  .meters { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; height: 140px; align-items: end; }
+  .meters div { background: #0c1219; border-radius: 4px; height: 100%; position: relative; overflow: hidden; }
+  .meters i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, #1a6fa0, #4fe3ff); }
+  .meters div.pcm i { background: linear-gradient(0deg, #a0501a, #ffb347); }
+  .labels { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; font-size: 11px; color: #6c7c8c; text-align: center; margin-top: 4px; }
+  .kb { display: flex; gap: 3px; margin-top: 12px; user-select: none; }
+  .kb div { flex: 1; height: 120px; background: #cfd8e0; border-radius: 0 0 6px 6px; cursor: pointer; }
+  .kb div.b { background: #1a222b; height: 76px; }
+  .kb div:active, .kb div.on { background: #4fe3ff; }
+  select, input[type=range] { width: 100%; background: #111b25; color: #dbe6ef; border: 1px solid #1f2d3b; border-radius: 8px; padding: 6px; }
+  label { display: block; margin: 8px 0 2px; color: #9fb2c4; font-size: 13px; }
+  .note { color: #7d8b99; font-size: 13px; }
+  #start { position: fixed; inset: 0; background: rgba(0, 0, 0, .8); display: grid; place-items: center; font-size: 22px; letter-spacing: .2em; cursor: pointer; z-index: 10; }
+  footer { padding: 0 clamp(16px, 4vw, 56px) 30px; color: #6c7c8c; font-size: 13px; display: flex; justify-content: space-between; }
+  footer b { color: #c9b6ff; letter-spacing: .3em; font: 700 12px ui-monospace, monospace; }
+  a { color: #8fdfff; }
+</style>
+</head>
+<body>
+<div id="start">クリックで音を出す</div>
+<header><h1>SOUND TEST</h1><p>4 オペレータ FM × 8 音（曲は 0〜5、効果音は 6・7）＋ 8bit・8kHz の粗い PCM × 4（曲は 0・1、効果音は 2・3）。音声スレッド（AudioWorklet）で 1 サンプルずつ合成しています。曲・音色・効果音はすべてこの作品のために新しく作りました。</p></header>
+<main>
+  <section><h2>MUSIC</h2><div class="songs" id="songs"></div><button id="stop" style="width:100%;margin-top:6px">■ 停止（フェードアウト）</button></section>
+  <section><h2>CHANNELS</h2><div class="meters" id="meters"></div><div class="labels" id="labels"></div>
+    <label>MASTER</label><input type="range" id="vol" min="0" max="10" value="8"><p class="note" id="mode"></p></section>
+  <section><h2>SOUND EFFECTS</h2><div class="sfx" id="sfx"></div></section>
+  <section><h2>PATCH KEYBOARD</h2><label>音色</label><select id="patch"></select>
+    <label>オクターブ</label><input type="range" id="oct" min="1" max="6" value="4"><div class="kb" id="kb"></div><p class="note">キーボードの A W S E D F T G Y H U J K でも弾けます（FM チャンネル 6 を使用）</p></section>
+</main>
+<footer><a href="./">← 入口へ</a><b>MADE WITH CLAUDE</b></footer>
+<script type="module" src="sound-test.js"></script>
+</body>
+</html>

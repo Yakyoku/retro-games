@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>VOIDBLOOM</title>
+<script src="shared/error-overlay.js"></script>
+<style>
+  :root { --bg:#05070b; --ink:#d9e4ee; --dim:#7d8b99; --line:#1c2632; --cy:#4fe3ff; --mg:#ff4fb4; --am:#ffb347; --bio:#7dffb0; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif; }
+  body { min-height:100vh; display:flex; flex-direction:column; overflow-x:hidden; }
+  .sky { position:fixed; inset:0; z-index:-1; background:
+    radial-gradient(1200px 700px at 78% 18%, rgba(255,79,180,.10), transparent 60%),
+    radial-gradient(900px 600px at 12% 82%, rgba(79,227,255,.10), transparent 60%),
+    radial-gradient(600px 400px at 50% 50%, rgba(125,255,176,.05), transparent 70%), var(--bg); }
+  canvas#stars { position:fixed; inset:0; z-index:-1; width:100%; height:100%; }
+  header { padding:clamp(40px,9vh,120px) clamp(20px,6vw,96px) 24px; }
+  .logo { font:800 clamp(48px,9vw,148px)/0.95 ui-monospace,"Cascadia Mono",Consolas,monospace; letter-spacing:.14em; margin:0;
+    background:linear-gradient(100deg,#e9f6ff 0%,#9be9ff 35%,#ff8fd0 70%,#ffcf8f 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 0 24px rgba(79,227,255,.25)); }
+  .tag { color:var(--dim); margin:18px 0 0; max-width:60ch; font-size:clamp(14px,1.3vw,19px); }
+  main { flex:1; padding:12px clamp(20px,6vw,96px) 48px; display:grid; gap:clamp(16px,2vw,32px); grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); align-content:start; }
+  a.card { position:relative; display:block; text-decoration:none; color:inherit; padding:clamp(24px,2.6vw,44px); border:1px solid var(--line); border-radius:22px;
+    background:linear-gradient(160deg,rgba(18,26,36,.85),rgba(8,10,16,.9)); overflow:hidden; transition:transform .25s, border-color .25s, box-shadow .25s; min-height:260px; }
+  a.card:hover, a.card:focus-visible { transform:translateY(-4px); border-color:var(--c); box-shadow:0 18px 60px -20px var(--c); outline:none; }
+  a.card::after { content:""; position:absolute; right:-80px; top:-80px; width:260px; height:260px; border-radius:50%; background:radial-gradient(circle,var(--c),transparent 70%); opacity:.18; }
+  .card h2 { margin:0 0 6px; font-size:clamp(24px,2.2vw,38px); letter-spacing:.04em; }
+  .card .en { font:600 13px ui-monospace,Consolas,monospace; letter-spacing:.3em; color:var(--c); }
+  .card p { color:var(--dim); margin:14px 0 0; }
+  .card ul { margin:14px 0 0; padding-left:1.1em; color:#aab7c4; font-size:15px; }
+  .card .go { position:absolute; right:28px; bottom:22px; font:700 14px ui-monospace,monospace; color:var(--c); letter-spacing:.2em; }
+  .card.off { opacity:.4; pointer-events:none; }
+  .card .badge { display:inline-block; margin-left:10px; padding:2px 10px; border-radius:99px; font-size:12px; background:var(--c); color:#000; vertical-align:middle; }
+  .sub { padding:0 clamp(20px,6vw,96px) 32px; display:flex; flex-wrap:wrap; gap:12px; }
+  .sub a { color:var(--ink); text-decoration:none; padding:10px 18px; border:1px solid var(--line); border-radius:99px; background:rgba(12,16,22,.8); font-size:15px; }
+  .sub a:hover { border-color:var(--bio); }
+  footer { padding:18px clamp(20px,6vw,96px); border-top:1px solid var(--line); color:var(--dim); font-size:13px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  footer .made { font:700 12px ui-monospace,monospace; letter-spacing:.3em; color:#c9b6ff; }
+</style>
+</head>
+<body>
+<div class="sky"></div><canvas id="stars"></canvas>
+<header>
+  <h1 class="logo">VOIDBLOOM</h1>
+  <p class="tag">虚空に咲いた金属の花を焼き払え。敵弾を防ぐ着脱ユニット「SEED」、溜め撃ち「BLOOM BURST」、色で性質の変わる 3 種のレーザー。配置を覚えて抜ける、遅く重たい横スクロールシューティング。</p>
+</header>
+<main>
+  <a class="card" id="card-big" href="experiments/01-bigscreen/" style="--c:var(--cy)">
+    <div class="en">BIG SCREEN · 4K</div>
+    <h2>大画面で遊ぶ</h2>
+    <p>50 インチ 4K ディスプレイ向け。ネイティブ解像度で描画し、120Hz にも対応。</p>
+    <ul><li>キーボード: 矢印 / WASD・Z 撃つ（長押しで溜め）・X SEED・C 連射・Esc 一時停止</li><li>ゲームパッド: 左スティック・A 撃つ・B SEED・X 連射・Start</li></ul>
+    <span class="go">PLAY →</span>
+  </a>
+  <a class="card" id="card-vr" href="experiments/02-vr-quest3/" style="--c:var(--mg)">
+    <div class="en">META QUEST 3 · WEBXR</div>
+    <h2>Quest 3 立体視で遊ぶ<span class="badge" id="xr-badge" hidden>このブラウザで VR 可</span></h2>
+    <p>目の前に浮かぶ立体のステージ。背景は何百メートルも奥へ、敵は手が届きそうな手前へ。</p>
+    <ul><li>左スティック 移動・右トリガー 撃つ（長押しで溜め）・A SEED・B 連射</li><li>グリップ長押しで盤面の位置を合わせ直す</li></ul>
+    <span class="go">ENTER →</span>
+  </a>
+</main>
+<nav class="sub">
+  <a href="gallery.html">設定資料ギャラリー（機体・敵・ボス）</a>
+  <a href="sound-test.html">サウンドテスト（FM 4OP × 8 + PCM）</a>
+</nav>
+<footer>
+  <span>VOIDBLOOM — 1980 年代後半の横スクロールシューティングの「遊びの仕組み」に影響を受けたオリジナル作品。既存作品の名称・造形・楽曲・効果音は使っていません。<span id="ver"></span></span>
+  <span class="made">MADE WITH CLAUDE</span>
+</footer>
+<script>
+  // 星（静かにまたたくだけ）
+  (function () {
+    var c = document.getElementById('stars'), g = c.getContext('2d'), st = [], dpr = Math.min(devicePixelRatio || 1, 2);
+    function rs() { c.width = innerWidth * dpr; c.height = innerHeight * dpr; st = []; for (var i = 0; i < 380; i++) st.push([Math.random() * c.width, Math.random() * c.height, Math.random() * 1.6 + .3, Math.random() * 6.28]); }
+    rs(); addEventListener('resize', rs);
+    (function f(t) { g.clearRect(0, 0, c.width, c.height); for (var i = 0; i < st.length; i++) { var s = st[i]; g.globalAlpha = .35 + .35 * Math.sin(t / 900 + s[3]); g.fillStyle = '#cfe8ff'; g.fillRect(s[0], s[1], s[2] * dpr, s[2] * dpr); s[0] -= .05 * s[2]; if (s[0] < 0) s[0] += c.width; } requestAnimationFrame(f); })(0);
+  })();
+  fetch('build-info.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (i) {
+    if (!i) return;
+    if (!i.has.bigscreen) document.getElementById('card-big').classList.add('off');
+    if (!i.has.vr) document.getElementById('card-vr').classList.add('off');
+    document.getElementById('ver').textContent = ' build ' + (i.commit || i.built.slice(0, 16)) + ' / three r' + i.three;
+  }).catch(function () {});
+  if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then(function (ok) {
+    if (ok) { document.getElementById('xr-badge').hidden = false; var m = document.querySelector('main'); m.insertBefore(document.getElementById('card-vr'), m.firstChild); }
+  }).catch(function () {});
+</script>
+</body>
+</html>

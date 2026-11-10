@@ -1,0 +1,11 @@
+{
+  "name": "bio-hshooter",
+  "private": true,
+  "type": "module",
+  "description": "VOIDBLOOM — 大画面 4K と Meta Quest 3 立体視で遊ぶ横スクロールシューティング（Claude Code で制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/"
+  }
+}

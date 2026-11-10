@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "voidbloom-yk", "siteId": "e774d55f-e3e7-434b-b420-0db2c9cc7680", "url": "https://voidbloom-yk.netlify.app/",
+      "env": { "GAME": "bio-hshooter", "VARIANT": "all" }, "note": "1 サイトに大画面版・VR 版・ギャラリー・サウンドテストを同居" }
+  ]
+}

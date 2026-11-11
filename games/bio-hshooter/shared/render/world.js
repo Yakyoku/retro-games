@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { FIELD_W, FIELD_H, lineAt } from '../game-core.js';
 import { materials, colorOf, U, makeEnvironment } from './materials.js';
 import { buildPlayer, buildPod, buildBit, buildEnemy, damp, dampAngle } from './models.js';
+import { ENEMY } from '../enemies.js';
+const ENEMY_COLOR = Object.fromEntries(Object.entries(ENEMY).map(([k, v]) => [k, v.color || 'w']));
 const easeOutBack = (t) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
 import { SpriteBatch, Particles } from './sprites.js';
 
@@ -38,7 +40,7 @@ export class World {
     this.player = buildPlayer(); this.field.add(this.player.obj);
     this.pod = buildPod(); this.field.add(this.pod.obj);
     this.bits = [buildBit(), buildBit()]; for (const b of this.bits) this.field.add(b.obj);
-    this.enemyObjs = new Map(); this.itemObjs = new Map(); this.burstObjs = []; this.ghosts = [];
+    this.enemyObjs = new Map(); this.itemObjs = new Map(); this.burstObjs = []; this.ghosts = []; this.muzzles = []; this.lastAlive = true;
     this.stageObjs = []; this.blockObjs = [];
     this.t = 0; this.stage = null;
     this.clipPlanes = opts.clip ? [0, 1, 2, 3].map(() => new THREE.Plane()) : null;
@@ -287,6 +289,8 @@ export class World {
     this.bits.forEach((bo, k) => { const b = s.bits[k]; bo.obj.visible = !!b; if (b) { const [x, y] = L(b); bo.obj.position.set(x, y, 0); bo.anim(b, this.t, alpha, dt, vel(bo, x, y)); } else bo.lx = null; });
     // 敵
     const seen = new Set();
+    this.muzzles.length = 0;
+    const dying = s.mode === 'bossdown' ? Math.min(1, s.timer / 130) : 0;
     for (const e of s.enemies) {
       seen.add(e.id);
       let m = this.enemyObjs.get(e.id);
@@ -294,39 +298,63 @@ export class World {
       if (!m) {
         m = buildEnemy(e); this.enemyObjs.set(e.id, m); this.field.add(m.obj);
         if (this.clipPlanes) m.obj.traverse((o) => { if (o.material && o.material.clippingPlanes) o.material.clippingPlanes = this.clipPlanes; });
-        m.age = 0; m.hit = 0; m.lastFlash = 0; m.head = Math.PI; m.obj.userData.anchored = !!e.anchored;
-        // 盤面の中で生まれた敵（ハッチャーの子・割れた胞子など）だけ、ふくらんで現れる
+        m.age = 0; m.hit = 0; m.lastFlash = 0; m.head = Math.PI; m.turn = 0; m.obj.userData.anchored = !!e.anchored;
+        m.kx = 0; m.kv = 0; m.recoil = 0; m.lastFire = e.fireT ?? -1; m.lastVx = 0; m.lastVy = 0; m.acc = 0;
+        m.phase = ((e.id * 0.6180339) % 1) * 20;   // 個体ごとに動きの位相をずらす（群れが一斉に同じ動きをしない）
         m.popIn = !e.boss && x > 0.5 && x < FIELD_W - 0.5;
+        m.r = e.r; m.color = e.boss ? 'w' : (ENEMY_COLOR[e.type] || 'w');
       }
       m.age += dt;
       vel(m, x, y);
-      // 被弾: 光と「弾み」はすぐ立ち上がって減衰する
-      if (e.flash > m.lastFlash || (e.flashSolid > 0 && e.flashSolid >= 2)) m.hit = e.flash > m.lastFlash ? 1 : Math.max(m.hit, 0.35);
+      // 加速度（向きの変わり方と伸び縮みに使う）
+      const ax = (m.vx - m.lastVx) / dt, ay = (m.vy - m.lastVy) / dt; m.lastVx = m.vx; m.lastVy = m.vy;
+      m.acc = damp(m.acc, Math.hypot(ax, ay), 10, dt);
+      // 被弾: 光と弾みはすぐ立ち上がって減衰。弾が来た向き（ほぼ右向き）へ押されて、ばねで戻る
+      const newHit = e.flash > m.lastFlash;
+      if (newHit || (e.flashSolid > 0 && e.flashSolid >= 2)) { m.hit = newHit ? 1 : Math.max(m.hit, 0.35); m.kv += (m.boss ? 1.2 : 7) * (newHit ? 1 : 0.4); }
       m.lastFlash = e.flash; if (e.flashSolid > 0) e.flashSolid--;
       m.hit = damp(m.hit, 0, 11, dt);
+      { const K = 260, C = 22, h = Math.min(dt, 1 / 60); for (let t2 = 0; t2 < dt - 1e-6; t2 += h) { m.kv += (-K * m.kx - C * m.kv) * h; m.kx += m.kv * h; } }
+      // 撃った反動（撃った向きと逆へ下がって戻る）と発射炎
+      if (e.fireT != null && e.fireT !== m.lastFire) { m.lastFire = e.fireT; m.recoil = 1; m.fireAng = e.fireAng ?? Math.PI; m.fireOx = e.fireOx || 0; m.fireOy = e.fireOy || 0; }
+      m.recoil = damp(m.recoil, 0, 9, dt);
+      if (m.recoil > 0.35) this.muzzles.push([x + (m.fireOx || Math.cos(m.fireAng) * m.r * 0.9), y + (m.fireOy || Math.sin(m.fireAng) * m.r * 0.9), m.recoil, m.boss]);
       const pop = m.popIn ? easeOutBack(Math.min(1, m.age / 0.2)) : 1;
       const k = m.boss ? 0.025 : 0.16;
-      m.obj.scale.set(pop * (1 + k * m.hit), pop * (1 - k * 0.6 * m.hit), pop * (1 + k * 0.5 * m.hit));
-      // 進行方向へ向ける（向きは減衰で追う。右へ進むときは上下を鏡にして上下逆さまにしない）
+      let sx = pop * (1 + k * m.hit), sy = pop * (1 - k * 0.6 * m.hit), sz = pop * (1 + k * 0.5 * m.hit);
+      // 進行方向へ向ける＋曲がるときは内側へ傾く（バンク）＋生き物は速さ・加速に応じて伸び縮み
+      m.inner.rotation.x = 0;
       if (m.face) {
-        const sp = Math.hypot(m.vx, m.vy);
+        const sp = Math.hypot(m.vx, m.vy), prev = m.head;
         if (sp > 0.6) m.head = dampAngle(m.head, Math.atan2(m.vy, m.vx), 9, dt);
+        const w = Math.atan2(Math.sin(m.head - prev), Math.cos(m.head - prev)) / dt;
+        m.turn = damp(m.turn, w, 8, dt);
+        m.inner.rotation.x = Math.max(-1.0, Math.min(1.0, -m.turn * 0.35));
         const right = Math.cos(m.head) > 0;
         m.obj.rotation.z = m.head - Math.PI;
-        if (right) m.obj.scale.y *= -1;
+        if (m.organic) { const st = 1 + Math.min(0.22, sp * 0.012 + m.acc * 0.004); sx *= st; sy /= Math.sqrt(st); sz /= Math.sqrt(st); }
+        if (right) sy = -sy;
       }
-      let jx = 0, jy = 0;
-      if (e.dying) { const q = this.t * 40; jx = Math.sin(q) * 0.12 + Math.sin(q * 1.7) * 0.06; jy = Math.cos(q * 1.3) * 0.12; }
-      m.obj.position.set(x + jx, y + jy, e.boss ? -0.4 : 0);
+      m.obj.scale.set(sx, sy, sz);
+      let jx = 0, jy = 0, rz = m.face ? m.obj.rotation.z : 0;
+      // 撃破直前のボス: 揺れが強まりながら沈み、傾いていく
+      if (e.dying) { const q = this.t * 40, A = 0.1 + dying * 0.35; jx = (Math.sin(q) + 0.5 * Math.sin(q * 1.7)) * A; jy = Math.cos(q * 1.3) * A - dying * dying * 1.2; rz = dying * 0.35 * (e.id % 2 ? 1 : -1); }
+      if (!m.face) m.obj.rotation.z = rz;
+      const rc = m.recoil * (m.boss ? 0.12 : 0.22);
+      m.obj.position.set(x + jx + m.kx * (m.boss ? 0.05 : 0.08) - Math.cos(m.fireAng || 0) * rc, y + jy - Math.sin(m.fireAng || 0) * rc, e.boss ? -0.4 : 0);
       if (m.flash) m.flash.userData.set(m.hit);
-      m.anim(e, this.t, alpha, dt, { vx: m.vx, vy: m.vy, vxRel: m.vx + (e.anchored ? s.scrollSpeed : 0), hit: m.hit });
+      m.anim(e, this.t + m.phase, alpha, dt, { vx: m.vx, vy: m.vy, vxRel: m.vx + (e.anchored ? s.scrollSpeed : 0), hit: m.hit, recoil: m.recoil,
+        lookX: p.alive ? p.x - x : -1, lookY: p.alive ? p.y - y : 0, tick: s.tick, alpha, dying });
     }
-    // 消えた敵: 画面内なら 0.3 秒で回りながら縮んで消える（爆発の閃光の下で「砕けた」ように見せる）
+    // 消えた敵: 画面内なら、撃たれた向きへ弾かれて回りながら縮み、破片が飛ぶ
     for (const [id, m] of this.enemyObjs) if (!seen.has(id)) {
       this.enemyObjs.delete(id);
-      const x = m.obj.position.x;
-      if (x > -1.5 && x < FIELD_W + 1.5) this.ghosts.push({ m, t: 0, life: m.boss ? 0.5 : 0.28, s0: m.obj.scale.clone(), spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6) });
-      else this.field.remove(m.obj);
+      const x = m.obj.position.x, y = m.obj.position.y;
+      if (x > -1.5 && x < FIELD_W + 1.5) {
+        this.ghosts.push({ m, t: 0, life: m.boss ? 0.6 : 0.34, s0: m.obj.scale.clone(), spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6),
+          vx: m.vx * 0.4 + (m.boss ? 0 : 5), vy: m.vy * 0.4 + (Math.random() - 0.5) * 3 });
+        if (m.r >= 0.4) this.debris(x, y, Math.round(3 + m.r * 5), m.r, m.color);
+      } else this.field.remove(m.obj);
     }
     for (let i = this.ghosts.length - 1; i >= 0; i--) {
       const g = this.ghosts[i]; g.t += dt;
@@ -334,10 +362,17 @@ export class World {
       if (k >= 1) { this.field.remove(g.m.obj); this.ghosts.splice(i, 1); continue; }
       const sc = (1 - k) * (1 - k) * (1 + 0.25 * Math.sin(k * Math.PI));
       g.m.obj.scale.set(g.s0.x * sc, g.s0.y * sc, g.s0.z * sc);
-      g.m.inner.rotation.z += g.spin * dt;
-      g.m.obj.position.x -= s.scrollSpeed * dt * (g.m.obj.userData.anchored ? 1 : 0);
+      g.m.inner.rotation.z += g.spin * dt * (1 - k);
+      g.vx *= Math.exp(-3 * dt); g.vy *= Math.exp(-3 * dt);
+      g.m.obj.position.x += g.vx * dt - s.scrollSpeed * dt * (g.m.obj.userData.anchored ? 1 : 0);
+      g.m.obj.position.y += g.vy * dt;
       if (g.m.flash) g.m.flash.userData.set(1 - k);
     }
+    this.updateDebris(dt, s);
+    // 自機: やられた瞬間に機体が破片になって散る。入場中は噴射の軌跡
+    if (this.lastAlive && !p.alive) { this.debris(px, py, 10, 0.9, 'C', true); }
+    this.lastAlive = p.alive;
+    if (p.alive && p.enter > 0) this.parts.trail(px - 0.95, py, 0.7, [0.3, 1.1, 1.6], 0.3);
     // アイテム（現れるときにふくらむ・ゆっくり浮き沈み）
     const seenI = new Set();
     for (const it of s.items) {
@@ -345,8 +380,12 @@ export class World {
       let m = this.itemObjs.get(it.id);
       if (!m) { m = this.makeItem(it.kind); m.userData.age = 0; this.itemObjs.set(it.id, m); this.field.add(m); }
       m.userData.age += dt;
-      const [x, y] = L(it); m.position.set(x, y, 0.3); m.rotation.y = this.t * 2.4; m.rotation.x = Math.sin(this.t * 1.3) * 0.4;
-      m.scale.setScalar(easeOutBack(Math.min(1, m.userData.age / 0.25)));
+      const [x, y] = L(it), sp = Math.hypot(it.vx || 0, it.vy || 0);
+      // 吸い寄せられるほど速く回り、進む向きへ少し伸びる
+      m.userData.spin = (m.userData.spin || 0) + dt * (2.4 + sp * 0.9);
+      m.position.set(x, y, 0.3); m.rotation.y = m.userData.spin; m.rotation.x = Math.sin(this.t * 1.3 + it.id) * 0.4;
+      const pop = easeOutBack(Math.min(1, m.userData.age / 0.25)), st = 1 + Math.min(0.3, sp * 0.02);
+      m.scale.set(pop * st, pop / st, pop);
     }
     for (const [id, m] of this.itemObjs) if (!seenI.has(id)) { this.field.remove(m); this.itemObjs.delete(id); }
     // 光の板
@@ -358,9 +397,39 @@ export class World {
     this.chargeVis = damp(this.chargeVis || 0, p.alive ? p.charge : 0, 20, dt);
     if (this.chargeVis > 0.05) { const k = this.chargeVis; const c = p.charge >= 1 ? [1.2, 1.6, 2] : COL.C; sb.add(px + 1.15, py, 0.2, 1 + k * 2.6, 1 + k * 2.6, this.t * 4, c[0], c[1], c[2], 0.5 + 0.4 * k, 2); }
     if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = 0.45 + 0.45 * Math.sin(this.t * 30); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
+    for (const [mx, my, k, boss] of this.muzzles) { const w = (boss ? 1.6 : 1.0) * (0.6 + k); sb.add(mx, my, 0.35, w, w, 0, 2.6 * k, 1.4 * k, 0.8 * k, k, 0); }
     this.parts.update(dt, sb);
     sb.end();
     this.drawBursts(s, L);
+  }
+
+  // 破片: 小さな金属・殻のかけら。回りながら散り、縮んで消える（数は上限つきで使い回す）
+  debris(x, y, n, r, color, player = false) {
+    if (!this.debrisPool) { this.debrisPool = []; this.debrisGeo = [new THREE.TetrahedronGeometry(0.22, 0), new THREE.BoxGeometry(0.34, 0.08, 0.2), new THREE.OctahedronGeometry(0.16, 0)]; }
+    const mats = player ? [this.M.steel, this.M.darkSteel, this.M.trim] : [this.M.darkSteel, this.M.bone, this.M.chitin];
+    for (let k = 0; k < n; k++) {
+      let d = this.debrisPool.find((q) => !q.alive);
+      if (!d) { if (this.debrisPool.length >= 140) break; d = { mesh: new THREE.Mesh(this.debrisGeo[0], mats[0]) }; this.field.add(d.mesh); this.debrisPool.push(d); }
+      d.mesh.geometry = this.debrisGeo[k % 3]; d.mesh.material = mats[k % mats.length];
+      if (this.clipPlanes && d.mesh.material.clippingPlanes == null) d.mesh.material.clippingPlanes = this.clipPlanes;
+      const a = Math.random() * Math.PI * 2, v = (2.5 + Math.random() * 6) * (0.6 + r * 0.5);
+      Object.assign(d, { alive: true, t: 0, life: 0.5 + Math.random() * 0.5, x: x + Math.cos(a) * r * 0.5, y: y + Math.sin(a) * r * 0.5, z: (Math.random() - 0.5) * r,
+        vx: Math.cos(a) * v + (player ? 0 : 1.5), vy: Math.sin(a) * v, vz: (Math.random() - 0.5) * 4, rx: (Math.random() - 0.5) * 20, ry: (Math.random() - 0.5) * 20, s: (0.6 + Math.random() * 0.8) * Math.max(0.7, r) });
+      d.mesh.visible = true;
+    }
+  }
+  updateDebris(dt, s) {
+    if (!this.debrisPool) return;
+    for (const d of this.debrisPool) {
+      if (!d.alive) continue;
+      d.t += dt; const k = d.t / d.life;
+      if (k >= 1) { d.alive = false; d.mesh.visible = false; continue; }
+      const dr = Math.exp(-2.2 * dt); d.vx *= dr; d.vy *= dr; d.vz *= dr;
+      d.x += d.vx * dt - s.scrollSpeed * dt * 0.5; d.y += d.vy * dt; d.z += d.vz * dt;
+      d.mesh.position.set(d.x, d.y, d.z); d.mesh.rotation.x += d.rx * dt; d.mesh.rotation.y += d.ry * dt;
+      d.mesh.scale.setScalar(d.s * (1 - k * k));
+      if (Math.random() < 0.25) this.parts.trail(d.x, d.y, 0.25, [1.2, 0.7, 0.4], 0.2);
+    }
   }
 
   makeItem(kind) {

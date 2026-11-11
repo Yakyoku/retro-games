@@ -11,6 +11,7 @@ export const FIELD_W = 32, FIELD_H = 18, TICK_HZ = 60, DT = 1 / 60;
 export const PLAYER_R = 0.22;          // 敵弾に対する当たり判定（小さめ）
 export const PLAYER_BODY_R = 0.34;     // 地形・敵の体に対する当たり判定
 export const SPEEDS = [6.5, 8.5, 10.5, 12.5];
+export const ENTER_TICKS = 40, ENTER_X0 = -1.6, ENTER_X1 = 4; // 復帰・面の開始で左端から 0.67 秒かけて飛び込む
 export const POD_R = 0.75, BIT_R = 0.45, POD_OFFSET = 1.05;
 export const CHARGE_TICKS = 66;        // 溜め 0 → 満タン（約 1.1 秒）
 export const CHARGE_DELAY = 8;         // 押してから溜め始めるまで
@@ -93,7 +94,7 @@ export function startStage(s, index, cp = 0, keepEquip = true) {
 }
 
 function newPlayer(keep) {
-  return { x: 4, y: FIELD_H / 2, px: 4, py: FIELD_H / 2, alive: true, inv: 120, speedLv: keep ? keep.speedLv : 0,
+  return { x: ENTER_X0, y: FIELD_H / 2, px: ENTER_X0, py: FIELD_H / 2, enter: ENTER_TICKS, alive: true, inv: 120, speedLv: keep ? keep.speedLv : 0,
     charge: 0, hold: 0, tilt: 0, shotCool: 0 };
 }
 
@@ -224,8 +225,14 @@ function playerTick(s, inp) {
   let ix = +inp.x || 0, iy = +inp.y || 0;
   const m = Math.hypot(ix, iy); if (m > 1) { ix /= m; iy /= m; }
   const v = SPEEDS[p.speedLv];
-  p.x = Math.max(0.6, Math.min(FIELD_W - 0.9, p.x + ix * v * DT));
-  p.y = Math.max(0.45, Math.min(FIELD_H - 0.45, p.y + iy * v * DT));
+  if (p.enter > 0) {
+    // 入場中は操作を受けず、減速曲線（ease-out cubic）で所定の位置まで滑り込む。撃つ・溜めるはできる
+    p.enter--; const k = 1 - p.enter / ENTER_TICKS, e3 = 1 - Math.pow(1 - k, 3);
+    p.x = ENTER_X0 + (ENTER_X1 - ENTER_X0) * e3;
+  } else {
+    p.x = Math.max(0.6, Math.min(FIELD_W - 0.9, p.x + ix * v * DT));
+    p.y = Math.max(0.45, Math.min(FIELD_H - 0.45, p.y + iy * v * DT));
+  }
   p.tilt += (iy - p.tilt) * 0.18;
   if (p.inv > 0) p.inv--;
   if (p.shotCool > 0) p.shotCool--;
@@ -307,15 +314,18 @@ function podTick(s, inp) {
     const alive = p.alive && s.mode === 'play';
     if (press && alive) {
       if (pod.state === 'front' || pod.state === 'back') { pod.dir = pod.state === 'front' ? 1 : -1; pod.state = 'launch'; pod.cool = 24; sfx(s, 'podLaunch'); }
-      else if (pod.state === 'free' || pod.state === 'launch') { pod.state = 'return'; sfx(s, 'podRecall'); }
+      else if (pod.state === 'free' || pod.state === 'launch') { pod.state = 'return'; pod.rs = 4; sfx(s, 'podRecall'); }
     }
     switch (pod.state) {
       case 'front': pod.x = p.x + POD_OFFSET; pod.y = p.y; break;
       case 'back': pod.x = p.x - POD_OFFSET; pod.y = p.y; break;
-      case 'launch':
-        pod.x += pod.dir * 28 * DT; pod.y += (p.y - pod.y) * 0.03;
-        if (pod.x > FIELD_W - 1.4 || pod.x < 1.2) { pod.x = Math.max(1.2, Math.min(FIELD_W - 1.4, pod.x)); pod.state = 'free'; }
+      case 'launch': {
+        const stop = pod.dir > 0 ? FIELD_W - 1.4 : 1.2, d = Math.abs(stop - pod.x);
+        const sp = Math.max(3, Math.min(28, d * 7));          // 最後の 4u で減速して止まる
+        pod.x += pod.dir * Math.min(d, sp * DT); pod.y += (p.y - pod.y) * 0.03;
+        if (d - sp * DT <= 0.02) { pod.x = stop; pod.state = 'free'; }
         break;
+      }
       case 'free':
         if (alive) pod.y += (p.y - pod.y) * 0.035;
         break;
@@ -323,8 +333,10 @@ function podTick(s, inp) {
         if (!alive) { pod.state = 'free'; break; }
         const side = pod.state === 'enter' ? 1 : (pod.x >= p.x ? 1 : -1);
         const tx = p.x + side * POD_OFFSET, ty = p.y;
-        const dx = tx - pod.x, dy = ty - pod.y, dd = Math.hypot(dx, dy), sp = 24 * DT;
-        if (dd <= sp + 0.05) { pod.x = tx; pod.y = ty; pod.state = side > 0 ? 'front' : 'back'; sfx(s, 'podAttach'); }
+        const dx = tx - pod.x, dy = ty - pod.y, dd = Math.hypot(dx, dy);
+        pod.rs = Math.min(24, (pod.rs || 4) + 1.4);            // 動き出しは加速
+        const sp = Math.min(pod.rs, Math.max(4, dd * 9)) * DT;  // 着く直前で減速
+        if (dd <= sp + 0.04) { pod.x = tx; pod.y = ty; pod.state = side > 0 ? 'front' : 'back'; pod.rs = 0; sfx(s, 'podAttach'); }
         else { pod.x += dx / dd * sp; pod.y += dy / dd * sp; }
         break;
       }
@@ -336,7 +348,13 @@ function podTick(s, inp) {
   }
   for (const b of s.bits) {
     b.t++;
-    if (p.alive) { b.x += (p.x - 0.15 - b.x) * 0.22; b.y += (p.y + b.side * 1.7 - b.y) * 0.22; }
+    if (p.alive) {
+      // 臨界より少し弱い減衰のばね（ζ≈0.7）: 自機の動きに少し遅れ、軽く行き過ぎて戻る
+      const K = 190, C = 19;
+      b.vx = b.vx || 0; b.vy = b.vy || 0;
+      b.vx += ((p.x - 0.15 - b.x) * K - b.vx * C) * DT; b.vy += ((p.y + b.side * 1.7 - b.y) * K - b.vy * C) * DT;
+      b.x += b.vx * DT; b.y += b.vy * DT;
+    }
   }
 }
 
@@ -475,7 +493,9 @@ export function aim(s, e, spd, off = 0, kind = 'orb', ox = 0, oy = 0) {
   if (!s.player.alive || s.mode !== 'play') return null;
   const x = e.x + ox, y = e.y + oy;
   if (x < 1.5 || x > FIELD_W - 0.5) return null;
-  return fireBullet(s, x, y, aimAngle(s, x, y) + off, spd, kind);
+  const ang = aimAngle(s, x, y) + off;
+  if (e.fireT !== s.tick) { e.fireT = s.tick; e.fireAng = ang; e.fireOx = ox; e.fireOy = oy; }
+  return fireBullet(s, x, y, ang, spd, kind);
 }
 
 function enemiesTick(s) {
@@ -556,8 +576,14 @@ function bulletsTick(s) {
 function itemsTick(s) {
   for (const it of s.items) {
     it.t++;
-    it.x -= 0.8 * DT; it.y += Math.sin(it.t * 0.06) * 0.012;
-    if (it.x < -1.5) it.dead = true;
+    const p = s.player, dx = p.x - it.x, dy = p.y - it.y, d = Math.hypot(dx, dy);
+    if (p.alive && d < 2.6) {
+      // 吸い寄せ: 加速しながら自機へ（最大 18u/s）
+      it.vx = (it.vx || 0) + dx / d * 60 * DT; it.vy = (it.vy || 0) + dy / d * 60 * DT;
+      const v = Math.hypot(it.vx, it.vy); if (v > 18) { it.vx *= 18 / v; it.vy *= 18 / v; }
+      it.x += it.vx * DT; it.y += it.vy * DT;
+    } else { it.vx = (it.vx || 0) * 0.9; it.vy = (it.vy || 0) * 0.9; it.x += it.vx * DT - 0.8 * DT; it.y += it.vy * DT + Math.sin(it.t * 0.06) * 0.012; }
+    if (it.x < -2.6) it.dead = true;
   }
 }
 

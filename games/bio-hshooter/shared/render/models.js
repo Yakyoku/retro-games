@@ -23,6 +23,12 @@ const lx = (p, a) => (p.pox == null ? p.ox : p.pox + (p.ox - p.pox) * a);
 const ly = (p, a) => (p.poy == null ? p.oy : p.poy + (p.oy - p.poy) * a);
 const lang = (e, a) => { if (e.pang == null) return e.ang; const d = Math.atan2(Math.sin(e.ang - e.pang), Math.cos(e.ang - e.pang)); return e.pang + d * a; };
 
+// 目が自機を見る: 元の位置から look 方向へ最大 r だけずらす（減衰で追う）
+function lookAt(eye, base, ctx, r, flip = false, dt = 1 / 60) {
+  const lx2 = ctx.lookX ?? -1, ly2 = (ctx.lookY ?? 0) * (flip ? -1 : 1), d = Math.hypot(lx2, ly2) || 1;
+  eye.position.x = damp(eye.position.x, base.x + lx2 / d * r, 10, dt);
+  eye.position.y = damp(eye.position.y, base.y + ly2 / d * r, 10, dt);
+}
 // 有機的な塊: 二十面体をゆがめる
 function blob(r, detail, amp, seed, sx = 1, sy = 1, sz = 1) {
   const g = new THREE.IcosahedronGeometry(r, detail);
@@ -188,7 +194,7 @@ B.drifter = () => {
   const collar = mesh(geo('dr-c', () => new THREE.TorusGeometry(0.33, 0.045, 6, 20)), M.bone); collar.rotation.y = Math.PI / 2; collar.position.x = 0.12; g.add(collar);
   const sp = spikeRing(5, 0.3, 0.42, 0.06, M.bone, 'x'); sp.position.x = 0.38; sp.rotation.z = -Math.PI / 2; g.add(sp);
   const eye = mesh(geo('dr-e', () => new THREE.SphereGeometry(0.12, 12, 8)), M.gEye); eye.position.x = -0.42; g.add(eye);
-  return { face: true, obj: g, anim(e, t) { b.rotation.x = t * 3 + e.i; collar.rotation.x = t * 3 + e.i; sp.rotation.x = Math.sin(t * 5 + e.i) * 0.3; } };
+  return { face: true, organic: true, obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { const v = Math.hypot(ctx.vx || 0, ctx.vy || 0); b.rotation.x = t * 3 + e.i; collar.rotation.x = t * 3 + e.i; sp.rotation.x = Math.sin(t * (5 + v * 0.8) + e.i) * (0.2 + v * 0.03); sp.scale.setScalar(1 - Math.min(0.25, v * 0.02)); } };
 };
 B.hookjaw = () => {
   const M = materials(), g = new THREE.Group();
@@ -197,7 +203,7 @@ B.hookjaw = () => {
   const jawG = geo('hj-j', () => { const c = new THREE.ConeGeometry(0.07, 0.42, 6); c.rotateZ(Math.PI / 2); return c; });
   const j1 = mesh(jawG, M.bone), j2 = mesh(jawG, M.bone); j1.position.set(-0.45, 0.1, 0); j2.position.set(-0.45, -0.1, 0); g.add(j1, j2);
   const eye = mesh(geo('hj-e', () => new THREE.SphereGeometry(0.07, 8, 6)), M.gEye); eye.position.set(-0.3, 0.12, 0.15); g.add(eye);
-  return { face: true, obj: g, anim(e, t) { const a = 0.25 + Math.sin(t * 14) * 0.2; j1.rotation.z = a; j2.rotation.z = -a; } };
+  return { face: true, organic: true, obj: g, anim(e, t) { const bite = e.turn ? 0.45 + Math.sin(t * 22) * 0.25 : 0.2 + Math.sin(t * 9) * 0.08; j1.rotation.z = bite; j2.rotation.z = -bite; } };
 };
 B.lantern = (e) => {
   const M = materials(), g = new THREE.Group();
@@ -216,8 +222,9 @@ B.nodule = () => {
   const barrel = new THREE.Group(); barrel.position.y = -0.05; g.add(barrel);
   barrel.add(mesh(geo('nd-bar', () => { const c = new THREE.CylinderGeometry(0.08, 0.11, 0.7, 10); c.rotateZ(Math.PI / 2); c.translate(0.35, 0, 0); return c; }), M.gunmetal));
   const eye = mesh(geo('nd-e', () => new THREE.SphereGeometry(0.13, 12, 8)), M.gEye); eye.position.y = 0.12; g.add(eye);
-  let ang = null;
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) { g.rotation.z = e.flip ? Math.PI : 0; const target = lang(e, a); ang = ang == null ? target : dampAngle(ang, target, 14, dt); barrel.rotation.z = e.flip ? ang + Math.PI : ang; eye.scale.setScalar(1 + Math.sin(t * 6) * 0.15); } };
+  let ang = null; const eyeBase = eye.position.clone();
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { g.rotation.z = e.flip ? Math.PI : 0; const target = lang(e, a); ang = ang == null ? target : dampAngle(ang, target, 14, dt); barrel.rotation.z = e.flip ? ang + Math.PI : ang;
+    const tell = e.cd < 24 ? 1 - e.cd / 24 : 0; eye.scale.setScalar(1 + Math.sin(t * 6) * 0.08 + tell * 0.6 + Math.sin(t * 40) * 0.1 * tell); lookAt(eye, eyeBase, ctx, 0.08, e.flip, dt); } };
 };
 B.stilter = () => {
   const M = materials(), g = new THREE.Group();
@@ -226,8 +233,20 @@ B.stilter = () => {
   const legG = geo('st-l', () => { const c = new THREE.CylinderGeometry(0.04, 0.06, 0.9, 8); c.translate(0, -0.45, 0); return c; });
   const legs = [-0.4, 0, 0.4].map((x, k) => { const l = mesh(legG, M.steel); l.position.set(x, 0, k === 1 ? 0.3 : -0.2); g.add(l); return l; });
   // 歩く速さに合わせて脚を回す（描画上の横速度から歩調を作る）
-  let phase = 0;
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { g.rotation.z = e.flip ? Math.PI : 0; phase += dt * (4 + Math.abs(ctx.vxRel || 1.6) * 3); legs.forEach((l, k) => { l.rotation.z = Math.sin(phase + k * 2) * 0.45; }); body.position.y = 0.15 + Math.abs(Math.sin(phase)) * 0.06; } };
+  let phase = 0, sq = { x: 1, v: 0 }; const eyeBase = eye.position.clone();
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) {
+    g.rotation.z = e.flip ? Math.PI : 0;
+    const walk = Math.abs(e.wv ?? 1.6);
+    phase += dt * walk * 4.2;   // 歩幅に合った歩調（滑って見えない）
+    const crouch = e.crouch > 0 ? 1 - e.crouch / 12 : 0, land = e.land > 0 ? e.land / 12 : 0;
+    // しゃがみ→跳ぶ→着地でつぶれる（ばねで弾む）
+    const target = 1 - crouch * 0.35 - land * 0.3 + (e.air ? 0.12 : 0);
+    const k = spring(sq, target, 22, dt, 0.45);
+    body.scale.set(1 + (1 - k) * 0.5, k, 1 + (1 - k) * 0.3);
+    body.position.y = 0.15 - (1 - k) * 0.35 + (walk > 0.2 ? Math.abs(Math.sin(phase)) * 0.06 : 0);
+    legs.forEach((l, i) => { l.rotation.z = e.air ? (i - 1) * 0.5 : Math.sin(phase + i * 2) * 0.45 * Math.min(1, walk / 1.2) + (1 - k) * (i - 1) * 0.8; });
+    lookAt(eye, eyeBase, ctx, 0.06, e.flip, dt);
+  } };
 };
 B.puff = () => {
   const M = materials(), g = new THREE.Group();
@@ -235,9 +254,9 @@ B.puff = () => {
   const pores = spikeRing(8, 0.82, 0.18, 0.09, M.gBio); g.add(pores);
   return { obj: g, anim(e, t) { const k = 1 + Math.sin(t * 4 + e.id) * 0.06; b.scale.set(k, 2 - k, k); g.rotation.z = t * 0.4; } };
 };
-B.spore = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('sp-b', () => blob(0.26, 2, 0.2, 2.2, 1.3, 0.85, 0.85)), M.fleshTeal); g.add(b); const c = mesh(geo('sp-c', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gBio); c.position.x = -0.18; g.add(c); return { face: true, obj: g, anim(e, t) { b.rotation.x = t * 6; } }; };
-B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); return { face: true, obj: g, anim(e, t) { b.rotation.x = t * 8; } }; };
-B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b', () => { const x = new THREE.ConeGeometry(0.16, 0.7, 8); x.rotateZ(Math.PI / 2); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; } }; };
+B.spore = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('sp-b', () => blob(0.26, 2, 0.2, 2.2, 1.3, 0.85, 0.85)), M.fleshTeal); g.add(b); const c = mesh(geo('sp-c', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gBio); c.position.x = -0.18; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { b.rotation.x = t * 6; } }; };
+B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { const w = e.windup || 0; b.rotation.x = t * (8 + w * 30); b.position.y = Math.sin(t * 90) * 0.04 * w; c.scale.setScalar(1 + w * 1.2); } }; };
+B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b', () => { const x = new THREE.ConeGeometry(0.16, 0.7, 8); x.rotateZ(Math.PI / 2); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
 B.coilworm = (e) => {
   const M = materials(), g = new THREE.Group();
   const head = new THREE.Group(); g.add(head);
@@ -259,6 +278,7 @@ B.coilworm = (e) => {
         const x = lx(p, a), y = ly(p, a);
         s.position.set(x, y, 0);
         s.rotation.set(t * 2 + k, 0, Math.atan2(ly(q, a) - y, lx(q, a) - x));
+        const pulse = 1 + 0.07 * Math.sin(t * 7 - k * 0.8); s.scale.setScalar((e2.parts[k].r / 0.6) * pulse);
       }
       { const x1 = lx(e2.parts[1], a), y1 = ly(e2.parts[1], a); if (x1 * x1 + y1 * y1 > 1e-4) head.rotation.z = Math.atan2(-y1, -x1) - Math.PI; }
       jaw.rotation.x = Math.sin(t * 6) * 0.4;
@@ -270,7 +290,17 @@ B.hatcher = () => {
   const sac = mesh(geo('ht-s', () => blob(1.05, 3, 0.12, 5.5, 1.2, 0.9, 1)), M.fleshBig); sac.position.y = -0.3; g.add(sac);
   const lips = spikeRing(7, 0.4, 0.5, 0.11, M.bone, 'x'); lips.position.y = 0.55; lips.rotation.z = Math.PI / 2; lips.rotation.y = Math.PI / 2; g.add(lips);
   const mouth = mesh(geo('ht-m', () => new THREE.SphereGeometry(0.3, 14, 10)), M.gBio); mouth.position.y = 0.5; g.add(mouth);
-  return { obj: g, anim(e, t) { g.rotation.z = e.flip ? Math.PI : 0; const k = 1 + Math.sin(t * 3) * 0.05; sac.scale.set(k, 2 - k, k); mouth.scale.setScalar(0.7 + 0.3 * Math.sin(t * 6)); } };
+  let contract = 0, lastCd = 99;
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) {
+    g.rotation.z = e.flip ? Math.PI : 0;
+    if (e.cd > lastCd) contract = 1; lastCd = e.cd;           // 産んだ瞬間に袋が縮む
+    contract = damp(contract, 0, 5, dt);
+    const swell = e.cd < 18 ? 1 - e.cd / 18 : 0;              // 産む前に口がふくらむ
+    const k = 1 + Math.sin(t * 3) * 0.04 + swell * 0.08 - contract * 0.12;
+    sac.scale.set(k, 2 - k, k);
+    mouth.scale.setScalar(0.6 + swell * 0.7 + Math.sin(t * 6) * 0.08);
+    lips.scale.setScalar(1 + swell * 0.35);
+  } };
 };
 // バルワーク: 二枚貝の装甲殻。殻に補強の肋、合わせ目に赤い光（開くほど強く）
 B.bulwark = () => {
@@ -288,7 +318,7 @@ B.bulwark = () => {
   const seam = mesh(geo('bw-seam', () => new THREE.TorusGeometry(1.0, 0.05, 6, 40)), seamM); seam.rotation.x = Math.PI / 2; g.add(seam);
   const spikes = spikeRing(10, 1.08, 0.3, 0.07, M.darkSteel); g.add(spikes);
   let open = 0;
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) { open = damp(open, e.open, 18, dt); const o = open * 0.85; halves[0].rotation.z = o; halves[1].rotation.z = -o; core.rotation.y = t * 2; core.scale.setScalar(0.8 + open * 0.4); seamM.opacity = Math.min(1, 0.25 + open * 1.5); spikes.rotation.z = t * 0.3; } };
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) { open = damp(open, e.open, 18, dt); const o = open * 0.85; halves[0].rotation.z = o; halves[1].rotation.z = -o; core.rotation.y = t * 2; core.scale.setScalar(0.8 + open * 0.4); seamM.opacity = Math.min(1, 0.25 + open * 1.5); const c = e.t % 170, tr = c > 96 && c < 112 ? 1 : 0; spikes.rotation.z = t * 0.3 + Math.sin(t * 60) * 0.04 * tr; spikes.scale.setScalar(1 + tr * 0.08); } };
 };
 // シスル: 金属の芯から針。針の付け根だけが琥珀に光る（以前の黄一色の芯は強すぎた）
 B.thistle = () => {
@@ -299,7 +329,7 @@ B.thistle = () => {
   g.add(spikeRing(8, 0.34, 0.5, 0.05, M.steel, 'x'));
   const tipG = geo('th-t', () => new THREE.SphereGeometry(0.045, 6, 4));
   for (let k = 0; k < 8; k++) { const a2 = k / 8 * Math.PI * 2; const m = mesh(tipG, M.gAmber); m.position.set(Math.cos(a2) * 0.3, Math.sin(a2) * 0.3, 0); g.add(m); }
-  return { obj: g, anim(e, t) { g.rotation.z = t * 1.5; g.rotation.y = t; glowC.scale.setScalar(0.85 + 0.25 * Math.max(0, Math.sin(t * 8))); } };
+  return { obj: g, anim(e, t) { const arm = e.arm ? 1 - e.arm / 24 : 0; g.rotation.z = t * (1.5 + arm * 10); g.rotation.y = t; glowC.scale.setScalar(0.85 + 0.25 * Math.max(0, Math.sin(t * 8)) + arm * (1.2 + Math.sin(t * 50) * 0.4)); g.scale.setScalar(1 + arm * 0.35); } };
 };
 B.skimmer = () => {
   const M = materials(), g = new THREE.Group();
@@ -325,7 +355,7 @@ B.cannon = () => {
     // 撃つたびに砲身が後ろへ下がって戻る
     if (e.burst !== lastBurst && e.burst < lastBurst) recoil = 1; lastBurst = e.burst;
     recoil = damp(recoil, 0, 9, dt); for (const b of barrels) b.position.x = -0.18 * recoil;
-    lamp.visible = Math.floor(t * 3) % 2 === 0;
+    lamp.visible = e.cd < 30 || Math.floor(t * 3) % 2 === 0; lamp.scale.setScalar(e.cd < 30 ? 1.6 + Math.sin(t * 40) * 0.3 : 1);
   } };
 };
 B.engine = () => {
@@ -344,7 +374,8 @@ B.vent = () => {
   const hg = geo('vn-h', () => new THREE.BoxGeometry(0.7, 0.08, 1.2));
   const h1 = mesh(hg, M.darkSteel), h2 = mesh(hg, M.darkSteel); h1.position.set(-0.36, 0, 0); h2.position.set(0.36, 0, 0); g.add(h1, h2);
   const glow = mesh(geo('vn-g', () => new THREE.BoxGeometry(1.1, 0.05, 1.0)), M.gAmber); glow.position.y = -0.05; g.add(glow);
-  return { obj: g, anim(e, t, a = 1) { g.rotation.z = e.flip ? Math.PI : 0; const o = Math.max(0, Math.sin((e.t - 1 + a) * 0.07)) * 0.9; h1.rotation.z = o; h2.rotation.z = -o; } };
+  let o = 0, lastCd = 99, after = 0;
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) { g.rotation.z = e.flip ? Math.PI : 0; if (e.cd > lastCd) after = 0.35; lastCd = e.cd; after = Math.max(0, after - dt); const want = e.cd < 20 || after > 0 ? 1 : 0; o = damp(o, want, want ? 14 : 5, dt); h1.rotation.z = o * 1.1; h2.rotation.z = -o * 1.1; glow.scale.set(1, 1 + o * 2, 1); } };
 };
 
 // ---------------------------------------------------------------- ボス（部位はすべて補間して置く）
@@ -361,20 +392,24 @@ B.ossuary = (e) => {
   const tailG = geo('os-tail', () => blob(0.55, 2, 0.15, 6.6));
   const tail = e.tail.map((p) => { const m = mesh(tailG, M.bone); m.scale.setScalar(p.r / 0.55); g.add(m); return m; });
   const eyes = [];
-  for (let k = 0; k < 6; k++) { const m = mesh(geo('os-eye', () => new THREE.SphereGeometry(0.16, 12, 8)), M.gEye); m.position.set(1.3 + (k % 3) * 0.7, (k < 3 ? 1 : -1) * (1.6 + (k % 3) * 0.2), 1.6); g.add(m); eyes.push(m); }
+  for (let k = 0; k < 6; k++) { const m = mesh(geo('os-eye', () => new THREE.SphereGeometry(0.16, 12, 8)), M.gEye); m.position.set(1.3 + (k % 3) * 0.7, (k < 3 ? 1 : -1) * (1.6 + (k % 3) * 0.2), 1.6); m.userData.bx = m.position.x; m.userData.by = m.position.y; g.add(m); eyes.push(m); }
   const flash = flashShell(1.1); g.add(flash);
   let glow = 0.9;
   return {
     obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) {
-      body.position.set(lx(b.parts[1], a), ly(b.parts[1], a), 0);
+      const br = 1 + 0.025 * Math.sin(t * 1.7), out = 1 + (ctx.dying || 0) * 0.35; // 呼吸と、撃破時に部位が外へずれる
+      body.scale.setScalar(br); for (const l of lobes) l.scale.setScalar(2 - br);
+      body.position.set(lx(b.parts[1], a) * out, ly(b.parts[1], a) * out, 0);
       lobes[0].position.set(lx(b.parts[2], a), ly(b.parts[2], a), -0.3); lobes[1].position.set(lx(b.parts[3], a), ly(b.parts[3], a), -0.3);
       core.position.set(lx(b.parts[0], a), ly(b.parts[0], a), 0.4);
       glow = damp(glow, b.parts[0].active ? 2.8 + Math.sin(t * 18) * 0.8 : 0.9, 10, dt);
       coreM.color.setRGB(1.0 * glow, 0.31 * glow, 0.7 * glow);
       core.scale.setScalar(0.75 + b.open * 0.35);
-      b.petals.forEach((p, k) => { const m = petals[k], x = lx(p, a), y = ly(p, a); m.position.set(x, y, 0.6); m.rotation.z = Math.atan2(y, x - 0.3) - Math.PI / 2; });
+      // 斉射の直前（閉じているときの 46 tick 周期の 8〜20 tick）は花弁が震える
+      const c = b.t % 330, cc = c % 46, tell = c < 170 && cc >= 8 && cc < 20 ? 1 : 0;
+      b.petals.forEach((p, k) => { const m = petals[k], x = lx(p, a) * out, y = ly(p, a) * out, tr = tell * Math.sin(t * 55 + k) * 0.08; m.position.set(x + tr, y, 0.6); m.rotation.z = Math.atan2(y, x - 0.3) - Math.PI / 2 + tr; });
       b.tail.forEach((p, k) => { tail[k].position.set(lx(p, a), ly(p, a), 0); tail[k].rotation.z = t + k; });
-      for (const m of eyes) m.scale.setScalar(0.8 + 0.3 * Math.sin(t * 4 + m.position.x));
+      for (const m of eyes) { m.scale.setScalar(0.8 + 0.3 * Math.sin(t * 4 + m.userData.bx)); const lxx = ctx.lookX ?? -1, lyy = ctx.lookY ?? 0, d = Math.hypot(lxx, lyy) || 1; m.position.x = damp(m.position.x, m.userData.bx + lxx / d * 0.08, 8, dt); m.position.y = damp(m.position.y, m.userData.by + lyy / d * 0.08, 8, dt); }
       flash.position.copy(core.position); flash.userData.set(ctx.hit || 0);
     },
   };
@@ -403,14 +438,17 @@ B.vesper = (e) => {
     obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) {
       dir = dampAngle(dir, b.dir ?? Math.PI, 10, dt);
       head.rotation.z = dir - Math.PI;
-      mouth = damp(mouth, b.mouth, 14, dt); jt.rotation.z = mouth * 0.5; jb.rotation.z = -mouth * 0.5;
+      const c = b.t % 240, shiver = c > 132 && c < 150 ? Math.sin(t * 70) * 0.06 : 0;
+      mouth = damp(mouth, b.mouth, 14, dt); jt.rotation.z = mouth * 0.5 + shiver; jb.rotation.z = -mouth * 0.5 - shiver;
+      head.position.y = Math.sin(t * 2.1) * 0.08;
       glow = damp(glow, b.parts[0].active ? 2.8 + Math.sin(t * 18) * 0.8 : 0.5, 10, dt);
       coreM.color.setRGB(glow, 0.3 * glow, 0.7 * glow);
       // 胴の節: 補間した位置に置き、帯を前の節の方向へ向ける
       for (let k = 0; k < 18; k++) {
         const p = b.parts[k + 2], q = k ? b.parts[k + 1] : { ox: 0, oy: 0 };
         const x = lx(p, a), y = ly(p, a), qx = k ? lx(q, a) : 0, qy = k ? ly(q, a) : 0;
-        segs[k].s.position.set(x, y, 0); segs[k].s.rotation.z = Math.atan2(qy - y, qx - x);
+        const ang2 = Math.atan2(qy - y, qx - x), wave = Math.sin(t * 3.2 - k * 0.55) * 0.14 * Math.min(1, k / 3);
+        segs[k].s.position.set(x - Math.sin(ang2) * wave, y + Math.cos(ang2) * wave, Math.cos(t * 2.4 - k * 0.5) * 0.25); segs[k].s.rotation.z = ang2;
         segs[k].spin.rotation.x = t * 1.5 + k * 0.4;
       }
       flash.userData.set(ctx.hit || 0);
@@ -430,8 +468,12 @@ B.keelheart = (e) => {
   // 遮蔽板は「円弧の装甲」にした（以前の箱より、回る盾として読みやすい）
   const plates = e.parts.filter((p) => p.plate != null || p.plate2 != null).map((p) => { const m = mesh(p.plate != null ? plateG : plate2G, p.plate != null ? plateM : M.hull); m.userData.arc = p.plate != null; g.add(m); return { m, p }; });
   const flash = flashShell(1.3); g.add(flash);
+  const muz = mesh(geo('kh-m', () => new THREE.SphereGeometry(0.5, 16, 12)), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd080).multiplyScalar(3), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  muz.position.set(-1.5, 0, 0.6); g.add(muz);
   return {
     obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) {
+      const w = b.beamWarn > 0 ? 1 - b.beamWarn / 60 : 0; muz.material.opacity = w > 0 ? 0.4 + w * 0.6 : damp(muz.material.opacity, 0, 6, dt); muz.scale.setScalar(0.3 + w * 1.4 + Math.sin(t * 60) * 0.1 * w);
+      muz.position.y = (b.beamY != null && w > 0) ? damp(muz.position.y, b.beamY - b.y, 12, dt) : damp(muz.position.y, 0, 4, dt);
       const pulse = 2.2 + Math.sin(t * 7) * 0.5 + (ctx.hit || 0) * 1.5;
       coreM.color.setRGB(pulse, 0.65 * pulse, 0.25 * pulse);
       rings.forEach((r, k) => { r.rotation.x = t * (0.6 + k * 0.3); r.rotation.y = t * (0.4 - k * 0.25); });
@@ -464,6 +506,7 @@ B.heart = (e) => {
       open = damp(open, b.open, 12, dt);
       coreM.uniforms.uOpen.value = open; coreM.uniforms.uFlash.value = (ctx.hit || 0) * 0.8;
       core.rotation.y = t * 0.5; core.rotation.x = t * 0.3;
+      const pre = open > 0.6 && (b.t % 40) > 28 ? ((b.t % 40) - 28) / 12 : 0; core.scale.setScalar(1 + pre * 0.18 + Math.sin(t * 3) * 0.02);
       const sp = b.parts[1]; shell.position.set(lx(sp, a) - 1.1, ly(sp, a), 0); shell.rotation.z = open * 1.2; shell.visible = !sp.off || open < 0.95;
       b.petals.forEach((p, k) => {
         const P = petals[k], m = P.m;
@@ -472,7 +515,7 @@ B.heart = (e) => {
         // 割れた花弁はすぐ消さず、外へ回りながら縮む
         P.gone = p.gone ? Math.min(1, P.gone + dt * 3) : 0;
         m.visible = P.gone < 1;
-        const x = lx(p, a), y = ly(p, a), out = 1 + P.gone * 0.8;
+        const x = lx(p, a), y = ly(p, a), out = (1 + P.gone * 0.8) * (1 + 0.05 * Math.sin(t * 2.2 - k * 0.9)) * (1 + (ctx.dying || 0) * 0.4);
         m.position.set(x * out, y * out, 0); m.rotation.z = Math.atan2(y, x) + P.gone * 6; m.scale.setScalar(1 - P.gone);
         m.material.emissive.setRGB(0.14 + P.hit * 0.86, 0.04 + P.hit * 0.96, 0.25 + P.hit * 0.75);
       });
@@ -489,5 +532,5 @@ export function buildEnemy(e) {
   const holder = new THREE.Group(); holder.add(r.obj);
   let flash = null;
   if (!e.boss) { flash = flashShell(e.r * 1.05); holder.add(flash); }
-  return { obj: holder, inner: r.obj, anim: r.anim, face: !!r.face, flash, boss: !!e.boss };
+  return { obj: holder, inner: r.obj, anim: r.anim, face: !!r.face, organic: !!r.organic, flash, boss: !!e.boss };
 }

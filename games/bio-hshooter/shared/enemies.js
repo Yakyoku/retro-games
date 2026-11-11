@@ -2,6 +2,12 @@
 // 各定義: hp, r（当たり半径 u）, score, anchored（地形に固定）, color（爆発色）, init(e,s,sp), update(e,s), onDeath(e,s)
 import { DT, FIELD_W, FIELD_H, aim, fireBullet, aimAngle, rand, floorAt, ceilAt, spawnEnemy } from './game-core.js';
 
+// 舵取り: 望む速度へ、加速度の上限つきで近づく（速度が一瞬で変わらない → 動きが弧を描く）
+function steer(e, dvx, dvy, maxAcc) {
+  let ax = dvx - e.vx, ay = dvy - e.vy; const m = Math.hypot(ax, ay), lim = maxAcc * DT;
+  if (m > lim) { ax *= lim / m; ay *= lim / m; }
+  e.vx += ax; e.vy += ay;
+}
 const fireOK = (s, e) => s.player.alive && s.mode === 'play' && e.x > 3 && e.x < FIELD_W - 1;
 
 export const ENEMY = {
@@ -18,13 +24,15 @@ export const ENEMY = {
   // フックジョー: 背後から現れ、追い越してから向きを変えて噛みつきに来る
   hookjaw: {
     name: 'HOOKJAW', ja: 'フックジョー', hp: 2, r: 0.5, score: 200, color: 'w',
-    init(e, s, sp) { e.y = sp.y ?? (3 + rand(s) * (FIELD_H - 6)); e.vx = 10; e.vy = 0; e.turn = false; e.keep = true; },
+    init(e, s, sp) { e.y = sp.y ?? (3 + rand(s) * (FIELD_H - 6)); e.vx = 12; e.vy = 0; e.turn = false; e.keep = true; },
     update(e, s) {
       const p = s.player;
-      if (!e.turn && (e.x > Math.min(FIELD_W - 4, p.x + 6) || e.t > 110)) { e.turn = true; if (fireOK(s, e)) aim(s, e, 8); }
-      if (e.turn) {
-        e.vx += (-11 - e.vx) * 0.05;
-        e.vy += ((p.y - e.y) * 1.2 - e.vy) * 0.04;
+      if (!e.turn && (e.x > Math.min(FIELD_W - 4, p.x + 6) || e.t > 110)) { e.turn = true; e.turnT = e.t; }
+      if (!e.turn) steer(e, 12, 0, 30);
+      else {
+        // 追い越したあと、減速しながら弧を描いて U ターン（上下は自機の高さへ寄せる）
+        steer(e, -11, Math.max(-8, Math.min(8, (p.y - e.y) * 1.4)), 26);
+        if (e.t - e.turnT === 26 && fireOK(s, e)) aim(s, e, 8);
       }
       e.x += e.vx * DT; e.y += e.vy * DT;
       if (e.turn && e.x < -2) e.dead = true;
@@ -54,21 +62,29 @@ export const ENEMY = {
   // スティルター: 床を歩き、ときどき跳ねて上へ 3 方向に撃つ
   stilter: {
     name: 'STILTER', ja: 'スティルター', hp: 6, r: 0.8, score: 400, anchored: true, color: 'w',
-    init(e, s, sp) { e.vy = 0; e.air = false; e.cd = 90; e.walk = sp.walk ?? -1.6; },
+    init(e, s, sp) { e.vy = 0; e.air = false; e.cd = 90; e.wv = 0; e.crouch = 0; e.land = 0; },
     update(e, s) {
       const p = s.player;
-      const dir = p.x < e.x ? -1 : 1;
-      e.x += (e.walk < 0 ? dir * 1.6 : e.walk) * DT;
+      // 歩く速さは加速度つき（向きを変えるときに一度止まってから歩き出す）
+      const want = e.crouch > 0 || e.land > 0 ? 0 : (p.x < e.x ? -1.6 : 1.6);
+      e.wv += Math.max(-0.07, Math.min(0.07, want - e.wv));
+      e.x += e.wv * DT;
       const wx = e.x + s.scrollX;
       const fl = (e.flip ? ceilAt(s.stage, wx) - 0.9 : floorAt(s.stage, wx) + 0.9);
+      if (e.land > 0) e.land--;
       if (e.air) {
         e.vy += (e.flip ? 22 : -22) * DT; e.y += e.vy * DT;
-        if ((!e.flip && e.y <= fl) || (e.flip && e.y >= fl)) { e.y = fl; e.air = false; e.vy = 0; }
+        if ((!e.flip && e.y <= fl) || (e.flip && e.y >= fl)) { e.y = fl; e.air = false; e.vy = 0; e.land = 12; }
       } else e.y = fl;
+      // 跳ぶ前に 12 tick しゃがむ（予備動作）。跳んだ瞬間に撃つ
+      if (e.crouch > 0 && --e.crouch === 0) {
+        e.air = true; e.vy = e.flip ? -9 : 9;
+        if (fireOK(s, e)) for (const o of [-0.3, 0, 0.3]) aim(s, e, 6.5, o, 'orb', 0, e.flip ? -0.6 : 0.6);
+      }
       if (--e.cd <= 0) {
         e.cd = Math.round(130 / s.rank);
-        if (!e.air && rand(s) < 0.5) { e.air = true; e.vy = e.flip ? -9 : 9; }
-        if (fireOK(s, e)) for (const o of [-0.3, 0, 0.3]) aim(s, e, 6.5, o, 'orb', 0, e.flip ? -0.6 : 0.6);
+        if (!e.air && rand(s) < 0.5) e.crouch = 12;
+        else if (fireOK(s, e)) for (const o of [-0.3, 0, 0.3]) aim(s, e, 6.5, o, 'orb', 0, e.flip ? -0.6 : 0.6);
       }
     },
   },
@@ -134,11 +150,17 @@ export const ENEMY = {
   },
   nit: {
     name: 'NIT', ja: 'ニット', hp: 1, r: 0.32, score: 80, color: 'bio',
-    init(e) { e.vx = -1; e.vy = 5; },
+    init(e) { e.vx = -1; e.vy = 5; e.windup = 0; e.spd = 0; },
     update(e, s) {
-      if (e.t < 28) { e.y += e.vy * DT; e.vy *= 0.94; e.x += e.vx * DT; }
-      else {
-        if (e.t === 28) { const a = aimAngle(s, e.x, e.y); e.vx = Math.cos(a) * 7; e.vy = Math.sin(a) * 7; }
+      if (e.t < 24) { e.y += e.vy * DT; e.vy *= 0.92; e.x += e.vx * DT; }
+      else if (e.t < 38) {
+        // 予備動作: 止まって身震いし、狙いを定める
+        e.vx *= 0.8; e.vy *= 0.8; e.x += e.vx * DT; e.y += e.vy * DT; e.windup = (e.t - 24) / 14;
+        if (e.t === 37) e.ang = aimAngle(s, e.x, e.y);
+      } else {
+        // 突進: 0.25 秒かけて最高速へ
+        e.windup = 0; e.spd = Math.min(8, e.spd + 0.55);
+        e.vx = Math.cos(e.ang) * e.spd; e.vy = Math.sin(e.ang) * e.spd;
         e.x += e.vx * DT; e.y += e.vy * DT;
       }
     },
@@ -148,8 +170,11 @@ export const ENEMY = {
     name: 'BULWARK', ja: 'バルワーク', hp: 14, r: 1.1, score: 800, color: 'w',
     init(e, s, sp) { e.stopX = sp.stopX ?? 24; e.vx = -3; e.armored = true; e.open = 0; e.keep = true; },
     update(e, s) {
-      if (e.t < 900) { if (e.x > e.stopX) e.x += e.vx * DT; e.y += Math.sin(e.t * 0.02) * 0.02; }
-      else { e.x -= 5 * DT; if (e.x < -3) e.dead = true; }
+      if (e.t < 900) {
+        // 止まる位置へ減速しながら近づく（急停止しない）
+        const d = e.x - e.stopX; e.vx = -Math.max(0, Math.min(3, d * 1.1));
+        e.x += e.vx * DT; e.y += Math.sin(e.t * 0.02) * 0.02;
+      } else { e.vx = Math.max(-6, e.vx - 0.08); e.x += e.vx * DT; if (e.x < -3) e.dead = true; }
       const c = e.t % 170;
       const want = c > 100 ? 1 : 0;
       e.open += (want - e.open) * 0.15;
@@ -160,10 +185,12 @@ export const ENEMY = {
   // シスル: 漂う機雷。撃つか時間切れで針を輪に撒く
   thistle: {
     name: 'THISTLE', ja: 'シスル', hp: 2, r: 0.55, score: 150, color: 'am',
-    init(e, s, sp) { e.vx = -(sp.spd ?? 2.2); e.fuse = sp.fuse ?? 9999; e.baseY = e.y; },
+    init(e, s, sp) { e.vx = -(sp.spd ?? 2.2); e.fuse = sp.fuse ?? 9999; e.baseY = e.y; e.arm = 0; },
     update(e, s) {
       e.x += e.vx * DT; e.y = e.baseY + Math.sin(e.t * 0.03 + e.i) * 0.5;
-      if (e.t >= e.fuse || (s.player.alive && Math.hypot(s.player.x - e.x, s.player.y - e.y) < 2.6)) { e.hp = 0; e.dead = true; ENEMY.thistle.onDeath(e, s); s.events.push({ t: 'fx', k: 'boom', x: e.x, y: e.y, s: 0.8, c: 'am' }); }
+      // 近づくと 0.4 秒「点滅して膨らむ」予告のあとで弾ける（いきなり弾けない）
+      if (!e.arm && (e.t >= e.fuse || (s.player.alive && Math.hypot(s.player.x - e.x, s.player.y - e.y) < 3.0))) { e.arm = 24; s.events.push({ t: 'sfx', id: 'warnBeam' }); }
+      if (e.arm) { e.vx *= 0.9; if (--e.arm === 0) { e.hp = 0; e.dead = true; ENEMY.thistle.onDeath(e, s); s.events.push({ t: 'fx', k: 'boom', x: e.x, y: e.y, s: 0.8, c: 'am' }); } }
     },
     onDeath(e, s) {
       if (!s.player.alive) return;
@@ -178,7 +205,9 @@ export const ENEMY = {
     init(e, s, sp) { e.y = sp.top ? FIELD_H - 1.2 : 1.2; e.vx = -14; e.vy = 0; e.dove = false; e.keep = true; },
     update(e, s) {
       const p = s.player;
-      if (!e.dove && e.x < p.x + 7) { e.dove = true; e.vy = (p.y > e.y ? 1 : -1) * 9; e.vx = -9; }
+      if (!e.dove && e.x < p.x + 7) { e.dove = true; e.dir = p.y > e.y ? 1 : -1; }
+      // 急降下は加速度の上限つきで曲がる（90° の折れ線ではなく弧）
+      if (e.dove) steer(e, -9, e.dir * 9, 55); else steer(e, -14, 0, 55);
       e.x += e.vx * DT; e.y += e.vy * DT;
       if (e.x < -2 || e.y < -2 || e.y > FIELD_H + 2) e.dead = true;
     },
@@ -192,7 +221,7 @@ export const ENEMY = {
       const a = aimAngle(s, e.x, e.y);
       e.ang += Math.atan2(Math.sin(a - e.ang), Math.cos(a - e.ang)) * 0.08;
       if (--e.cd <= 0) { e.cd = Math.round(120 / s.rank); e.burst = 3; }
-      if (e.burst > 0 && e.t % 7 === 0) { e.burst--; if (fireOK(s, e)) fireBullet(s, e.x + Math.cos(e.ang) * 1, e.y + Math.sin(e.ang) * 1, e.ang, 8.5); }
+      if (e.burst > 0 && e.t % 7 === 0) { e.burst--; if (fireOK(s, e)) { fireBullet(s, e.x + Math.cos(e.ang) * 1, e.y + Math.sin(e.ang) * 1, e.ang, 8.5); e.fireT = s.tick; e.fireAng = e.ang; } }
     },
   },
   // エンジン: 艦尾の推進器。噴射が後ろ（左）へ吹き出す。壊せば止まる
@@ -218,10 +247,17 @@ export const ENEMY = {
   },
   dart: {
     name: 'DART', ja: 'ダート', hp: 1, r: 0.35, score: 100, color: 'w',
-    init(e) { e.vx = 0; e.vy = 9; },
+    init(e) { e.vx = 0; e.vy = 9; e.spd = 3; },
     update(e, s) {
-      if (e.t < 22) { e.y += e.vy * DT; e.vy *= 0.95; e.x -= 2 * DT; }
-      else { if (e.t === 22) { const a = aimAngle(s, e.x, e.y); e.vx = Math.cos(a) * 9.5; e.vy = Math.sin(a) * 9.5; } e.x += e.vx * DT; e.y += e.vy * DT; }
+      if (e.t < 22) { e.y += e.vy * DT; e.vy *= 0.95; e.x -= 2 * DT; e.ang = Math.atan2(e.vy, -2); }
+      else {
+        // 誘導: 1 tick 最大 0.05rad しか曲がらず（60 tick で誘導終了）、推力は少しずつ上がる
+        if (e.t < 82) { const want = aimAngle(s, e.x, e.y); const d = Math.atan2(Math.sin(want - e.ang), Math.cos(want - e.ang)); e.ang += Math.max(-0.05, Math.min(0.05, d)); }
+        e.spd = Math.min(10, e.spd + 0.3);
+        e.vx = Math.cos(e.ang) * e.spd; e.vy = Math.sin(e.ang) * e.spd;
+        e.x += e.vx * DT; e.y += e.vy * DT;
+        if (e.t > 400) e.dead = true;
+      }
     },
   },
 };

@@ -49,3 +49,34 @@ h2 { font-size: calc(var(--u) * 6); letter-spacing: .4em; margin: 0 0 calc(var(-
 .count { font-size: calc(var(--u) * 14); color: #ff8fd0; }
 .roll { max-width: 70%; font-size: calc(var(--u) * 2.3); line-height: 2; letter-spacing: .12em; white-space: pre-line; }
 #debug { position: absolute; left: 1%; top: 6%; font-size: calc(var(--u) * 1.4); color: #9f9; background: rgba(0, 0, 0, .6); padding: .5em .8em; white-space: pre; pointer-events: none; }
+
+/* ---------------- スマートフォン（タッチ操作） ---------------- */
+html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+#touch { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+#touch[hidden] { display: none; }
+#touch .t-zone { position: absolute; left: 0; top: 12%; bottom: 0; width: 52%; pointer-events: auto; }
+#touch .t-hint { position: absolute; left: 6%; bottom: 14%; font-size: calc(var(--u) * 1.6); color: rgba(220, 240, 255, .35); letter-spacing: .1em; }
+#touch .t-base { position: absolute; left: 22%; top: 62%; width: calc(var(--u) * 20); height: calc(var(--u) * 20); transform: translate(-50%, -50%); border-radius: 50%;
+  border: 2px solid rgba(160, 230, 255, .28); background: radial-gradient(circle, rgba(79, 227, 255, .08), rgba(79, 227, 255, .02) 70%); opacity: .45; transition: opacity .15s; }
+#touch .t-base.on { opacity: 1; transition: none; }
+#touch .t-knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(230, 250, 255, .55), rgba(79, 227, 255, .25)); box-shadow: 0 0 calc(var(--u) * 2) rgba(79, 227, 255, .35); }
+#touch .t-btn { position: absolute; pointer-events: auto; border-radius: 50%; border: 2px solid rgba(160, 230, 255, .35); background: rgba(10, 30, 45, .28); color: rgba(235, 248, 255, .85);
+  font: 700 calc(var(--u) * 2.4) system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; overflow: hidden; touch-action: none; }
+#touch .t-btn.on { background: rgba(79, 227, 255, .32); border-color: #bff3ff; transform: scale(.95); }
+#touch .t-btn small { font-size: .5em; font-weight: 500; opacity: .7; margin-top: .2em; }
+#touch .t-btn b { position: relative; z-index: 1; }
+#touch .t-fire { right: calc(4% + env(safe-area-inset-right)); bottom: 12%; width: calc(var(--u) * 22); height: calc(var(--u) * 22); }
+#touch .t-charge { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(rgba(79, 227, 255, .55) var(--c, 0%), transparent 0); }
+#touch .t-pod { right: calc(4% + var(--u) * 24 + env(safe-area-inset-right)); bottom: 8%; width: calc(var(--u) * 14); height: calc(var(--u) * 14); border-color: rgba(255, 140, 210, .45); }
+#touch .t-rapid { right: calc(4% + var(--u) * 5 + env(safe-area-inset-right)); bottom: calc(14% + var(--u) * 23); width: calc(var(--u) * 13); height: calc(var(--u) * 13); border-color: rgba(255, 200, 120, .45); }
+#touch .t-pause { right: calc(2% + env(safe-area-inset-right)); top: 4%; width: calc(var(--u) * 8); height: calc(var(--u) * 8); font-size: calc(var(--u) * 3); }
+/* タッチ操作中は HUD の下段を少し上へ（ボタンと重ねない）・メニューを押しやすく */
+body.touching #hud .bottom { bottom: auto; top: 8%; left: 3%; right: 14%; font-size: .8em; }
+@media (pointer: coarse) { .menu li { padding: calc(var(--u) * 1.4) calc(var(--u) * 4); } }
+/* 縦向きのスマートフォン: 横向きにする案内 */
+#rotate { display: none; position: fixed; inset: 0; z-index: 50; background: #000; color: #dfefff; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-family: system-ui, sans-serif; }
+#rotate p { font-size: 22px; letter-spacing: .2em; margin: 24px 0 6px; } #rotate small { color: #7d8b99; }
+#rotate .phone { width: 46px; height: 80px; border: 3px solid #8fe6ff; border-radius: 9px; animation: tilt 2s ease-in-out infinite; }
+@keyframes tilt { 0%, 20% { transform: rotate(0); } 50%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+@media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }

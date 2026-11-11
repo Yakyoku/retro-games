@@ -11,6 +11,8 @@ import { STAGES } from '../../shared/stages.js';
 import { BOSS } from '../../shared/bosses.js';
 import { World } from '../../shared/render/world.js';
 import { Input } from '../../shared/input.js';
+import { TouchControls, isTouchDevice } from '../../shared/touch.js';
+const TOUCH = isTouchDevice();
 import { GameAudio } from '../../shared/audio/audio.js';
 import { ENDING_TEXT } from '../../shared/story.js';
 import { makeFrameClock } from '../../shared/frame-clock.js';
@@ -34,7 +36,7 @@ scene.fog = null;
 const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.5, 4000);
 const CAM_Z = (FIELD_H / 2) / Math.tan(THREE.MathUtils.degToRad(15));
 camera.position.set(FIELD_W / 2, FIELD_H / 2, CAM_Z);
-const world = new World(renderer, { vr: false, lite: Q.has('lite') });
+const world = new World(renderer, { vr: false, lite: Q.has('lite') || TOUCH }); // スマートフォンは粒子などを控えめに
 scene.add(world.root);
 
 let composer, bloomPass, rt;
@@ -56,14 +58,16 @@ function setupComposer() {
 function resize() {
   const u = Math.min(innerHeight / 100, innerWidth / 177.7778);
   $('stage').style.setProperty('--u', u + 'px');
-  baseDpr = window.devicePixelRatio || 1;
+  document.documentElement.style.setProperty('--u', u + 'px');
+  baseDpr = Math.min(window.devicePixelRatio || 1, TOUCH ? 2 : 4); // スマートフォンは描画倍率を 2 までに
   setupComposer();
 }
 addEventListener('resize', resize);
 resize();
 
 // ---------------------------------------------------------------- 状態
-const input = new Input();
+const touch = new TouchControls(document.body); // 画面全体に置く（横長のスマホでは盤面の左右の黒帯にボタンが来る）
+const input = new Input(touch);
 const audio = new GameAudio();
 audio.setVolume({ master: opts.master / 10, music: opts.music / 10, sfx: opts.sfx / 10 });
 let hi = LS.get('hi', 50000);
@@ -106,11 +110,13 @@ function buildMenu() {
   menuItems().forEach((it, k) => {
     const li = document.createElement('li'); li.className = k === menuIdx ? 'on' : '';
     li.innerHTML = it.t + (it.v ? `<span class="val">${it.lr ? '◀ ' : ''}${it.v}${it.lr ? ' ▶' : ''}</span>` : '');
-    li.onclick = () => { menuIdx = k; if (it.go) it.go(); else it.lr && it.lr(1); audio.sfx('select'); buildMenu(); };
+    // 左右で値を変える項目は、値の左半分を押すと戻す・右半分で進める（指でもマウスでも）
+    li.onclick = (ev) => { menuIdx = k; const r = li.getBoundingClientRect(); if (it.lr && !(it.go && ev.clientX < r.left + r.width * 0.45)) it.lr(ev.clientX < r.left + r.width * 0.72 ? -1 : 1); else if (it.go) it.go(); audio.sfx('select'); buildMenu(); };
     li.onmouseenter = () => { if (menuIdx !== k) { menuIdx = k; buildMenu(); } };
     ul.appendChild(li);
   });
-  $('help').textContent = input.lastDevice === 'pad'
+  $('help').textContent = (TOUCH && input.lastDevice !== 'key' && input.lastDevice !== 'pad') ? '左半分をなぞって移動 ／ 右の「撃つ」（長押しで溜め）・SEED・連射 ／ 右上 Ⅱ で一時停止 ／ メニューは指で選ぶ'
+    : input.lastDevice === 'pad'
     ? '左スティック 移動 ／ A 撃つ（長押しで溜め） ／ B・LB・RB SEED 切り離し・呼び戻し ／ X・RT 連射 ／ START 一時停止'
     : '矢印・WASD 移動 ／ Z 撃つ（長押しで溜め） ／ X SEED 切り離し・呼び戻し ／ C 連射 ／ Esc 一時停止 ／ F フルスクリーン';
 }
@@ -137,8 +143,9 @@ function startGame(stage) {
 function banner(a, b, sec = 3) { const el = $('banner'); el.innerHTML = `${a}<small>${b || ''}</small>`; el.hidden = false; el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; bannerT = sec; }
 
 // ---------------------------------------------------------------- 起動（音の許可を取る）
-async function boot() {
+async function boot(e) {
   if (screen !== 'boot') return;
+  if (e && e.pointerType === 'touch') { try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); await screen.orientation.lock('landscape'); } catch {} }
   await audio.init();
   setScreen('title');
 }
@@ -161,6 +168,7 @@ function onEvents(s) {
     else if (e.t === 'gameover') { contT = 10; setScreen('cont'); }
     else if (e.t === 'complete') { endingT = 0; $('roll').textContent = ENDING_TEXT(s); setScreen('ending'); }
     else if (e.t === 'extend') banner('EXTEND', '', 1.5);
+    else if (e.t === 'sfx' && e.id === 'death' && touch.visible) touch.vibrate(120);
   }
   ev.length = 0;
   if (s.score > hi) { hi = s.score; }
@@ -222,13 +230,13 @@ function frame(now) {
     else menuNav(inp, pauseItems(), buildPause);
   } else if (screen === 'cont') {
     contT -= dt; $('count').textContent = Math.max(0, Math.ceil(contT - 1));
-    if (inp.pressed.fire || inp.pressed.start) { continueGame(game); onEvents(game); setScreen('play'); acc = 0; }
+    if (inp.pressed.fire || inp.pressed.start || inp.touchTap) { continueGame(game); onEvents(game); setScreen('play'); acc = 0; }
     else if (contT <= 1) { LS.set('hi', hi); game = null; setScreen('title'); }
     acc += dt; while (acc >= DT) { step(game || demo, {}); acc -= DT; if (game) onEvents(game); }
   } else if (screen === 'ending') {
     endingT += dt;
     acc += dt; while (acc >= DT) { step(game, {}); acc -= DT; game.events.length = 0; }
-    if (endingT > 6 && (inp.pressed.fire || inp.pressed.start)) { LS.set('hi', hi); nextLoop(game); onEvents(game); setScreen('play'); }
+    if (endingT > 6 && (inp.pressed.fire || inp.pressed.start || inp.touchTap)) { LS.set('hi', hi); nextLoop(game); onEvents(game); setScreen('play'); }
     if (endingT > 40) { LS.set('hi', hi); game = null; setScreen('title'); }
   }
   if (!game) {
@@ -252,6 +260,8 @@ function frame(now) {
   camera.lookAt(FIELD_W / 2 + shx * 0.3, FIELD_H / 2 + (camY - FIELD_H / 2) * 0.6, 0);
   renderer.toneMappingExposure = 1.05 + (s.flash || 0) * 0.04;
   if (opts.bloom) composer.render(); else { renderer.setRenderTarget(null); renderer.render(scene, camera); }
+  touch.update(screen === 'play', game ? game.player.charge : 0);
+  document.body.classList.toggle('touching', touch.visible);
   if (game && (screen === 'play' || screen === 'pause' || screen === 'cont')) hud(game);
   if (DEBUG || opts.fps) {
     show('debug', true);

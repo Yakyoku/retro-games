@@ -4,7 +4,8 @@ const KEYS = {
   fire: ['KeyZ', 'KeyJ', 'Space'], pod: ['KeyX', 'KeyK'], rapid: ['KeyC', 'KeyL'], pause: ['Escape', 'KeyP'], start: ['Enter', 'NumpadEnter'], back: ['Backspace'],
 };
 export class Input {
-  constructor() {
+  constructor(touch = null) {
+    this.touch = touch;
     this.down = new Set(); this.tapped = new Set(); this.prev = {}; this.lastPad = null; this.padName = '';
     addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); this.down.add(e.code); this.tapped.add(e.code); this.lastDevice = 'key'; });
     addEventListener('keyup', (e) => this.down.delete(e.code));
@@ -30,6 +31,15 @@ export class Input {
       o.pause = o.pause || b(9); o.start = o.start || b(9) || b(0); o.back = o.back || b(8) || b(1);
       o.up = o.up || ay < -0.5; o.down = o.down || ay > 0.5; o.left = o.left || ax < -0.5; o.right = o.right || ax > 0.5;
       if (b(0) || b(1) || m > 0.3) this.lastDevice = 'pad';
+    }
+    // タッチ操作（スマートフォン）を混ぜる
+    o.touchTap = false;
+    if (this.touch) {
+      const t = this.touch.read();
+      if (Math.abs(t.x) + Math.abs(t.y) > Math.abs(o.x) + Math.abs(o.y)) { o.x = t.x; o.y = t.y; }
+      o.fire = o.fire || t.fire; o.pod = o.pod || t.pod; o.rapid = o.rapid || t.rapid; o.pause = o.pause || t.pause;
+      o.touchTap = t.start;
+      if (t.fire || t.x || t.y || t.start) this.lastDevice = 'touch';
     }
     // 押した瞬間
     o.pressed = {};

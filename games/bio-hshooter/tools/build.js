@@ -19,6 +19,7 @@ mkdirSync(dist, { recursive: true });
 const copy = (rel) => cpSync(join(here, rel), join(dist, rel), { recursive: true });
 for (const f of readdirSync(here)) if (/\.(html|js|css)$/.test(f)) copy(f);
 copy('shared');
+copy('icons');
 const has = { bigscreen: variant !== 'vr', vr: variant !== '2d' };
 mkdirSync(join(dist, 'experiments'), { recursive: true });
 if (has.bigscreen) copy('experiments/01-bigscreen');

@@ -13,6 +13,9 @@ import { World } from '../../shared/render/world.js';
 import { Input } from '../../shared/input.js';
 import { GameAudio } from '../../shared/audio/audio.js';
 import { ENDING_TEXT } from '../../shared/story.js';
+import { makeFrameClock } from '../../shared/frame-clock.js';
+const frameClock = makeFrameClock();
+let camY = FIELD_H / 2, camT = 0;
 
 const Q = new URLSearchParams(location.search);
 const DEBUG = Q.has('debug');
@@ -195,7 +198,7 @@ function debugKey(code) {
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 60, slowT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  const dt = frameClock(now); last = now;
   fpsAcc += dt; fpsN++;
   if (fpsAcc >= 1) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; autoScale(); }
   const inp = input.poll();
@@ -241,8 +244,12 @@ function frame(now) {
   // カメラ: わずかに自機の高さを追い、揺れを足す
   const py = s.player && s.player.alive ? s.player.y : FIELD_H / 2;
   const sh = s.shake || 0;
-  camera.position.set(FIELD_W / 2 + (Math.random() - 0.5) * sh, FIELD_H / 2 + (py - FIELD_H / 2) * 0.05 + (Math.random() - 0.5) * sh, CAM_Z);
-  camera.lookAt(FIELD_W / 2, FIELD_H / 2 + (py - FIELD_H / 2) * 0.03, 0);
+  // カメラ: 自機の高さを遅れて追う（減衰）。揺れは乱数ではなく周期の違う正弦の和（高リフレッシュでも震えに見えない）
+  camT += dt;
+  camY = FIELD_H / 2 + ((camY - FIELD_H / 2) - (py - FIELD_H / 2) * 0.05) * Math.exp(-3 * dt) + (py - FIELD_H / 2) * 0.05;
+  const shx = sh * 0.5 * (Math.sin(camT * 47) + 0.6 * Math.sin(camT * 29 + 1.3)), shy = sh * 0.5 * (Math.sin(camT * 41 + 2.1) + 0.6 * Math.sin(camT * 33));
+  camera.position.set(FIELD_W / 2 + shx, camY + shy, CAM_Z);
+  camera.lookAt(FIELD_W / 2 + shx * 0.3, FIELD_H / 2 + (camY - FIELD_H / 2) * 0.6, 0);
   renderer.toneMappingExposure = 1.05 + (s.flash || 0) * 0.04;
   if (opts.bloom) composer.render(); else { renderer.setRenderTarget(null); renderer.render(scene, camera); }
   if (game && (screen === 'play' || screen === 'pause' || screen === 'cont')) hud(game);

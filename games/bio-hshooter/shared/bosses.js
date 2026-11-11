@@ -54,7 +54,8 @@ export const BOSS = {
   vesper: {
     name: 'VESPER COIL', ja: 'ヴェスパー・コイル', hp: 150, r: 2.5, score: 40000, music: 'boss', color: 'bio',
     init(e) {
-      e.x = FIELD_W + 4; e.y = FIELD_H / 2; e.inv = 120; e.hist = []; e.keep = true; e.mouth = 0;
+      e.x = FIELD_W + 4; e.y = FIELD_H / 2; e.inv = 120; e.hist = []; e.keep = true; e.mouth = 0; e.dir = Math.PI;
+      for (let k = 0; k < 200; k++) e.hist.push(e.x + k * 0.06, e.y); // 最初から胴が右へ伸びた形で現れる（節が頭に重なって跳ばない）
       e.parts = [{ ox: 0, oy: 0, r: 0.95, kind: 'weak', active: false, core: true }, { ox: 0.9, oy: 0, r: 1.05, kind: 'solid', head: true }];
       for (let k = 0; k < 18; k++) e.parts.push({ ox: 0, oy: 0, r: 0.82 - k * 0.025, kind: 'solid', seg: k });
       e.hx = e.x; e.hy = e.y; e.ph = 0;
@@ -65,8 +66,14 @@ export const BOSS = {
       e.ph += 0.011 * sp;
       let tx = 18 + 9.5 * Math.cos(e.ph), ty = 9 + 6.2 * Math.sin(e.ph * 1.7);
       if (e.inv > 0) { e.inv--; tx = 24; ty = 9 + Math.sin(e.t * 0.04) * 3; }
+      else { // 登場の動きから周回へ 1.5 秒かけて移る（急に加速しない）
+        e.blend = Math.min(1, (e.blend || 0) + 1 / 90); const k = e.blend * e.blend * (3 - 2 * e.blend);
+        tx = 24 + (tx - 24) * k; ty = (9 + Math.sin(e.t * 0.04) * 3) * (1 - k) + ty * k;
+      }
       const nx = e.x + (tx - e.x) * 0.05, ny = e.y + (ty - e.y) * 0.05;
-      e.dir = Math.atan2(ny - e.y, nx - e.x);
+      // 頭の向きは急に振り向かず、1 tick 最大 0.12rad で回す（向きの急変は頭の部位を跳ばしてしまう）
+      const raw = Math.atan2(ny - e.y, nx - e.x);
+      if (e.dir == null) e.dir = raw; else { const d = Math.atan2(Math.sin(raw - e.dir), Math.cos(raw - e.dir)); e.dir += Math.max(-0.12, Math.min(0.12, d)); }
       e.x = nx; e.y = ny;
       e.hist.unshift(e.x, e.y); if (e.hist.length > 400) e.hist.length = 400;
       const c = e.t % 240;

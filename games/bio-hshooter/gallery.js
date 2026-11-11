@@ -72,18 +72,20 @@ canvas.addEventListener('pointerup', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => { dist *= e.deltaY > 0 ? 1.1 : 0.9; e.preventDefault(); }, { passive: false });
 function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize);
-let t0 = performance.now();
+let t0 = performance.now(), lastT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   if (canvas.width !== Math.round(canvas.clientWidth * renderer.getPixelRatio())) resize();
-  const t = (now - t0) / 1000; U.time.value = t;
+  const t = (now - t0) / 1000; U.time.value = t; const dt = Math.min(0.1, Math.max(1e-3, t - lastT)); lastT = t;
   if (!drag) rotY += 0.004;
   pivot.rotation.set(rotX, rotY, 0);
   camera.position.set(0, 0, dist); camera.lookAt(0, 0, 0);
   if (model && ent) {
     if (ENEMY[cur] || BOSS[cur]) { ent.t++; (BOSS[cur] || ENEMY[cur]).update(ent, game); game.ebullets.length = 0; game.enemies = game.enemies.filter((x) => x === ent); if (ent.inv) ent.inv = 0; }
     if (cur === 'player') { ent.tilt = Math.sin(t) * 0.8; ent.alive = true; ent.inv = 0; ent.charge = (Math.sin(t * 0.7) * 0.5 + 0.5); }
-    model.anim(ent, t);
+    // 自機と SEED は上下に動いているつもりで傾きを見せる
+    const ctx = { vx: Math.cos(t * 0.9) * 6, vy: Math.sin(t * 1.3) * 9, hit: 0 };
+    model.anim(ent, t, 1, dt, ctx);
   }
   renderer.render(scene, camera);
 }

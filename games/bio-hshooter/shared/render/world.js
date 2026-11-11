@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { FIELD_W, FIELD_H, lineAt } from '../game-core.js';
 import { materials, colorOf, U, makeEnvironment } from './materials.js';
-import { buildPlayer, buildPod, buildBit, buildEnemy } from './models.js';
+import { buildPlayer, buildPod, buildBit, buildEnemy, damp, dampAngle } from './models.js';
+const easeOutBack = (t) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
 import { SpriteBatch, Particles } from './sprites.js';
 
 const rgb = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
@@ -37,7 +38,7 @@ export class World {
     this.player = buildPlayer(); this.field.add(this.player.obj);
     this.pod = buildPod(); this.field.add(this.pod.obj);
     this.bits = [buildBit(), buildBit()]; for (const b of this.bits) this.field.add(b.obj);
-    this.enemyObjs = new Map(); this.itemObjs = new Map(); this.burstObjs = [];
+    this.enemyObjs = new Map(); this.itemObjs = new Map(); this.burstObjs = []; this.ghosts = [];
     this.stageObjs = []; this.blockObjs = [];
     this.t = 0; this.stage = null;
     this.clipPlanes = opts.clip ? [0, 1, 2, 3].map(() => new THREE.Plane()) : null;
@@ -251,45 +252,101 @@ export class World {
   // ---------------------------------------------------------------- 毎フレーム
   // s: ゲーム状態、alpha: 補間（0〜1）、dt: 実時間の経過秒
   sync(s, alpha, dt) {
+    dt = Math.max(1e-4, dt);
     this.t += dt; U.time.value = this.t;
     if (s.stage !== this.stage) this.setStage(s.stage);
     const scroll = lerp(s.pscroll ?? s.scrollX, s.scrollX, alpha);
     this.scroll.position.x = -scroll;
     this.updateClip();
-    const L = (e) => [lerp(e.px ?? e.x, e.x, alpha), lerp(e.py ?? e.y, e.y, alpha)];
-    // 壁
+    // 補間。復帰点への巻き戻しなどで 3u 以上跳んだものは補間せずに置く（画面を横切る残像を出さない）
+    const L = (e) => { const px0 = e.px ?? e.x, py0 = e.py ?? e.y; if (Math.abs(e.x - px0) > 3 || Math.abs(e.y - py0) > 3) return [e.x, e.y]; return [lerp(px0, e.x, alpha), lerp(py0, e.y, alpha)]; };
+    // 描画上の速度（u/s、なめらかにならした値）
+    const vel = (o, x, y) => {
+      if (o.lx == null || Math.abs(x - o.lx) > 3 || Math.abs(y - o.ly) > 3) { o.lx = x; o.ly = y; o.vx = o.vx || 0; o.vy = o.vy || 0; return o; }
+      o.vx = damp(o.vx || 0, (x - o.lx) / dt, 18, dt); o.vy = damp(o.vy || 0, (y - o.ly) / dt, 18, dt); o.lx = x; o.ly = y; return o;
+    };
+    // 壁（壊せる壁は被弾で弾む）
     for (const bo of this.blockObjs) {
       const blk = s.blocks[bo.i];
       const alive = blk ? blk.alive : true;
       bo.o.visible = alive && bo.b.x + bo.b.w > scroll - 12 && bo.b.x < scroll + FIELD_W + 40;
-      if (blk && blk.flash > 0) bo.o.scale.setScalar(1.04); else bo.o.scale.setScalar(1);
+      bo.hit = damp(bo.hit || 0, blk && blk.flash >= 3 ? 1 : 0, blk && blk.flash >= 3 ? 40 : 14, dt);
+      bo.o.scale.setScalar(1 + 0.05 * bo.hit);
     }
-    // 自機
+    // 自機・SEED・僚機
     const p = s.player, [px, py] = L(p);
     this.player.obj.position.set(px, py, 0);
-    this.player.anim(p, this.t);
-    if (s.pod) { const [x, y] = L(s.pod); this.pod.obj.visible = true; this.pod.obj.position.set(x, y, 0); this.pod.anim(s.pod, this.t); } else this.pod.obj.visible = false;
-    this.bits.forEach((bo, k) => { const b = s.bits[k]; bo.obj.visible = !!b; if (b) { const [x, y] = L(b); bo.obj.position.set(x, y, 0); bo.anim(b, this.t); } });
+    this.player.anim(p, this.t, alpha, dt, vel(this.player, px, py));
+    if (s.pod) {
+      const [x, y] = L(s.pod); const pv = vel(this.pod, x, y);
+      this.pod.obj.visible = true; this.pod.obj.position.set(x, y, 0); this.pod.anim(s.pod, this.t, alpha, dt, pv);
+      // 速く飛んでいるときは軌跡を残す
+      const sp = Math.hypot(pv.vx, pv.vy);
+      if (sp > 9) { const c = COL[s.pod.level ? s.pod.color : 'P']; this.parts.trail(x, y, 1.0, [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7], 0.22); }
+    } else { this.pod.obj.visible = false; this.pod.lx = null; }
+    this.bits.forEach((bo, k) => { const b = s.bits[k]; bo.obj.visible = !!b; if (b) { const [x, y] = L(b); bo.obj.position.set(x, y, 0); bo.anim(b, this.t, alpha, dt, vel(bo, x, y)); } else bo.lx = null; });
     // 敵
     const seen = new Set();
     for (const e of s.enemies) {
       seen.add(e.id);
       let m = this.enemyObjs.get(e.id);
-      if (!m) { m = buildEnemy(e); this.enemyObjs.set(e.id, m); this.field.add(m.obj); if (this.clipPlanes) m.obj.traverse((x) => { if (x.material && x.material.clippingPlanes) x.material.clippingPlanes = this.clipPlanes; }); }
       const [x, y] = L(e);
+      if (!m) {
+        m = buildEnemy(e); this.enemyObjs.set(e.id, m); this.field.add(m.obj);
+        if (this.clipPlanes) m.obj.traverse((o) => { if (o.material && o.material.clippingPlanes) o.material.clippingPlanes = this.clipPlanes; });
+        m.age = 0; m.hit = 0; m.lastFlash = 0; m.head = Math.PI; m.obj.userData.anchored = !!e.anchored;
+        // 盤面の中で生まれた敵（ハッチャーの子・割れた胞子など）だけ、ふくらんで現れる
+        m.popIn = !e.boss && x > 0.5 && x < FIELD_W - 0.5;
+      }
+      m.age += dt;
+      vel(m, x, y);
+      // 被弾: 光と「弾み」はすぐ立ち上がって減衰する
+      if (e.flash > m.lastFlash || (e.flashSolid > 0 && e.flashSolid >= 2)) m.hit = e.flash > m.lastFlash ? 1 : Math.max(m.hit, 0.35);
+      m.lastFlash = e.flash; if (e.flashSolid > 0) e.flashSolid--;
+      m.hit = damp(m.hit, 0, 11, dt);
+      const pop = m.popIn ? easeOutBack(Math.min(1, m.age / 0.2)) : 1;
+      const k = m.boss ? 0.025 : 0.16;
+      m.obj.scale.set(pop * (1 + k * m.hit), pop * (1 - k * 0.6 * m.hit), pop * (1 + k * 0.5 * m.hit));
+      // 進行方向へ向ける（向きは減衰で追う。右へ進むときは上下を鏡にして上下逆さまにしない）
+      if (m.face) {
+        const sp = Math.hypot(m.vx, m.vy);
+        if (sp > 0.6) m.head = dampAngle(m.head, Math.atan2(m.vy, m.vx), 9, dt);
+        const right = Math.cos(m.head) > 0;
+        m.obj.rotation.z = m.head - Math.PI;
+        if (right) m.obj.scale.y *= -1;
+      }
       let jx = 0, jy = 0;
-      if (e.dying) { jx = (Math.random() - 0.5) * 0.3; jy = (Math.random() - 0.5) * 0.3; }
+      if (e.dying) { const q = this.t * 40; jx = Math.sin(q) * 0.12 + Math.sin(q * 1.7) * 0.06; jy = Math.cos(q * 1.3) * 0.12; }
       m.obj.position.set(x + jx, y + jy, e.boss ? -0.4 : 0);
-      m.anim(e, this.t);
+      if (m.flash) m.flash.userData.set(m.hit);
+      m.anim(e, this.t, alpha, dt, { vx: m.vx, vy: m.vy, vxRel: m.vx + (e.anchored ? s.scrollSpeed : 0), hit: m.hit });
     }
-    for (const [id, m] of this.enemyObjs) if (!seen.has(id)) { this.field.remove(m.obj); this.enemyObjs.delete(id); }
-    // アイテム
+    // 消えた敵: 画面内なら 0.3 秒で回りながら縮んで消える（爆発の閃光の下で「砕けた」ように見せる）
+    for (const [id, m] of this.enemyObjs) if (!seen.has(id)) {
+      this.enemyObjs.delete(id);
+      const x = m.obj.position.x;
+      if (x > -1.5 && x < FIELD_W + 1.5) this.ghosts.push({ m, t: 0, life: m.boss ? 0.5 : 0.28, s0: m.obj.scale.clone(), spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6) });
+      else this.field.remove(m.obj);
+    }
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const g = this.ghosts[i]; g.t += dt;
+      const k = g.t / g.life;
+      if (k >= 1) { this.field.remove(g.m.obj); this.ghosts.splice(i, 1); continue; }
+      const sc = (1 - k) * (1 - k) * (1 + 0.25 * Math.sin(k * Math.PI));
+      g.m.obj.scale.set(g.s0.x * sc, g.s0.y * sc, g.s0.z * sc);
+      g.m.inner.rotation.z += g.spin * dt;
+      g.m.obj.position.x -= s.scrollSpeed * dt * (g.m.obj.userData.anchored ? 1 : 0);
+      if (g.m.flash) g.m.flash.userData.set(1 - k);
+    }
+    // アイテム（現れるときにふくらむ・ゆっくり浮き沈み）
     const seenI = new Set();
     for (const it of s.items) {
       seenI.add(it.id);
       let m = this.itemObjs.get(it.id);
-      if (!m) { m = this.makeItem(it.kind); this.itemObjs.set(it.id, m); this.field.add(m); }
+      if (!m) { m = this.makeItem(it.kind); m.userData.age = 0; this.itemObjs.set(it.id, m); this.field.add(m); }
+      m.userData.age += dt;
       const [x, y] = L(it); m.position.set(x, y, 0.3); m.rotation.y = this.t * 2.4; m.rotation.x = Math.sin(this.t * 1.3) * 0.4;
+      m.scale.setScalar(easeOutBack(Math.min(1, m.userData.age / 0.25)));
     }
     for (const [id, m] of this.itemObjs) if (!seenI.has(id)) { this.field.remove(m); this.itemObjs.delete(id); }
     // 光の板
@@ -298,8 +355,9 @@ export class World {
     this.drawBullets(s, sb, L);
     for (const it of s.items) { const [x, y] = L(it); const c = COL[it.kind] || COL.w; sb.add(x, y, 0.1, 2.4, 2.4, 0, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 + 0.3 * Math.sin(this.t * 6), 0); }
     if (s.pod) { const [x, y] = L(s.pod); const c = COL[s.pod.level ? s.pod.color : 'P']; sb.add(x, y, -0.2, 2.6, 2.6, 0, c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 0.8, 0); }
-    if (p.alive && p.charge > 0.05) { const k = p.charge; const c = k >= 1 ? [1.2, 1.6, 2] : COL.C; sb.add(px + 1.05, py, 0.2, 1 + k * 2.6, 1 + k * 2.6, this.t * 4, c[0], c[1], c[2], 0.5 + 0.4 * k, 2); }
-    if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = (b.beamWarn % 10 < 5 ? 0.9 : 0.4); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
+    this.chargeVis = damp(this.chargeVis || 0, p.alive ? p.charge : 0, 20, dt);
+    if (this.chargeVis > 0.05) { const k = this.chargeVis; const c = p.charge >= 1 ? [1.2, 1.6, 2] : COL.C; sb.add(px + 1.15, py, 0.2, 1 + k * 2.6, 1 + k * 2.6, this.t * 4, c[0], c[1], c[2], 0.5 + 0.4 * k, 2); }
+    if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = 0.45 + 0.45 * Math.sin(this.t * 30); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
     this.parts.update(dt, sb);
     sb.end();
     this.drawBursts(s, L);
@@ -321,8 +379,14 @@ export class World {
     for (const o of s.shots) {
       const [x, y] = L(o);
       switch (o.kind) {
-        case 'pel': { const c = o.owner === 'p' ? [1.2, 1.8, 2.2] : o.owner === 'pod' ? [1.8, 1.2, 2.4] : [0.9, 2.2, 1.3]; sb.add(x, y, 0.2, 0.95, 0.3, Math.atan2(o.vy, o.vx), c[0], c[1], c[2], 1, 1); break; }
-        case 'lance': { const len = Math.max(0.2, o.len), cxl = x - o.dir * len / 2; sb.add(cxl, o.y, 0.25, len + 0.3, o.w * 2.6, 0, 0.25, 1.3, 1.9, 1, 1); sb.add(cxl, o.y, 0.2, len + 0.8, o.w * 6, 0, 0.05, 0.3, 0.5, 0.35, 1); break; }
+        case 'pel': {
+          // 速さに沿った残像 2 枚＋撃った直後の小さな閃光
+          const c = o.owner === 'p' ? [1.2, 1.8, 2.2] : o.owner === 'pod' ? [1.8, 1.2, 2.4] : [0.9, 2.2, 1.3], r = Math.atan2(o.vy, o.vx);
+          for (let k = 2; k >= 1; k--) sb.add(x - o.vx * 0.011 * k, y - o.vy * 0.011 * k, 0.18, 0.95, 0.26, r, c[0], c[1], c[2], 0.5 / k, 1);
+          sb.add(x, y, 0.2, 0.95, 0.3, r, c[0], c[1], c[2], 1, 1);
+          if (o.t <= 2) sb.add(x - o.vx * 0.02, y, 0.22, 0.9, 0.9, 0, c[0], c[1], c[2], 0.6 * (1 - o.t / 3), 0);
+          break; }
+        case 'lance': { const len = Math.max(0.2, o.len), cxl = x - o.dir * len / 2; sb.add(cxl, o.y, 0.25, len + 0.3, o.w * 1.5, 0, 0.18, 0.95, 1.5, 1, 1); sb.add(cxl, o.y, 0.2, len + 0.8, o.w * 3.4, 0, 0.03, 0.22, 0.42, 0.28, 1); if (!o.stopped) sb.add(x, o.y, 0.26, o.w * 4, o.w * 4, 0, 0.4, 1.4, 2.0, 0.8, 0); break; }
         case 'rico': { sb.add(x, y, 0.25, 1.5, 0.36, Math.atan2(o.vy, o.vx), 2.6, 0.5, 1.6, 1, 1); if (Math.random() < 0.8) this.parts.trail(x, y, 0.5, [1.4, 0.2, 0.8], 0.18); break; }
         case 'crawl': { sb.add(x, y, 0.25, o.r * 3, o.r * 3, 0, 2.6, 1.5, 0.4, 1, 0); this.parts.trail(x, y, o.r * 2.2, [1.5, 0.7, 0.1], 0.3); break; }
       }
@@ -355,10 +419,15 @@ export class World {
     for (const b of s.ebullets) {
       const [x, y] = L(b);
       switch (b.kind) {
-        case 'needle': sb.add(x, y, 0.3, 0.75, 0.3, Math.atan2(b.vy, b.vx), 2.6, 0.9, 1.6, 1, 1); break;
+        case 'needle': { const r = Math.atan2(b.vy, b.vx); sb.add(x - b.vx * 0.03, y - b.vy * 0.03, 0.29, 0.75, 0.22, r, 1.6, 0.5, 1.0, 0.35, 1); sb.add(x, y, 0.3, 0.75, 0.3, r, 2.6, 0.9, 1.6, 1, 1); break; }
         case 'big': if (b.beam) sb.add(x, y, 0.3, 2.2, b.r * 3.2, 0, 2.8, 1.6, 0.5, 1, 1); else { sb.add(x, y, 0.3, b.r * 3.4, b.r * 3.4, 0, 2.4, 0.4, 0.9, 1, 0); sb.add(x, y, 0.28, b.r * 4.6, b.r * 4.6, this.t * 3, 1.4, 0.2, 0.6, 0.8, 2); } break;
         case 'flame': { const k = b.t / b.life; sb.add(x, y, 0.2, 1.2 + k * 1.6, 1.2 + k * 1.6, 0, 2.4 * (1 - k * 0.5), 1.1 * (1 - k), 0.3 * (1 - k), 1 - k * 0.7, 0); break; }
-        default: sb.add(x, y, 0.3, b.r * 3.6, b.r * 3.6, 0, 2.6, 0.55, 0.75, 1, 0);
+        default: {
+          // 撃ち出した瞬間にふくらんで縮む（どこから撃たれたかが一瞬で分かる）＋進行方向の後ろに淡い残像
+          const pop = 1 + 0.9 * Math.max(0, 1 - b.t / 7), w = b.r * 3.6 * pop;
+          sb.add(x - b.vx * 0.035, y - b.vy * 0.035, 0.29, b.r * 2.6, b.r * 2.6, 0, 1.6, 0.3, 0.45, 0.35, 0);
+          sb.add(x, y, 0.3, w, w, 0, 2.6, 0.55, 0.75, 1, 0);
+        }
       }
     }
   }

@@ -145,6 +145,8 @@ export function step(s, input = {}) {
   if (s.pod) { s.pod.px = s.pod.x; s.pod.py = s.pod.y; }
   for (const b of s.bits) { b.px = b.x; b.py = b.y; }
   for (const a of [s.shots, s.enemies, s.ebullets, s.items]) for (const e of a) { e.px = e.x; e.py = e.y; }
+  // 描画の補間用: 部位（ボス・蟲の節）と砲の向きの前 tick の値
+  for (const e of s.enemies) { if (e.parts) for (const q of e.parts) { q.pox = q.ox; q.poy = q.oy; } e.pang = e.ang; }
   if (s.flash > 0) s.flash--;
   if (s.shake > 0) s.shake *= 0.9;
   if (s.warn > 0) s.warn--;

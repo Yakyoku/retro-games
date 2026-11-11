@@ -16,10 +16,10 @@ function patch(mat, opt = {}) {
       '#include <begin_vertex>\n vFP = position; transformed += normal * sin(dot(position, vec3(3.1, 2.7, 1.9)) + uTime * 2.2) * uPulse;');
     let frag = sh.fragmentShader.replace('#include <emissivemap_fragment>',
       '#include <emissivemap_fragment>\n float rimK = pow(1.0 - clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0), 2.5);\n totalEmissiveRadiance += uRim * rimK;' +
-      (flesh ? '\n float vv = abs(sin(vFP.x * 5.3 + sin(vFP.y * 4.1 + vFP.z * 2.3) * 1.7 + uTime * 0.5));\n vv = smoothstep(0.96, 1.0, vv) * (0.55 + 0.45 * sin(uTime * 3.0 + vFP.y * 1.7));\n totalEmissiveRadiance += uVein * vv;' : ''));
+      (flesh ? '\n vec3 vq = vFP * ' + (opt.freq ?? 1).toFixed(3) + ';\n float vv = abs(sin(vq.x * 5.3 + sin(vq.y * 4.1 + vq.z * 2.3) * 1.7 + uTime * 0.5));\n vv = smoothstep(0.965, 1.0, vv) * (0.55 + 0.45 * sin(uTime * 3.0 + vq.y * 1.7));\n totalEmissiveRadiance += uVein * vv;' : ''));
     sh.fragmentShader = 'uniform float uTime; uniform vec3 uRim; uniform vec3 uVein; varying vec3 vFP;\n' + frag;
   };
-  mat.customProgramCacheKey = () => 'vb' + (flesh ? 'f' : 'm') + rim.getHexString() + (opt.vein ?? 0);
+  mat.customProgramCacheKey = () => 'vb' + (flesh ? 'f' : 'm') + rim.getHexString() + (opt.vein ?? 0) + '_' + (opt.freq ?? 1);
   return mat;
 }
 const fleshPatch = (mat, opt = {}) => patch(mat, { ...opt, flesh: true, rim: opt.rim ?? 0xff7aa8, rimGain: opt.rimGain ?? 0.35 });
@@ -73,6 +73,9 @@ export function materials() {
     chitin: patch(new THREE.MeshStandardMaterial({ color: 0x34404c, metalness: 0.5, roughness: 0.2 }), { rim: 0x8fd0ff, rimGain: 0.75 }),
     bone: patch(new THREE.MeshStandardMaterial({ color: 0xcfc6b4, metalness: 0.15, roughness: 0.55 }), { rim: 0xffe8c8, rimGain: 0.25 }),
     flesh: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x4a1c2a, metalness: 0.08, roughness: 0.5, emissive: 0x12030a }), { vein: 0xff3a7a }),
+    fleshBig: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x4a1c2a, metalness: 0.08, roughness: 0.48, emissive: 0x12030a }), { vein: 0xff3a7a, freq: 0.42, pulse: 0.08 }),
+    fleshTealBig: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x163a3a, metalness: 0.1, roughness: 0.45, emissive: 0x021010 }), { vein: 0x40ffd0, freq: 0.5 }),
+    trim: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4fe3ff).multiplyScalar(1.6), toneMapped: false }),
     fleshTeal: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x163a3a, metalness: 0.1, roughness: 0.45, emissive: 0x021010 }), { vein: 0x40ffd0 }),
     fleshViolet: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x2c1640, metalness: 0.2, roughness: 0.4, emissive: 0x080210 }), { vein: 0xc080ff }),
     crystal: new THREE.MeshStandardMaterial({ color: 0x8fd8ff, metalness: 0.2, roughness: 0.16, transparent: true, opacity: 0.72, emissive: 0x0a3050, envMapIntensity: 0.6 }),

@@ -11,6 +11,8 @@ import { World } from '../../shared/render/world.js';
 import { Input } from '../../shared/input.js';
 import { GameAudio } from '../../shared/audio/audio.js';
 import { ENDING_TEXT } from '../../shared/story.js';
+import { makeFrameClock } from '../../shared/frame-clock.js';
+const frameClock = makeFrameClock();
 
 const Q = new URLSearchParams(location.search);
 const DEBUG = Q.has('debug');
@@ -246,7 +248,7 @@ function menuNav(inp, items) {
 // ---------------------------------------------------------------- ループ
 let last = performance.now(), fps = 72, fAcc = 0, fN = 0;
 renderer.setAnimationLoop((now) => {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  const dt = frameClock(now); last = now;
   fAcc += dt; fN++; if (fAcc > 0.5) { fps = fN / fAcc; fAcc = 0; fN = 0; }
   if (inXR && needRecenter && ++needRecenter > 3 && recenter()) needRecenter = 0;
   const inp = inXR ? pollXR() : input.poll();

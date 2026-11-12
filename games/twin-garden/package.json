@@ -1,0 +1,11 @@
+{
+  "name": "twin-garden",
+  "private": true,
+  "type": "module",
+  "description": "ツイン・ガーデン — 赤と青のラインで杭を回して囲む、2D ブラウザ版と Meta Quest 3 WebXR 版（Claude Code で制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

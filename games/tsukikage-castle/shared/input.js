@@ -52,7 +52,9 @@ export class Input {
     addEventListener('gamepaddisconnected', (e) => { if (e.gamepad.index === this.padIndex) { this.padState = {}; this.padIndex = -1; this.onDisconnect && this.onDisconnect(); } });
     addEventListener('gamepadconnected', (e) => { this.padId = e.gamepad.id; this.onConnect && this.onConnect(e.gamepad); });
   }
-  releaseAll() { this.down.clear(); this.tapped.clear(); this.touch = {}; this.xr = {}; this.padState = {}; this.prevMenu = {}; }
+  // 押しっぱなしを解放する。メニューの「押した瞬間」の記憶は「全部押されていた」にして、
+  // いま物理的に押されているボタン（ポーズを開いた Start など）が次のフレームで押し直し扱いにならないようにする
+  releaseAll() { this.down.clear(); this.tapped.clear(); this.touch = {}; this.xr = {}; this.padState = {}; this.prevMenu = { up: true, down: true, left: true, right: true, ok: true, back: true, pause: true }; }
   setTouch(t) { this.touch = t; if (Object.values(t).some(Boolean)) this.lastDevice = 'touch'; }
   setXR(x) { this.xr = x; }
   // コントローラーを読む（毎フレーム 1 回）

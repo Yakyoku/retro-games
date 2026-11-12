@@ -7,7 +7,8 @@ import { getStages } from '../shared/stages.js';
 import { solveStage, replay } from '../tools/reach.js';
 
 const run = (g, input, n) => { for (let i = 0; i < n; i++) step(g, input); };
-const play = (opts = {}) => { const g = createGame({ noEnemies: true, ...opts }); run(g, {}, 80); assert.equal(g.mode, 'play'); return g; };
+const toPlay = (g) => { for (let i = 0; i < 400 && g.mode !== 'play'; i++) step(g, {}); return g; };
+const play = (opts = {}) => { const g = toPlay(createGame({ noEnemies: true, ...opts })); assert.equal(g.mode, 'play'); return g; };
 
 test('鎧あり → 被弾で鎧が壊れる → 次の被弾で死亡（体力ゲージではない）', () => {
   const g = play();
@@ -33,7 +34,7 @@ test('死亡は約 1 秒、残機は今の 1 人を含み、0 でゲームオー
       killPlayer(g, 'enemy');
       let n = 0; while (g.mode === 'dying') { step(g, {}); n++; }
       assert.ok(Math.abs(n * TICK - PLAYER.deathTime) < 0.05, `死亡演出 ${n * TICK}s`);
-      if (k > 1) { assert.equal(g.mode, 'ready'); assert.equal(g.lives, k - 1); run(g, {}, 80); }
+      if (k > 1) { assert.equal(g.mode, 'ready'); assert.equal(g.lives, k - 1); toPlay(g); }
     }
     assert.equal(g.mode, 'gameover');
     assert.equal(g.lives, 0);
@@ -42,7 +43,7 @@ test('死亡は約 1 秒、残機は今の 1 人を含み、0 でゲームオー
 
 test('復活: 鎧と槍・時間は初期値・得点はチェックポイントの値・復活無敵 2 秒・周囲に敵と弾がない', () => {
   const g = createGame({ stage: 0 });
-  run(g, {}, 80);
+  toPlay(g);
   g.player.x = 101.5; g.player.y = 3; run(g, {}, 2); // チェックポイント（x=101）を通る
   assert.equal(g.cp >= 0, true);
   const cpScore = g.score;
@@ -94,7 +95,7 @@ test('武器: 発射間隔と同時存在数', () => {
 });
 
 test('高速の短剣も 1 タイル幅の敵をすり抜けない', () => {
-  const g = createGame({ stage: 0 }); run(g, {}, 80);
+  const g = createGame({ stage: 0 }); toPlay(g);
   g.weapon = 'dagger';
   g.enemies.push({ type: 'turret', x: g.player.x + 5, y: g.player.y, w: 0.3, h: 2, hp: 99, max: 99, hittable: true, harm: false, dead: false, st: 'idle', t: 0, hitT: 0, cd: 99, deadT: 0, dir: -1, home: null });
   step(g, { attack: true }); run(g, {}, 30);
@@ -133,13 +134,13 @@ test('しゃがむと当たり判定が低くなり、低い天井の下では�
 
 test('稼ぎ防止: 倒した敵はカメラを往復しても復活せず、亡者の発生には上限がある', () => {
   const g = createGame({ stage: 0, god: true });
-  run(g, {}, 80);
+  toPlay(g);
   const s = g.spawners[0];
   let emerged = 0;
   for (let i = 0; i < 60 * 120; i++) { step(g, { right: (i / 200 | 0) % 2 === 0, left: (i / 200 | 0) % 2 === 1, attack: true }); emerged += g.events.filter((e) => e.type === 'ghoulEmerge').length; if (g.player.x > 38) g.player.x = 38; }
   assert.ok(emerged <= s.cap, `発生 ${emerged} ≤ ${s.cap}`);
   // 画面外へ離れた敵は元の位置で眠る（倒した敵は戻らない）
-  const g2 = createGame({ stage: 0, god: true }); run(g2, {}, 80);
+  const g2 = createGame({ stage: 0, god: true }); toPlay(g2);
   g2.player.x = 66; g2.player.y = 4; run(g2, {}, 240);
   const sk = g2.enemies.find((e) => e.type === 'skeleton');
   assert.ok(sk); sk.hp = 0.1; g2.shots.push({ kind: 'lance', x: sk.x, y: sk.y + 0.8, px: sk.x, py: sk.y, vx: 0, vy: 0, dist: 0, w: 1, h: 1, hits: new Set(), t: 0, face: 1 });
@@ -182,7 +183,7 @@ function bossBot(g, weapon) {
 test('全ボス: どの武器でも撃破できる（予告と隙がある）', () => {
   for (let i = 0; i < 6; i++) for (const w of Object.keys(WEAPONS)) {
     const g = createGame({ stage: i, god: true, noEnemies: true });
-    debugWarpBoss(g); run(g, {}, 80);
+    debugWarpBoss(g); toPlay(g);
     const bd = getStages()[i].boss;
     g.player.x = bd.x0 + 4; g.player.y = (g.def.vertical ? 102 : g.player.y);
     let t = 0;
@@ -193,7 +194,7 @@ test('全ボス: どの武器でも撃破できる（予告と隙がある）', 
 
 test('ステージ遷移: クリアで次へ、最終ステージでエンディング、再挑戦は先頭から初期残機・得点 0', () => {
   const g = createGame({ stage: 5, god: true, noEnemies: true });
-  debugWarpBoss(g); run(g, {}, 80); g.player.x = g.def.boss.x0 + 4; run(g, { right: true }, 10); run(g, {}, 200);
+  debugWarpBoss(g); toPlay(g); g.player.x = g.def.boss.x0 + 4; run(g, { right: true }, 10); run(g, {}, 200);
   g.boss.hp = 0.5; g.boss.hittable = true;
   g.shots.push({ kind: 'lance', x: g.boss.x, y: g.boss.y + 1, px: 0, py: 0, vx: 0, vy: 0, dist: 0, w: 3, h: 3, hits: new Set(), t: 0, face: 1 });
   let t = 0; while (g.mode !== 'ending' && t++ < 60 * 30) { g.boss && (g.boss.hittable = true); step(g, {}); }

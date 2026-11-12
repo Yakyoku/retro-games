@@ -44,7 +44,7 @@ export class GameApp {
     const items = [
       { label: 'はじめる（ステージ 1）', act: () => this.newGame(0) },
       { label: () => `つづきから（ステージ ${this.save.reached[this.diff] + 1} の先頭）`, act: () => this.newGame(this.save.reached[this.diff]), disabled: reached <= 0 },
-      { label: () => `難易度: ${DIFFICULTY[this.diff].label}（残機 ${DIFFICULTY[this.diff].lives}・${DIFFICULTY[this.diff].time} 秒）`, adj: () => { this.save.difficulty = this.diff === 'hard' ? 'easy' : 'hard'; this.persist(); this.openTitle(); } },
+      { label: () => `難易度: ${DIFFICULTY[this.diff].label}（残機 ${DIFFICULTY[this.diff].lives}・${DIFFICULTY[this.diff].time} 秒）`, adj: () => { this.save.difficulty = this.diff === 'hard' ? 'easy' : 'hard'; this.persist(); const sel = this.menu.sel; this.openTitle(); this.menu.sel = sel; } },
       { label: '操作説明', act: () => this.openHowto() },
       { label: '設定', act: () => this.openSettings() },
     ];

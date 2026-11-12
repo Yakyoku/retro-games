@@ -1,0 +1,8 @@
+{
+  "sites": [
+    { "variant": "2d", "name": "tsukikage-castle-2d-yk", "siteId": "f7dd0e85-bb71-4150-a786-9bc26467a661", "url": "https://tsukikage-castle-2d-yk.netlify.app/",
+      "env": { "GAME": "tsukikage-castle", "VARIANT": "2d" }, "note": "2D 版（トップページ＋ /play/）" },
+    { "variant": "vr", "name": "tsukikage-castle-vr-yk", "siteId": "dde0b43c-dd8c-484a-ae7b-a38107ee54fd", "url": "https://tsukikage-castle-vr-yk.netlify.app/",
+      "env": { "GAME": "tsukikage-castle", "VARIANT": "vr" }, "note": "3D / VR 版（トップページ＋ /play/、Quest 3 の WebXR）" }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+ "name": "resident-oyaji",
+ "generator": "tools/build-characters.mjs（Claude Code で制作）",
+ "vertices": 10834,
+ "triangles": 21648,
+ "bones": [
+  {
+   "name": "root",
+   "parent": -1,
+   "pos": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "chest",
+   "parent": 0,
+   "pos": [
+    0,
+    0.25,
+    0
+   ]
+  },
+  {
+   "name": "head",
+   "parent": 1,
+   "pos": [
+    0,
+    0.52,
+    0.02
+   ]
+  },
+  {
+   "name": "upperL",
+   "parent": 1,
+   "pos": [
+    -0.2,
+    0.38,
+    0
+   ]
+  },
+  {
+   "name": "foreL",
+   "parent": 3,
+   "pos": [
+    -0.24,
+    0.14,
+    0.02
+   ]
+  },
+  {
+   "name": "handL",
+   "parent": 4,
+   "pos": [
+    -0.25,
+    -0.08,
+    0.06
+   ]
+  },
+  {
+   "name": "upperR",
+   "parent": 1,
+   "pos": [
+    0.2,
+    0.38,
+    0
+   ]
+  },
+  {
+   "name": "foreR",
+   "parent": 6,
+   "pos": [
+    0.24,
+    0.14,
+    0.02
+   ]
+  },
+  {
+   "name": "handR",
+   "parent": 7,
+   "pos": [
+    0.25,
+    -0.08,
+    0.06
+   ]
+  }
+ ],
+ "groups": [
+  {
+   "name": "skin",
+   "start": 0,
+   "count": 38760
+  },
+  {
+   "name": "hair",
+   "start": 38760,
+   "count": 6420
+  },
+  {
+   "name": "cloth",
+   "start": 45180,
+   "count": 19764
+  }
+ ],
+ "layout": {
+  "position": {
+   "offset": 0,
+   "length": 32502,
+   "type": "Float32Array"
+  },
+  "normal": {
+   "offset": 130008,
+   "length": 43336,
+   "type": "Int8Array"
+  },
+  "color": {
+   "offset": 173344,
+   "length": 43336,
+   "type": "Uint8Array"
+  },
+  "uv": {
+   "offset": 216680,
+   "length": 21668,
+   "type": "Float32Array"
+  },
+  "skinIndex": {
+   "offset": 303352,
+   "length": 43336,
+   "type": "Uint8Array"
+  },
+  "skinWeight": {
+   "offset": 346688,
+   "length": 43336,
+   "type": "Uint8Array"
+  },
+  "index": {
+   "offset": 390024,
+   "length": 64944,
+   "type": "Uint16Array"
+  }
+ },
+ "face": {
+  "eyeL": [
+   -0.045,
+   0.105,
+   0.104
+  ],
+  "eyeR": [
+   0.045,
+   0.105,
+   0.104
+  ],
+  "mouth": [
+   0,
+   0.035,
+   0.118
+  ]
+ }
+}

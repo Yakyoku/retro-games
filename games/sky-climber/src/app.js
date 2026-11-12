@@ -2,7 +2,7 @@
 // 60Hz 固定のゲーム進行と補間描画、入力の振り分け（VR 直接／VR クラシック／ゲームパッド／キーボード／タッチ）、
 // 音と振動、VR 内メニュー、一時停止と安全な復帰、自動画質を扱う。
 import * as THREE from 'three';
-import { World, QUALITY, QUALITY_ORDER } from './render/world.js';
+import { World, QUALITY, QUALITY_ORDER, loadCharacterModels } from './render/world.js';
 import { Game, Run } from './core/game.js';
 import { BUILDINGS, stageById, WIN } from './core/stages.js';
 import { TICK, DIFFICULTY, RULES } from './core/config.js';
@@ -69,6 +69,8 @@ class App {
     try { this.world.setQuality(this.pickQuality(false)); }
     catch (e) { this.fail('WebGL2 を初期化できませんでした。ブラウザーのハードウェアアクセラレーションを有効にしてください。', e); return; }
     await new Promise((r) => setTimeout(r, 30));
+    this.setLoad(0.25, 'キャラクターを読み込み中…');
+    try { await loadCharacterModels(); } catch (e) { this.fail('キャラクターのモデルを読み込めませんでした（通信を確かめて再読み込みしてください）。', e); return; }
     this.setLoad(0.35, 'ビルを建てています…');
     // トップページの代表映像: 昼の市街地のビルを主人公が自動で登る
     this.attract = new Game({ stageId: 'b1', noHazards: false, difficulty: 'beginner' });
@@ -376,8 +378,8 @@ class App {
     const wpos = (i) => { const w = b.windows[i]; return { x: w.x, y: w.y + WIN.y0 + 0.7, z: 0 }; };
     for (const e of evs) {
       switch (e.type) {
-        case 'reach': A.play('reach', { pos: handPos(g, e.side), gain: 0.7 }); break;
-        case 'grab': A.play('grab', { pos: handPos(g, e.side) }); this.haptic(e.side, 0.35, 30); if (Math.random() < 0.12 && g.climber.hands[e.side].y > 3) A.play('yoisho', { minGap: 3 }); break;
+        case 'reach': this.world.climber?.impulse('reach', e.side); A.play('reach', { pos: handPos(g, e.side), gain: 0.7 }); break;
+        case 'grab': this.world.climber?.impulse('grab', e.side); A.play('grab', { pos: handPos(g, e.side) }); this.haptic(e.side, 0.35, 30); if (Math.random() < 0.12 && g.climber.hands[e.side].y > 3) A.play('yoisho', { minGap: 3 }); break;
         case 'release': if (e.reason === 'window') { A.play('itte'); this.haptic(e.side, 0.8, 80); } break;
         case 'windowWarn': A.play('windowWarn', { pos: wpos(e.win), warn: true, minGap: 0.2 }); break;
         case 'windowClose': A.play('windowClose', { pos: wpos(e.win), gain: 0.9 }); break;
@@ -389,7 +391,7 @@ class App {
         case 'birdFly': A.play('flap', { pos: { x: e.x, y: e.y, z: 0.4 } }); break;
         case 'zoneWarn': A.play('buzz', { pos: { x: e.x, y: e.y, z: 0.2 }, warn: true }); break;
         case 'zoneOn': A.play('zap', { pos: { x: e.x, y: e.y, z: 0.2 } }); break;
-        case 'hit': A.play('hit'); A.play(e.kind === 'bird' ? 'wa' : 'itte', { minGap: 0.3 }); this.sinceHit = 0; if (e.side) this.haptic(e.side, 1, 120); this.world.burst(e.x, e.y, e.kind === 'neon' ? 'spark' : 'glass'); if (!this.vr) this.pad.rumble(120, 0.8); break;
+        case 'hit': this.world.climber?.impulse('hit', e.side || 'R'); A.play('hit'); A.play(e.kind === 'bird' ? 'wa' : 'itte', { minGap: 0.3 }); this.sinceHit = 0; if (e.side) this.haptic(e.side, 1, 120); this.world.burst(e.x, e.y, e.kind === 'neon' ? 'spark' : 'glass'); if (!this.vr) this.pad.rumble(120, 0.8); break;
         case 'combo': A.play(e.n >= 6 ? 'combo3' : e.n >= 4 ? 'combo2' : 'combo1'); this.popCombo(e); break;
         case 'grace': A.play('grace'); break;
         case 'fall': A.play('fall'); A.play('are', { minGap: 0.5 }); if (!this.vr) this.pad.rumble(300, 1); this.haptic('L', 0.6, 200); this.haptic('R', 0.6, 200); break;

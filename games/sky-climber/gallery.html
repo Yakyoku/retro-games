@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="generator" content="Claude Code">
+<title>Sky Climber VR — キャラクター設定資料</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="src/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+<style>
+  html,body { margin:0; height:100%; background:#0b1730; color:#f4f8ff; font:15px/1.6 "Noto Sans JP",system-ui,sans-serif; overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; touch-action:none; }
+  #ui { position:fixed; left:12px; top:12px; right:12px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; z-index:2; }
+  #ui b { margin-right:8px; } button { font:inherit; font-weight:700; color:#f4f8ff; background:rgba(14,26,46,.85); border:1px solid #2c4a78; border-radius:99px; padding:6px 12px; cursor:pointer; }
+  button.sel { background:#ffd34a; color:#1a1205; border-color:#ffd34a; } a { color:#9fd4ff; }
+  #note { position:fixed; left:12px; bottom:12px; right:12px; font-size:13px; color:#c9d6e2; background:rgba(4,9,20,.75); padding:8px 12px; border-radius:10px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"><b>キャラクター設定資料</b><span id="models"></span><span id="poses"></span><a href="index.html">ゲームへ</a></div>
+<div id="note">ドラッグで回転・ホイール／2 本指で拡大。すべて tools/build-characters.mjs で生成した骨格入りの一体モデル（Claude Code で制作）。本ゲームはClaude Codeのクラウドセッションで制作しました。</div>
+<script type="module" src="src/gallery.js"></script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+{
+ "name": "resident-obachan",
+ "generator": "tools/build-characters.mjs（Claude Code で制作）",
+ "vertices": 12378,
+ "triangles": 24732,
+ "bones": [
+  {
+   "name": "root",
+   "parent": -1,
+   "pos": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "chest",
+   "parent": 0,
+   "pos": [
+    0,
+    0.25,
+    0
+   ]
+  },
+  {
+   "name": "head",
+   "parent": 1,
+   "pos": [
+    0,
+    0.52,
+    0.02
+   ]
+  },
+  {
+   "name": "upperL",
+   "parent": 1,
+   "pos": [
+    -0.2,
+    0.38,
+    0
+   ]
+  },
+  {
+   "name": "foreL",
+   "parent": 3,
+   "pos": [
+    -0.24,
+    0.14,
+    0.02
+   ]
+  },
+  {
+   "name": "handL",
+   "parent": 4,
+   "pos": [
+    -0.25,
+    -0.08,
+    0.06
+   ]
+  },
+  {
+   "name": "upperR",
+   "parent": 1,
+   "pos": [
+    0.2,
+    0.38,
+    0
+   ]
+  },
+  {
+   "name": "foreR",
+   "parent": 6,
+   "pos": [
+    0.24,
+    0.14,
+    0.02
+   ]
+  },
+  {
+   "name": "handR",
+   "parent": 7,
+   "pos": [
+    0.25,
+    -0.08,
+    0.06
+   ]
+  }
+ ],
+ "groups": [
+  {
+   "name": "skin",
+   "start": 0,
+   "count": 25020
+  },
+  {
+   "name": "hair",
+   "start": 25020,
+   "count": 20736
+  },
+  {
+   "name": "cloth",
+   "start": 45756,
+   "count": 28440
+  }
+ ],
+ "layout": {
+  "position": {
+   "offset": 0,
+   "length": 37134,
+   "type": "Float32Array"
+  },
+  "normal": {
+   "offset": 148536,
+   "length": 49512,
+   "type": "Int8Array"
+  },
+  "color": {
+   "offset": 198048,
+   "length": 49512,
+   "type": "Uint8Array"
+  },
+  "uv": {
+   "offset": 247560,
+   "length": 24756,
+   "type": "Float32Array"
+  },
+  "skinIndex": {
+   "offset": 346584,
+   "length": 49512,
+   "type": "Uint8Array"
+  },
+  "skinWeight": {
+   "offset": 396096,
+   "length": 49512,
+   "type": "Uint8Array"
+  },
+  "index": {
+   "offset": 445608,
+   "length": 74196,
+   "type": "Uint16Array"
+  }
+ },
+ "face": {
+  "eyeL": [
+   -0.045,
+   0.105,
+   0.104
+  ],
+  "eyeR": [
+   0.045,
+   0.105,
+   0.104
+  ],
+  "mouth": [
+   0,
+   0.035,
+   0.118
+  ]
+ }
+}

@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { BuildingView } from './building.js';
 import { City, makeSky, SKY } from './city.js';
-import { makeMaterials, ClimberModel, FirstPersonHands, ResidentModel, BirdModel, HelicopterModel } from './characters.js';
+import { makeMaterials, ClimberModel, FirstPersonHands, ResidentModel, BirdModel, HelicopterModel, loadCharacterModels } from './characters.js';
+export { loadCharacterModels };
 import { makeItem, Shards, Warnings, HoldMarkers, makeGondola, makeBeam, Sparks } from './props.js';
 import { WIN } from '../core/stages.js';
 
@@ -82,7 +83,7 @@ export class World {
     this.fpHands = new FirstPersonHands(this.M); root.add(this.fpHands.group);
     this.residents = [new ResidentModel(this.M, 'oyaji'), new ResidentModel(this.M, 'obachan'), new ResidentModel(this.M, 'oyaji')];
     for (const rm of this.residents) { rm.group.visible = false; rm.group.traverse((o) => { if (o.isMesh) o.castShadow = true; }); root.add(rm.group); }
-    this.birds = [0, 1, 2].map(() => { const b = new BirdModel(); b.group.visible = false; root.add(b.group); return b; });
+    this.birds = [0, 1, 2].map(() => { const b = new BirdModel(this.M); b.group.visible = false; root.add(b.group); return b; });
     this.items = new Map(); this.itemPool = { pot: [], can: [], bucket: [], bottle: [] };
     this.shards = new Shards(); root.add(this.shards.mesh);
     this.sparks = new Sparks(); root.add(this.sparks.points);

@@ -1,0 +1,132 @@
+{
+ "name": "bird",
+ "generator": "tools/build-characters.mjs（Claude Code で制作）",
+ "vertices": 7346,
+ "triangles": 14684,
+ "bones": [
+  {
+   "name": "root",
+   "parent": -1,
+   "pos": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "head",
+   "parent": 0,
+   "pos": [
+    0,
+    0.07,
+    0.17
+   ]
+  },
+  {
+   "name": "tail",
+   "parent": 0,
+   "pos": [
+    0,
+    0,
+    -0.18
+   ]
+  },
+  {
+   "name": "wing1L",
+   "parent": 0,
+   "pos": [
+    -0.09,
+    0.05,
+    0.02
+   ]
+  },
+  {
+   "name": "wing2L",
+   "parent": 3,
+   "pos": [
+    -0.36,
+    0.05,
+    0
+   ]
+  },
+  {
+   "name": "wing1R",
+   "parent": 0,
+   "pos": [
+    0.09,
+    0.05,
+    0.02
+   ]
+  },
+  {
+   "name": "wing2R",
+   "parent": 5,
+   "pos": [
+    0.36,
+    0.05,
+    0
+   ]
+  }
+ ],
+ "groups": [
+  {
+   "name": "body",
+   "start": 0,
+   "count": 39204
+  },
+  {
+   "name": "beak",
+   "start": 39204,
+   "count": 4848
+  }
+ ],
+ "layout": {
+  "position": {
+   "offset": 0,
+   "length": 22038,
+   "type": "Float32Array"
+  },
+  "normal": {
+   "offset": 88152,
+   "length": 29384,
+   "type": "Int8Array"
+  },
+  "color": {
+   "offset": 117536,
+   "length": 29384,
+   "type": "Uint8Array"
+  },
+  "uv": {
+   "offset": 146920,
+   "length": 14692,
+   "type": "Float32Array"
+  },
+  "skinIndex": {
+   "offset": 205688,
+   "length": 29384,
+   "type": "Uint8Array"
+  },
+  "skinWeight": {
+   "offset": 235072,
+   "length": 29384,
+   "type": "Uint8Array"
+  },
+  "index": {
+   "offset": 264456,
+   "length": 44052,
+   "type": "Uint16Array"
+  }
+ },
+ "face": {
+  "eyeL": [
+   -0.07,
+   0.04,
+   0.065
+  ],
+  "eyeR": [
+   0.07,
+   0.04,
+   0.065
+  ]
+ }
+}

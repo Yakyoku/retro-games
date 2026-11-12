@@ -17,7 +17,9 @@ games/sky-climber/
 ├── src/audio/     音（psg AY-3-8910 系の再現と MML・music 曲・sfx 効果音・voice 掛け声・audio 再生）
 ├── src/input/     入力（gamepad・keyboard・touch・xr）、src/ui/vrui.js（VR 内の板と手首の HUD）、src/app.js（画面遷移とループ）
 ├── fonts/         Noto Sans JP を使う文字だけに絞ったもの（OFL）、tools/make-font.py で生成
-├── docs/          REFERENCES（参照資料と未確認事項）・SOUND（音イベント表）・CHARACTER（設定資料）
+├── gallery.html   キャラクター設定資料（回して見る・姿勢と表情）
+├── src/render/models/   骨格入りキャラクターのモデル（tools/build-characters.mjs で生成）
+├── docs/          REFERENCES（参照資料と未確認事項）・SOUND（音イベント表）・CHARACTER（設定資料と改善 30 項目）
 └── tests/         node --test（core 28・direct 7）
 ```
 - 保存名: localStorage の `skyclimber-yk.v1.*`（他作品と分離）
@@ -44,6 +46,12 @@ games/sky-climber/
 - 2026-11-12 日本語フォントは Noto Sans JP（@fontsource 5.3.1、OFL）から使う文字だけを抜き出して 2 ウェイト計 約 320KB（VR 内のキャンバス文字も確実に日本語になる）
 - 2026-11-12 依存の追加なし（ルートの package.json は変更していない）。IWER・fonttools は scratchpad でだけ使った
 
+- 2026-11-12（2 回目の依頼）iPhone/iPad でタッチ操作が効かなかった原因: タッチの受け皿が「一度タッチされた端末」でだけ反応する CSS で、その最初のタッチを受け取れなかった。
+  前回の検証は受け皿へ直接イベントを送っていたので見逃した → 実際の指の操作（CDP の Input.dispatchTouchEvent・2 本指）で再現・修正を確認するように変更。
+  あわせて、低い画面（スマートフォンの横向き）で操作ボタンが画面外に出る配置を直し、タッチでは「届いたらつかむ」を既定にした（設定で変更可）
+- 2026-11-12（2 回目の依頼）キャラクターを作り直し: 距離場（SDF）＋Surface Nets で素材ごとの滑らかな層を作り、骨格とスキンウェイトを付けた一体モデルを
+  tools/build-characters.mjs でオフライン生成（src/render/models/*.json・*.bin が制作元データ）。動きは src/render/rig.js のばねで滑らかに。30 項目は docs/CHARACTER.md
+
 ## 調整値（推奨初期設定。原作の数値ではない）— src/core/config.js
 - 残機 3（現在の挑戦分を含む）・再保持の猶予 0.35 秒・命中後 1 秒は追加の保持解除なし・落下演出 0.9 秒＋暗転 0.45 秒
 - 得点: 初めて届いた高さ 1m ごと 100 点・左右交互に未到達の保持点で 3 回目から 50→100→150→200（上限）・屋上 1,000 点
@@ -59,7 +67,7 @@ games/sky-climber/
 - エミュレーション: Meta の IWER（Quest 3 プロファイル）で VR 開始（対応レート 72/80/90/120 → 90Hz を選択）・光線でボタン選択・グリップでつかんで 0.45m 引くと rig が 0.45m 上昇・左手へ持ち替えて計 0.90m・
   visible-blurred で一時停止 → 再開で落下なし・VR 終了で一時停止
 - ゲームパッド（模擬の Gamepad API・Xbox の ID）: 決定ボタンだけでトップ → 操作方式 → 練習へ進む、左スティック＝左手・右スティック＝右手が独立して伸びてつかむ、Start で一時停止・B で再開・切断で一時停止。表記は Xbox=A/B/Start・PS=×/○/OPTIONS・Nintendo=B/A/+
-- タッチ（pointerId の異なる 2 本の指を合成）: 左右が同時に効き、右の指を離しても左の入力が残る
+- タッチ: iPhone 14 Pro 横向きの模擬で、実際の指の操作（2 本指）でトップ → 操作説明 → 練習へ進み、左右の指で交互に手が伸びてつかみ登れる（1.45m → 2.64m）。片方の指を離しても他方の入力が残る
 - 本番 URL（https://sky-climber-rg-yk.netlify.app/）: トップの注釈がテキストで画面内に表示（白・15.4px・濃い背景）、通常 3D の起動・キーボード操作・Esc 一時停止、クリックで AudioContext が running、
   素材の取得失敗なし・実行時エラーなし、VR ボタンは非対応ブラウザーで無効と説明表示、存在しないファイルは 404、woff2 は font/woff2、HTML は must-revalidate
 - 4K: 表示 1920×1080・DPR 2 で描画バッファ 3840×2160（内部描画＝表示解像度、拡大ではない）、画質 pcHigh・描画 134 回で描けることを確認（ソフトウェア描画のため fps は参考外）

@@ -1,0 +1,11 @@
+{
+  "name": "aegis-relay",
+  "private": true,
+  "type": "module",
+  "description": "AEGIS RELAY — 縦スクロールシューティング（2D ブラウザ版 + Meta Quest 3 WebXR 版。Claude Code で制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

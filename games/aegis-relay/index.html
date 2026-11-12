@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="theme-color" content="#04060d">
+<title>AEGIS RELAY — イージス・リレー</title>
+<link rel="stylesheet" href="./shared/ui.css">
+<script src="./shared/error-overlay.js"></script>
+<style>
+  html, body { position: static; overflow: auto; touch-action: auto; -webkit-user-select: auto; user-select: auto; }
+  body { min-height: 100%; background: radial-gradient(ellipse at 50% -10%, #17305a 0%, #04060d 60%); }
+  main { max-width: 980px; margin: 0 auto; padding: 56px 20px 80px; }
+  h1 { margin: 0; font-size: clamp(42px, 8vw, 92px); letter-spacing: .1em; line-height: 1; font-weight: 800;
+    background: linear-gradient(180deg, #fff 0%, #bfe9ff 45%, #2ec5ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .kana { color: var(--dim); letter-spacing: .5em; margin: 10px 0 18px; }
+  .lead { color: #c3cde6; line-height: 1.9; max-width: 720px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin: 34px 0; }
+  .card { display: block; text-decoration: none; color: var(--ink); background: rgba(10, 16, 32, .75); border: 1px solid var(--line); border-radius: 20px; padding: 26px 24px; transition: transform .15s, border-color .15s; }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .card b { display: block; font-size: 24px; letter-spacing: .08em; margin-bottom: 8px; }
+  .card span { color: var(--dim); line-height: 1.7; font-size: 14px; }
+  .card.vr { border-color: rgba(255, 209, 102, .45); } .card.vr b { color: var(--gold); }
+  .card.hide { display: none; }
+  .small { font-size: 13px; color: #7d8db0; line-height: 1.9; }
+  footer { margin-top: 48px; font-size: 12px; letter-spacing: .25em; color: #56627d; }
+</style>
+</head>
+<body data-variant="all">
+<main>
+  <h1>AEGIS RELAY</h1>
+  <div class="kana">イージス・リレー</div>
+  <p class="lead">浮遊大陸と宇宙の戦域を縦に進み、空の編隊と大地の標的を撃ち、支援機との<b>リレー（合体）</b>で火力を上げ、隠されたボーナスを探してハイスコアを狙う縦スクロールシューティング。<br>
+  1980 年代のアーケード作品に影響を受けた<b>非公式のオリジナル作品</b>です。名称・機体・ステージ・曲・効果音はすべて新しく作ったもので、既存の作品・会社とは関係ありません。</p>
+  <div class="cards">
+    <a class="card p2" href="./play2d/"><b>2D 版で遊ぶ</b><span>PC・タブレットのブラウザ。キーボード・ゲームパッド・タッチ。4K の大画面でも細部までくっきり。</span></a>
+    <a class="card p3" href="./play3d/"><b>3D 版（通常画面）</b><span>同じルールを立体の戦域で。斜め上から見下ろす固定視点。キーボード・ゲームパッド。</span></a>
+    <a class="card p3 vr" href="./play3d/?vr=1"><b>VR で遊ぶ（Meta Quest 3）</b><span>Quest 3 のブラウザで開き「VR を開始」。座ったまま、目の前の立体戦域を見下ろして遊ぶ。左スティック移動・右トリガー射撃。</span></a>
+    <a class="card other" id="other" href="#"><b>もう一方のサイトへ</b><span></span></a>
+  </div>
+  <p class="small">記録（ハイスコア）と設定はこのサイトのブラウザ内に保存されます（2D 版と 3D 版のサイトでは別々）。<br>
+  補助機能（自動連射）を使った記録は別枠で、デバッグ機能を使ったプレイは記録しません。</p>
+  <footer>MADE WITH CLAUDE</footer>
+</main>
+<script type="module">
+  import { SITES } from './shared/sites.js';
+  const v = document.body.dataset.variant;
+  const o = document.getElementById('other');
+  if (v === '2d') { document.querySelectorAll('.p3').forEach((e) => e.classList.add('hide')); o.href = SITES['3d']; o.querySelector('b').textContent = '3D / VR 版のサイトへ'; o.querySelector('span').textContent = 'Quest 3 の VR と、通常画面の 3D 版。'; }
+  else if (v === 'vr') { document.querySelectorAll('.p2').forEach((e) => e.classList.add('hide')); o.href = SITES['2d']; o.querySelector('b').textContent = '2D 版のサイトへ'; o.querySelector('span').textContent = 'PC・タブレットで遊ぶ 2D 版。'; }
+  else o.classList.add('hide');
+</script>
+</body>
+</html>

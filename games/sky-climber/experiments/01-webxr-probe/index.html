@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<title>Sky Climber VR — WebXR 検証シーン</title>
+<link rel="stylesheet" href="../../fonts/fonts.css">
+<script src="../../src/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }</script>
+<style>
+  body { margin:0; background:#0b1730; color:#f4f8ff; font:15px/1.6 "Noto Sans JP",system-ui,sans-serif; }
+  #ui { position:fixed; left:16px; top:16px; right:16px; max-width:620px; background:rgba(4,9,20,.85); border-radius:14px; padding:14px 18px; z-index:2; }
+  button { font:inherit; font-weight:800; padding:10px 18px; border-radius:12px; border:0; background:#7fd0ff; color:#071430; cursor:pointer; }
+  pre { white-space:pre-wrap; font:12px/1.5 ui-monospace,Consolas,monospace; color:#7dffb0; margin:8px 0 0; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <b>WebXR 検証シーン</b>（本編の前に、この環境で VR が成り立つかを確かめる小さな場面）<br>
+  <button id="go">VR を開始</button> <a href="../../index.html" style="color:#9fd4ff">本編へ</a>
+  <pre id="log">確認中…</pre>
+</div>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+const log = (s) => (document.getElementById('log').textContent = s);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.setSize(innerWidth, innerHeight, false); r.xr.enabled = true; r.xr.setReferenceSpaceType('local-floor');
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x87b8e8);
+const cam = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.02, 100); cam.position.set(0, 1.6, 0.8);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2));
+// 壁と窓枠（保持点）: 両眼で奥行きが正しく見えるかを確かめる近距離の物
+const wall = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 0.2), new THREE.MeshStandardMaterial({ color: 0xd8ccb4 })); wall.position.set(0, 2, -0.55); scene.add(wall);
+for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.14), new THREE.MeshStandardMaterial({ color: 0xffffff })); s.position.set(i % 2 ? 0.5 : -0.5, 1.0 + Math.floor(i / 2) * 0.6, -0.4); scene.add(s); }
+// 左右のコントローラー: handedness で色を分ける（左=青、右=橙）
+const hands = { left: mkHand(0x5a9bff), right: mkHand(0xff9a3a) };
+function mkHand(c) { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.12), new THREE.MeshStandardMaterial({ color: c }))); const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: c })); g.add(ray); scene.add(g); return g; }
+// VR 内の文字の板
+const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512; const cx = cv.getContext('2d'); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+const board = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshBasicMaterial({ map: tex })); board.position.set(0, 1.55, -0.42); scene.add(board);
+function boardText(lines) { cx.fillStyle = '#0a1426'; cx.fillRect(0, 0, 1024, 512); cx.fillStyle = '#fff'; cx.font = '600 34px "Noto Sans JP",sans-serif'; lines.forEach((l, i) => cx.fillText(l, 30, 60 + i * 50)); tex.needsUpdate = true; }
+let ac = null, session = null, visibility = '-', enters = 0, ends = 0;
+function beep(f) { if (!ac) return; const o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.15, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.16); }
+const support = navigator.xr ? await navigator.xr.isSessionSupported('immersive-vr').catch(() => false) : false;
+document.getElementById('go').onclick = async () => {
+  ac = ac || new AudioContext(); await ac.resume(); beep(880);
+  session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+  enters++;
+  session.addEventListener('end', () => { ends++; session = null; });
+  session.addEventListener('visibilitychange', () => (visibility = session.visibilityState));
+  session.addEventListener('selectstart', (e) => beep(e.inputSource.handedness === 'left' ? 523 : 659));
+  session.addEventListener('squeezestart', (e) => beep(e.inputSource.handedness === 'left' ? 392 : 440));
+  await r.xr.setSession(session); visibility = session.visibilityState;
+  if (session.supportedFrameRates && session.updateTargetFrameRate && Array.from(session.supportedFrameRates).includes(90)) await session.updateTargetFrameRate(90).catch(() => {});
+};
+r.setAnimationLoop((t, frame) => {
+  const lines = [`WebXR: ${navigator.xr ? 'あり' : 'なし'}・immersive-vr: ${support ? '対応' : '非対応'}・安全な接続: ${isSecureContext}`, `開始 ${enters} 回・終了 ${ends} 回・表示 ${visibility}`];
+  if (frame && session) {
+    const ref = r.xr.getReferenceSpace(), vp = frame.getViewerPose(ref);
+    lines.push(`頭: ${vp ? vp.transform.position.y.toFixed(2) + 'm' : '追跡なし'}${vp?.emulatedPosition ? '（位置推定・追跡喪失）' : ''}・ビュー ${vp?.views.length ?? 0} 枚（両眼=2）・${session.frameRate ?? '?'}Hz`);
+    for (const src of session.inputSources) {
+      const p = src.gripSpace && frame.getPose(src.gripSpace, ref), gp = src.gamepad, h = hands[src.handedness];
+      if (p && h) { h.position.copy(p.transform.position); h.quaternion.copy(p.transform.orientation); }
+      if (gp) lines.push(`${src.handedness}: ${src.profiles[0] || '-'}・トリガー ${gp.buttons[0]?.value.toFixed(2)}・グリップ ${gp.buttons[1]?.value.toFixed(2)}・スティック ${(gp.axes[2] || 0).toFixed(2)},${(gp.axes[3] || 0).toFixed(2)}・A/X ${gp.buttons[4]?.pressed ? '押' : '-'}・B/Y ${gp.buttons[5]?.pressed ? '押' : '-'}`);
+    }
+  }
+  boardText(lines); log(lines.join('\n'));
+  r.render(scene, cam);
+});
+</script>
+</body>
+</html>

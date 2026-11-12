@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<title>Sky Climber VR — サウンドテスト</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="src/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+<style>
+  body { margin:0; background:#0b1730; color:#f4f8ff; font:15px/1.6 "Noto Sans JP",system-ui,sans-serif; }
+  main { max-width:1100px; margin:auto; padding:24px; }
+  h1 { margin:0 0 4px; } p { color:#b9c7d8; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:8px; }
+  button { font:inherit; color:#f4f8ff; background:#16294a; border:1px solid #2c4a78; border-radius:10px; padding:8px 10px; cursor:pointer; text-align:left; }
+  button:hover, button:focus-visible { border-color:#ffd34a; outline:none; }
+  button small { display:block; color:#9fb4cc; font-size:12px; }
+  section { margin:20px 0; padding:16px; background:rgba(8,16,30,.7); border:1px solid #23395c; border-radius:14px; }
+  canvas { width:100%; height:140px; background:#050b18; border-radius:8px; display:block; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  a { color:#9fd4ff; }
+  table { border-collapse:collapse; width:100%; font-size:13px; } td, th { border-bottom:1px solid #23395c; padding:6px; text-align:left; vertical-align:top; }
+</style>
+</head>
+<body>
+<main>
+  <h1>サウンドテスト</h1>
+  <p>すべての曲・効果音・掛け声は、このページを開いた端末の中で合成しています（AY-3-8910 系の矩形波 3 声＋ノイズを再現したソフトウェア音源と、フォルマント合成の声）。録音や原作の音は含みません。<a href="index.html">← ゲームへ</a> ／ <a href="credits.html">クレジット</a></p>
+  <section>
+    <div class="row"><b>音響モード</b><button id="m-vr">VR 音響（空間に置く）</button><button id="m-classic">クラシック音響（モノラル・残響なし）</button><button id="stop">すべて止める</button><span id="mode"></span></div>
+    <canvas id="wave" width="1600" height="200"></canvas>
+    <div class="row" id="info" style="margin-top:8px;color:#b9c7d8"></div>
+  </section>
+  <section><h2>曲</h2><div class="grid" id="songs"></div></section>
+  <section><h2>効果音</h2><div class="grid" id="sfx"></div></section>
+  <section><h2>掛け声</h2><div class="grid" id="voices"></div></section>
+  <section>
+    <h2>開発用: 参照音との比較（A/B）</h2>
+    <p>参照音（原音）は利用条件を確認できないため同梱していません。手元にある参照音のファイルを選ぶと、端末の中だけで読み込み、制作音と同じ長さ・音量で交互に聴き比べられます（どこにも送信しません）。</p>
+    <div class="row"><input type="file" id="ref" accept="audio/*"><button id="ab-a">A: 参照音</button><button id="ab-b">B: 制作音（最後に鳴らした音）</button><button id="ab-loop">A/B を 2 秒ごとに交互</button></div>
+    <canvas id="wave-ref" width="1600" height="200" style="margin-top:8px"></canvas>
+  </section>
+  <section>
+    <h2>ループの継ぎ目の確認</h2>
+    <p>ループ曲の「最後の 2 秒 → 先頭の 2 秒」をつないで鳴らします。音切れ・跳び・クリックがないか聴いて確かめてください。</p>
+    <div class="grid" id="seams"></div>
+  </section>
+  <section><h2>音イベント表（抜粋）</h2><table id="events"></table><p>全体は docs/SOUND.md にあります。</p></section>
+</main>
+<script type="module" src="src/sound-test.js"></script>
+</body>
+</html>

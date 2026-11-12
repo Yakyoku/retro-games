@@ -280,7 +280,7 @@ class App {
     $('#fin-list').innerHTML = this.run.results.map((r) => `<li>${stageById(r.id).ja}: ${r.meters}m・${fmtTime(r.time)}・落下 ${r.falls}</li>`).join('');
     $('#fin-best').textContent = this.newBest ? '自己ベスト更新！' : `自己ベスト ${this.store.best(this.run.difficulty, this.run.control).toLocaleString()} 点（${DIFFICULTY[this.run.difficulty].ja}・${controlJa(this.run.control)}）`;
   }
-  banner(a, b) { const el = $('#banner'); el.querySelector('b').textContent = a; el.querySelector('span').textContent = b; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); this.vrBanner = { a, b, t: 2.2 }; }
+  banner(a, b) { const el = $('#banner'); el.querySelector('b').textContent = a; el.querySelector('span').textContent = b; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); this.vrBanner = { a, b, t: 2.2 }; this.vrBannerDrawn = false; }
 
   // ---------- 1 フレーム ----------
   loop(t, frame) {
@@ -290,7 +290,7 @@ class App {
     if (pad.connected && (pad.L || pad.R || Object.values(pad.edge).some(Boolean))) this.lastInputKind = 'pad';
     else if (kb.any) this.lastInputKind = 'kb';
     else if (tc.L || tc.R) this.lastInputKind = 'touch';
-    const xi = this.vr ? this.xr.poll() : null;
+    const xi = this.vr ? this.xr.poll() : null; this.lastXI = xi;
     this.handleUIInput(dt, pad, kb, xi);
     if (kb.edge.debug) $('#debug').hidden = !$('#debug').hidden;
     const g = this.game;
@@ -540,6 +540,7 @@ class App {
   // VR 内の画面（DOM の画面と同じ遷移を、板の上のボタンで）
   drawVRScreen() {
     if (!this.vr) return;
+    if (this.screen === 'play' && !this.paused && !this.overlay) { this.vrBannerDrawn = false; return; } // プレイ中はメニューを描かない（バナーだけ）
     this.vrBanner = null;
     const s = this.settings, P = this.vrPanel;
     const diff = Object.values(DIFFICULTY).map((d) => ({ id: 'diff:' + d.id, label: d.ja, sel: s.difficulty === d.id }));

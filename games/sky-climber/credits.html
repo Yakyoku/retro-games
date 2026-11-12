@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<title>Sky Climber VR — クレジット</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="src/error-overlay.js"></script>
+<style>
+  body { margin:0; background:#0b1730; color:#f4f8ff; font:16px/1.75 "Noto Sans JP",system-ui,sans-serif; }
+  main { max-width:860px; margin:auto; padding:28px 22px 60px; }
+  h1 { margin:0; } h2 { margin-top:34px; font-size:20px; color:#ffe29a; }
+  p, li { color:#dbe6f3; } a { color:#9fd4ff; }
+  .note { background:rgba(4,9,20,.86); border:1px solid rgba(255,255,255,.18); border-radius:14px; padding:12px 18px; font-weight:600; }
+  table { border-collapse:collapse; width:100%; font-size:14px; } td, th { border-bottom:1px solid #23395c; padding:8px; text-align:left; vertical-align:top; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="index.html">← ゲームへ</a></p>
+  <h1>クレジット・素材と音について</h1>
+  <p class="note">本ゲームはClaude Codeのクラウドセッションで制作しました。</p>
+  <p>企画・制作の依頼: 藤田さん（個人の制作物）。設計・実装・3D モデル・曲・効果音・掛け声の合成・検証は Claude Code（Anthropic の AI コーディングツール）がクラウド上で行いました。この表示は「Claude Code を使って作った」という説明で、Anthropic による公式の認定や共同開発を意味するものではありません。</p>
+  <h2>着想元</h2>
+  <p>『クレイジー・クライマー』（日本物産、1980 年、アーケード）の「左右の手を別々に動かしてビルを登る」「窓の開閉・落下物・鳥を読んでよける」遊びに着想を得ています。原作の画像・キャラクター・曲・音声・名称は使っていません。仮の題名「Sky Climber VR」も新規です。</p>
+  <h2>使った素材</h2>
+  <table>
+    <tr><th>素材</th><th>出典</th><th>利用条件</th></tr>
+    <tr><td>3D 描画ライブラリ three.js r187</td><td>https://threejs.org/</td><td>MIT License</td></tr>
+    <tr><td>日本語フォント Noto Sans JP（使う文字だけに絞ったもの）</td><td>Google Fonts / @fontsource/noto-sans-jp 5.3.1</td><td>SIL Open Font License 1.1（<a href="fonts/OFL.txt">全文</a>）</td></tr>
+    <tr><td>3D モデル（主人公・住人・鳥・ヘリ・建物・街）</td><td>このゲームのプログラムで形状を計算して作成</td><td>本作の一部</td></tr>
+    <tr><td>テクスチャ（外壁・タイル・レンガ・布・看板）</td><td>このゲームのプログラムで描画して作成。看板の広告・ホテル名は架空</td><td>本作の一部</td></tr>
+    <tr><td>曲・効果音</td><td>新規作曲。AY-3-8910 系の音源の仕組みをソフトウェアで再現して合成</td><td>本作の一部</td></tr>
+    <tr><td>掛け声</td><td>録音を使わず、日本語の音素をフォルマント合成</td><td>本作の一部</td></tr>
+    <tr><td>案内音声（練習のときだけ）</td><td>端末のブラウザーの読み上げ機能（端末に入っている声）</td><td>各端末の提供元の条件</td></tr>
+  </table>
+  <h2>音について（原音との関係）</h2>
+  <p>原作の基板の音源構成（AY-3-8910 と、ROM に入った短い声のサンプル）は MAME のドライバー資料で確認し、その「仕組み」（矩形波 3 声とノイズ、16 段の対数音量、60 分の 1 秒ごとの音量操作、低いサンプリングの声）を再現しました。原作の曲（既成曲の引用を含む）や効果音・声そのものは使っておらず、聴き比べ（原音比較）も行っていません。すべて「当時の雰囲気を踏まえた新規の音」です。詳しくは <a href="sound-test.html">サウンドテスト</a> を参照してください。</p>
+  <h2>キャラクターについて</h2>
+  <p>主人公「ソラ」、窓の住人（おやじ・おばちゃん）、カモメ、ヘリのパイロットは新規のデザインです。参考作品の資料から「小さく映っても役割が分かる」「少しコミカル」「手足の動きの誇張」という方向性だけを取り入れ、配色・形は独自に決めました。</p>
+  <p id="ver" style="color:#9fb4cc;font-size:13px"></p>
+  <script>fetch('build-info.json').then((r) => r.json()).then((j) => { document.getElementById('ver').textContent = `版: ${j.commit || '-'}（${j.built}）・three ${j.three}`; }).catch(() => {});</script>
+</main>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "sky-climber-rg-yk", "siteId": "b2b80a98-f84d-4bd1-8561-16bd04ddf767", "url": "https://sky-climber-rg-yk.netlify.app/",
+      "env": { "GAME": "sky-climber", "VARIANT": "all" }, "note": "このゲーム専用の新規サイト。1 つの成果物に通常 3D と WebXR が同居" }
+  ]
+}

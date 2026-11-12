@@ -107,7 +107,7 @@ export class City {
     this.people = new THREE.InstancedMesh(pg, new THREE.MeshStandardMaterial({ roughness: 0.8 }), this.nPeople);
     this.peopleState = [];
     const cloth = [0x2f4f7f, 0x7f2f2f, 0xe0d8c8, 0x3a3a3a, 0xc89a3a, 0x5a7f4a, 0xd87fa0];
-    for (let i = 0; i < this.nPeople; i++) { const side = r.chance(0.5); this.peopleState.push({ x: r.range(-60, 60), z: side ? r.range(2.5, 4.5) : r.range(23.5, 25), v: r.range(0.8, 1.5) * (r.chance(0.5) ? 1 : -1), ph: r.range(0, 6) }); this.people.setColorAt(i, new THREE.Color(r.pick(cloth))); }
+    for (let i = 0; i < this.nPeople; i++) { this.peopleState.push({ x: r.range(-60, 60), z: r.range(23.5, 25.5), v: r.range(0.8, 1.5) * (r.chance(0.5) ? 1 : -1), ph: r.range(0, 6) }); /* 向かいの歩道（カメラの直前に来ない） */ this.people.setColorAt(i, new THREE.Color(r.pick(cloth))); }
     this.people.castShadow = true; this.group.add(this.people);
     // 街路樹と街灯
     const trees = [], lamps = [];

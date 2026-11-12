@@ -36,7 +36,7 @@ function setUVWorld(g, sx, sy) { const p = g.attributes.position, uv = new Float
 function makeFrameGeo() {
   const ow = WIN.w + 0.16, oh = WIN_H + 0.16;
   const s = roundedRect(ow, oh, 0.035); s.holes.push(roundedRect(WIN.w, WIN_H, 0.02));
-  const ring = new THREE.ExtrudeGeometry(s, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 2, curveSegments: 4 });
+  const ring = new THREE.ExtrudeGeometry(s, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 1, curveSegments: 3 });
   const parts = [ring];
   // 見込み（窓の内側の 4 面）
   const t = 0.02;

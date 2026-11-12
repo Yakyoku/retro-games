@@ -97,6 +97,7 @@ export function buildStage(st) {
 }
 
 // 開始位置（地上に立つ）。肩の高さ 1.45m・中央の列
-export function startPose(b) { return { x: colX(b.def, Math.floor(b.cols / 2) - (b.cols % 2 ? 0 : 0.5)), y: 1.45 }; }
+// 開始は中央の列の窓の正面（列の境目の雨どいの真正面を避ける）
+export function startPose(b) { return { x: colX(b.def, Math.floor(b.cols / 2)), y: 1.45 }; }
 // 安全区画から復帰する位置
 export function ledgePose(b, ledge) { return { x: ledge.x, y: ledge.y + 1.45 }; }

@@ -14,4 +14,9 @@
 - 更新方法: Netlify コネクタの deploy-site（siteId を指定）が返す `npx -y @netlify/mcp@latest ...` をリポジトリのルートで実行する
 
 ## 公開の記録
-（公開後に追記）
+| 日時（UTC） | 版 | deployId | build-info の build | ソース |
+|---|---|---|---|---|
+| 2026-11-12 07:50 | 2D | 6af56f9cf55ffa9349ff3fcf | 2d-f244190-mwd8zigm | git 91497b6（作業ツリーをアップロードしてNetlifyでビルド。build-infoのcommitはNetlify側の値で、gitのハッシュとは一致しない） |
+| 2026-11-12 07:51 | VR | 6af56fbd8feada19cf235d71 | vr-988d439-mwd90bmx | 同上 |
+
+公開後の確認（headless Chromium で実 URL を開く）: 両サイトとも起動・タイトル・開始ができ、実行時エラー 0 件・HTTP 4xx/5xx 0 件。VR サイトは IWER（Quest 3 プロファイル）で VR 開始まで確認。`/vendor/three/three.module.js` は `application/javascript`。Permissions-Policy・nosniff のヘッダーを確認。

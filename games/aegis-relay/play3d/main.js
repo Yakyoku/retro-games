@@ -39,7 +39,7 @@ const app = createApp({
     otherVariant: { label: '2D 版で遊ぶ', go: () => { location.href = otherUrl('3d'); } },
   },
 });
-window.__app = app;
+window.__app = app; window.__input = input; // 自動検証用
 ui = createDomUI(uiRoot, app, { titleHint: '↑↓ で選び Enter / Z / A ボタンで決定　｜　VR は Quest 3 のブラウザで' });
 world = createWorld3D(renderer, app);
 vrui = createVrUI(world.scene, world.stage, app);

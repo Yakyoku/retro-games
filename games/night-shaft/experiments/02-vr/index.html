@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070912">
+<meta name="description" content="NIGHT SHAFT — Meta Quest 3 のブラウザで遊ぶ一人称 VR 版。ビルの中に立ち、エレベーターを乗り継いで機密書類を回収する。">
+<title>NIGHT SHAFT — Quest 3 VR</title>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "__VENDOR__/three.module.js", "three/addons/": "__VENDOR__/addons/" } }</script>
+</head>
+<body>
+<div id="view"></div>
+
+<main id="top">
+  <div class="wrap">
+    <section class="hero">
+      <p class="kicker">Meta Quest 3 ／ WebXR 一人称 VR 版</p>
+      <h1 class="logo">NIGHT<em>SHAFT</em></h1>
+      <p class="lead">夜のビルに屋上から潜入し、エレベーターとエスカレーターを乗り継いで、赤いドアの部屋から機密書類をすべて回収する。最後は 1 階の出口から脱出。</p>
+      <div class="made"><b>このゲームは、Claude Codeのクラウドセッションで制作しました。</b>
+        <small>本作は独自に制作したオリジナル作品です。エレベーターで階を移動しながら書類を集める、1980年代のアーケード・アクションゲームの遊び方に着想を得ていますが、特定の作品の公式版・移植・再制作ではなく、キャラクター・音楽・効果音・画像はすべて新たに制作したものです。ゲーム会社・Anthropic による制作・監修・認定は受けていません。</small></div>
+      <div class="actions">
+        <button id="btn-vr" class="big-btn primary" disabled>VR で遊ぶ<small id="vr-status">WebXR を確認中…</small></button>
+        <button id="btn-flat" class="big-btn">画面で遊ぶ（3D）<small>PC・タブレット。WASD＋マウス／ゲームパッド</small></button>
+      </div>
+      <div class="opts">
+        <label>ステージ <select id="sel-stage"></select></label>
+        <label>難易度 <select id="sel-diff"><option value="easy">やさしい</option><option value="normal">ふつう</option><option value="hard">むずかしい</option></select></label>
+      </div>
+      <p class="small" id="hi-line"></p>
+    </section>
+    <section class="card">
+      <h2>Quest 3 の操作</h2>
+      <svg viewBox="0 0 520 210" class="ctrl" role="img" aria-label="Quest 3 コントローラーの操作図">
+        <g font-family="system-ui,sans-serif" font-size="13" fill="#e9eef7">
+          <ellipse cx="120" cy="105" rx="78" ry="62" fill="#1b2232" stroke="#3b4a66"/><ellipse cx="400" cy="105" rx="78" ry="62" fill="#1b2232" stroke="#3b4a66"/>
+          <circle cx="105" cy="92" r="16" fill="#2c3750"/><text x="92" y="97">L</text><circle cx="415" cy="92" r="16" fill="#2c3750"/><text x="409" y="97">R</text>
+          <circle cx="145" cy="78" r="9" fill="#46546e"/><text x="141" y="82" font-size="10">Y</text><circle cx="140" cy="112" r="9" fill="#46546e"/><text x="136" y="116" font-size="10">X</text>
+          <circle cx="375" cy="78" r="9" fill="#46546e"/><text x="371" y="82" font-size="10">B</text><circle cx="380" cy="112" r="9" fill="#46546e"/><text x="376" y="116" font-size="10">A</text>
+          <text x="6" y="22" fill="#7fe0ff">左トリガー: レイでドア・書類・ボタン・メニュー</text>
+          <text x="6" y="40">左スティック: テレポート（倒して狙い、戻すと移動）</text>
+          <text x="6" y="190">X: 仮想キック　Y: 横によける</text>
+          <text x="300" y="22" fill="#ff9b3a">右トリガー: 銃で射撃</text>
+          <text x="300" y="40">右スティック左右: 30° ターン</text>
+          <text x="300" y="58">右スティック上下: かごの上昇・下降</text>
+          <text x="300" y="190">A: しゃがみ切替　B: 一時停止</text>
+        </g>
+      </svg>
+      <p class="small">左利き設定（一時停止 → 設定）で左右が入れ替わります。本当にしゃがんだり、横に動いて弾をよけることもできます。ジャンプは不要です。<br>
+      画面で遊ぶ（3D）: WASD 移動・マウス視点・左クリック射撃・E 操作・C しゃがみ・F キック・Q 横よけ・↑↓ かごの上下・Esc メニュー（ポインタロック解除）。ゲームパッド: 左スティック移動・右スティック視点・RT 射撃・A 操作・B しゃがみ・X キック・十字上下 かご・Start メニュー。</p>
+      <p class="small">2D 版（横から見る版）は別サイトです: <a id="link-2d" href="#">2D 版を開く</a></p>
+      <p class="small" id="xr-detail"></p>
+    </section>
+  </div>
+</main>
+
+<div id="flat-ui" hidden>
+  <div id="crosshair"></div>
+  <div id="fhud"></div>
+  <div id="fmsg" hidden></div>
+  <section id="fmenu" hidden></section>
+  <p id="lock-hint" hidden>クリックで操作を開始（Esc でメニュー）</p>
+</div>
+<div id="fade"></div>
+<div id="loading"><div class="spin"></div><p>読み込み中…</p></div>
+<div id="debug" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

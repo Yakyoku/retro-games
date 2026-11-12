@@ -56,9 +56,12 @@ h2 { font-size: calc(var(--u) * 6); letter-spacing: .4em; margin: 0 0 calc(var(-
 html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 #touch { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
 #touch[hidden] { display: none; }
-#touch .t-zone { position: absolute; left: 0; top: 12%; bottom: 0; width: 52%; pointer-events: auto; }
-#touch .t-hint { position: absolute; left: 6%; bottom: 14%; font-size: calc(var(--u) * 1.6); color: rgba(220, 240, 255, .35); letter-spacing: .1em; }
-#touch .t-base { position: absolute; left: 22%; top: 62%; width: calc(var(--u) * 20); height: calc(var(--u) * 20); transform: translate(-50%, -50%); border-radius: 50%;
+/* 下端は iPhone / iPad の「下から上へのスワイプ（ホームへ戻る・アプリ切替）」の場所なので、操作の領域を下端から離す。
+   左端も Safari の「戻る」スワイプと重ならないよう少し空ける */
+#touch { --edge-b: calc(env(safe-area-inset-bottom, 0px) + max(24%, 96px)); }
+#touch .t-zone { position: absolute; left: calc(env(safe-area-inset-left, 0px) + max(2%, 16px)); top: 12%; bottom: var(--edge-b); width: 50%; pointer-events: auto; }
+#touch .t-hint { position: absolute; left: 6%; bottom: 2%; font-size: calc(var(--u) * 1.6); color: rgba(220, 240, 255, .35); letter-spacing: .1em; }
+#touch .t-base { position: absolute; left: 30%; top: 58%; width: calc(var(--u) * 20); height: calc(var(--u) * 20); transform: translate(-50%, -50%); border-radius: 50%;
   border: 2px solid rgba(160, 230, 255, .28); background: radial-gradient(circle, rgba(79, 227, 255, .08), rgba(79, 227, 255, .02) 70%); opacity: .45; transition: opacity .15s; }
 #touch .t-base.on { opacity: 1; transition: none; }
 #touch .t-knob { position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; transform: translate(-50%, -50%); border-radius: 50%;
@@ -68,11 +71,11 @@ html, body { touch-action: none; -webkit-user-select: none; user-select: none; -
 #touch .t-btn.on { background: rgba(79, 227, 255, .32); border-color: #bff3ff; transform: scale(.95); }
 #touch .t-btn small { font-size: .5em; font-weight: 500; opacity: .7; margin-top: .2em; }
 #touch .t-btn b { position: relative; z-index: 1; }
-#touch .t-fire { right: calc(4% + env(safe-area-inset-right)); bottom: 12%; width: calc(var(--u) * 22); height: calc(var(--u) * 22); }
+#touch .t-fire { right: calc(4% + env(safe-area-inset-right)); bottom: var(--edge-b); width: calc(var(--u) * 22); height: calc(var(--u) * 22); }
 #touch .t-charge { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(rgba(79, 227, 255, .55) var(--c, 0%), transparent 0); }
-#touch .t-pod { right: calc(4% + var(--u) * 24 + env(safe-area-inset-right)); bottom: 8%; width: calc(var(--u) * 14); height: calc(var(--u) * 14); border-color: rgba(255, 140, 210, .45); }
-#touch .t-rapid { right: calc(4% + var(--u) * 5 + env(safe-area-inset-right)); bottom: calc(14% + var(--u) * 23); width: calc(var(--u) * 13); height: calc(var(--u) * 13); border-color: rgba(255, 200, 120, .45); }
-#touch .t-pause { right: calc(2% + env(safe-area-inset-right)); top: 4%; width: calc(var(--u) * 8); height: calc(var(--u) * 8); font-size: calc(var(--u) * 3); }
+#touch .t-pod { right: calc(4% + var(--u) * 24 + env(safe-area-inset-right)); bottom: calc(var(--edge-b) - var(--u) * 3); width: calc(var(--u) * 14); height: calc(var(--u) * 14); border-color: rgba(255, 140, 210, .45); }
+#touch .t-rapid { right: calc(4% + var(--u) * 5 + env(safe-area-inset-right)); bottom: calc(var(--edge-b) + var(--u) * 23); width: calc(var(--u) * 13); height: calc(var(--u) * 13); border-color: rgba(255, 200, 120, .45); }
+#touch .t-pause { right: calc(2% + env(safe-area-inset-right)); top: calc(env(safe-area-inset-top, 0px) + 20%); width: calc(var(--u) * 8); height: calc(var(--u) * 8); font-size: calc(var(--u) * 3); }
 /* タッチ操作中は HUD の下段を少し上へ（ボタンと重ねない）・メニューを押しやすく */
 body.touching #hud .bottom { bottom: auto; top: 8%; left: 3%; right: 14%; font-size: .8em; }
 @media (pointer: coarse) { .menu li { padding: calc(var(--u) * 1.4) calc(var(--u) * 4); } }

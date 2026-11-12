@@ -67,7 +67,7 @@ let game = null, world = null;
 let run = null;      // { stage, difficulty, score, lives, stageStartScore }
 let menuModel = null, menuBack = null;
 let virtualCrouch = false, standH = 1.62, snapLock = false, teleporting = null, carStick = 0, carBtnDir = 0, carPulse = 0, playTime = 0, bgmAt = 0;
-let audioOn = false;
+let audioOn = false, rigPending = 0;
 
 // ---- コントローラー ----
 const hands = { left: null, right: null };
@@ -87,9 +87,10 @@ const gunModel = makeGunModel(); const handModel = makeHandModel();
 const gunHandName = () => (VS.leftHanded ? 'left' : 'right');
 const rayHandName = () => (VS.leftHanded ? 'right' : 'left');
 function attachModels() {
-  for (const c of ctrls) { if (c.model) { c.grip.remove(c.model); c.model = null; } }
+  for (const c of ctrls) { if (c.model) { c.model.removeFromParent(); c.model = null; } }
   const gh = hands[gunHandName()], rh = hands[rayHandName()];
-  if (gh) { gh.grip.add(gunModel); gunModel.rotation.set(-0.6, 0, 0); gunModel.position.set(0, -0.01, 0.02); gh.model = gunModel; }
+  // 銃は「指している向き」（target ray）に取り付ける。弾もこの向きに飛ぶので、見た目と照準がずれない
+  if (gh) { gh.ray.add(gunModel); gunModel.rotation.set(0, 0, 0); gunModel.position.set(0, -0.035, 0.06); gh.model = gunModel; gh.modelOn = gh.ray; }
   if (rh) { rh.grip.add(handModel); handModel.rotation.set(-0.4, 0, 0); rh.model = handModel; rh.grip.add(wrist.mesh); wrist.mesh.position.set(0, 0.035, 0.09); wrist.mesh.rotation.set(-Math.PI / 2 - 0.5, 0, 0); }
 }
 
@@ -226,7 +227,7 @@ function startStage() {
   world = new World3D(scene, game);
   state = 'play'; playTime = 0; virtualCrouch = false; carStick = 0; carPulse = 0;
   closeMenu();
-  placeRigAtPlayer(true);
+  if (mode === 'xr') rigPending = 3; else placeRigAtPlayer(true); // XR は頭の姿勢が届いてから合わせる
   audio.stopAll(); audio.clearPaused();
   const d = audio.playJingle('start') || 0; bgmAt = d ? d - 0.35 : 0.01;
   showMsg(`${STAGES[run.stage].name}　書類 ${game.docTotal} 件を回収せよ`, 4, '#7fe0ff');
@@ -235,14 +236,14 @@ function startStage() {
 // プレイヤーの位置へリグを合わせる（頭の追跡はそのまま。リグだけ動かす）
 const headW = new THREE.Vector3(), tmp = new THREE.Vector3(), fwd = new THREE.Vector3();
 function headWorld(out) {
-  if (mode === 'xr') { const xc = renderer.xr.getCamera(); xc.getWorldPosition(out); return out; }
+  // XR でも、リグ（dolly）の子のカメラに頭の姿勢が入る。renderer.xr.getCamera() はリグを含まない
   return camera.getWorldPosition(out);
 }
 function placeRigAtPlayer(faceCorridor) {
   const p = game.player;
   if (mode === 'xr') {
     if (faceCorridor) { // 正面（廊下の +x 方向）を向くようにリグを回す
-      const xc = renderer.xr.getCamera(); xc.getWorldDirection(fwd);
+      const xc = camera; xc.getWorldDirection(fwd);
       const headYaw = Math.atan2(-fwd.x, -fwd.z);
       dolly.rotation.y += -Math.PI / 2 - headYaw;
       dolly.updateMatrixWorld(true);
@@ -374,7 +375,7 @@ function runAct(item, dx = 0) {
 }
 function placeInFront(mesh, dist, dy) {
   headWorld(headW);
-  const xc = mode === 'xr' ? renderer.xr.getCamera() : camera;
+  const xc = camera;
   xc.getWorldDirection(fwd); fwd.y = 0; if (fwd.lengthSq() < 1e-4) fwd.set(1, 0, 0); fwd.normalize();
   mesh.position.copy(headW).addScaledVector(fwd, dist); mesh.position.y = headW.y + dy;
   mesh.lookAt(headW.x, mesh.position.y, headW.z);
@@ -461,7 +462,14 @@ function xrInput(dt) {
       if (edge(c, 'trig', trig) && h) useInteractable(h.obj);
     } else edge(c, 'trig', trig);
   }
-  if (state !== 'play') { for (const c of [gh, rh]) if (c) { edge(c, 'b4', btn(c, 4)); edge(c, 'b5', btn(c, 5)); } if (gh && edge(gh, 'pauseBtn', btn(gh, 5)) && menuModel && menuBack) menuBack(); return; }
+  if (state !== 'play') {
+    // メニュー中: 銃の手の上ボタン（B）で戻る。押しっぱなしの同じ押下では反応しない（一時停止した直後に戻らない）
+    const back = gh ? edge(gh, 'b5', btn(gh, 5)) : false;
+    if (gh) edge(gh, 'b4', btn(gh, 4));
+    if (rh) { edge(rh, 'b4', btn(rh, 4)); edge(rh, 'b5', btn(rh, 5)); }
+    if (back && menuModel && menuBack) menuBack();
+    return;
+  }
 
   // 射撃（UI を指している間・メニュー中は撃たない）
   if (gh && !gh.uiBlock && btn(gh, 0)) tryFire(gh);
@@ -482,7 +490,7 @@ function xrInput(dt) {
     if (my < -0.6 && rh) { teleporting = teleporting || {}; aimTeleport(rh); }
     else if (teleporting && Math.hypot(mx, my) < 0.3) { if (teleporting.ok) doTeleport(teleporting.x, teleporting.z); teleporting = null; arc.visible = marker.visible = false; }
   } else if (Math.hypot(mx, my) > 0.2) {
-    const xc = renderer.xr.getCamera(); xc.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+    const xc = camera; xc.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const right = tmp.set(-fwd.z, 0, fwd.x);
     const sp = 2.2 * dt;
     dolly.position.addScaledVector(fwd, -my * sp).addScaledVector(right, mx * sp);
@@ -658,13 +666,17 @@ function loop(time, frame) {
     const p = game.player;
     // 頭（追跡）の位置 → ゲームの希望位置
     let hx, hz, crouch;
-    if (mode === 'xr') {
+    if (mode === 'xr' && rigPending > 0) {
+      // 最初の数フレームは XR カメラの姿勢がまだ無いので、頭の位置をゲームに渡さない
+      if (--rigPending === 0) placeRigAtPlayer(true);
+      game.setVrControl({ x: p.x, z: 0, crouch: false, face: p.face, carDir: 0 });
+    } else if (mode === 'xr') {
       headWorld(headW);
       const local = headW.y - dolly.position.y + (virtualCrouch ? 0.55 : 0) - (VS.seated ? 0.45 : 0) - VS.heightOffset;
       standH = Math.max(standH * 0.9995, Math.min(2.1, local));
       crouch = virtualCrouch || (local < standH * 0.7 && local > 0.3);
       [hx, hz] = [headW.x, headW.z];
-      const xc = renderer.xr.getCamera(); xc.getWorldDirection(fwd);
+      const xc = camera; xc.getWorldDirection(fwd);
       game.setVrControl({ x: hx, z: hz, crouch, face: Math.abs(fwd.x) > 0.2 ? Math.sign(fwd.x) : p.face, carDir: carStick || (carPulse > 0 ? carBtnDir : 0) });
     } else {
       if (flatPos.init !== game) { flatPos.x = p.x; flatPos.z = 0; flatPos.init = game; }
@@ -726,7 +738,7 @@ let lastHint = -1;
 const teleportFadeHold = () => false;
 const flatHint = (s) => s.replace('左スティックを倒して床を狙い、戻すとテレポート', 'WASD で移動').replace('右スティックを上下（または操作盤をレイで押す）', '↑↓ キー（または操作盤を見て E）').replace('左手のレイで指して左トリガー', '見て E').replace('右トリガーで射撃', '左クリックで射撃').replace('（A／本当にしゃがむ）', '（C）').replace('看板をレイで押すと', '看板を見て E で').replace('横のボタンをレイで押すと', '横のボタンを見て E で').replace('（本当に動くか Y）', '（A/D で横へ、または Q）').replace('X でキック', 'F でキック');
 function followLazy(mesh, dist, dy, dt) {
-  headWorld(headW); const xc = mode === 'xr' ? renderer.xr.getCamera() : camera; xc.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+  headWorld(headW); const xc = camera; xc.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
   const target = tmp.copy(headW).addScaledVector(fwd, dist); target.y = headW.y + dy;
   if (mesh.position.distanceTo(target) > 0.6) mesh.position.lerp(target, Math.min(1, dt * 2));
   mesh.lookAt(headW.x, mesh.position.y, headW.z);
@@ -841,5 +853,5 @@ function debugInfo() {
   const i = renderer.info.render;
   d.textContent = `fps ${fps.toFixed(1)} frame ${frameMs.toFixed(2)}ms calls ${i.calls} tris ${i.triangles}\nmode ${mode} state ${state} xr-fb ${xrFramebuffer() || '-'} rates ${xrInfo.rates || '-'}\nfloor ${game ? game.playerFloor : '-'} enemies ${game ? game.enemies.length : 0}`;
 }
-window.__ns = { get game() { return game; }, get state() { return state; }, get mode() { return mode; }, renderer, scene, camera, dolly, enterFlat, startRun, audio, setYaw: (y, p = 0) => { yaw = y; pitch = p; } };
+window.__ns = { teleportTo: (x, z = 0) => doTeleport(x, z), get game() { return game; }, get projectiles() { return projectiles.length; }, get state() { return state; }, get mode() { return mode; }, renderer, scene, camera, dolly, enterFlat, startRun, audio, setYaw: (y, p = 0) => { yaw = y; pitch = p; } };
 $('#loading').hidden = true;

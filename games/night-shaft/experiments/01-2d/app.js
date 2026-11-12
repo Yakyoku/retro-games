@@ -139,7 +139,7 @@ function titleScreen() {
           ${mi('help', '操作方法', { sub: `キーボード／ゲームパッド（${pad.jump}・${pad.fire}）／タッチ` })}
           ${mi('credits', 'クレジット')}
         </div>
-        <p class="note">ハイスコア <b>${save.data.hi.toLocaleString()}</b>${save.ok ? '' : '　（この端末では保存できません）'}<br>Quest 3 の VR 版は別サイトです（README 参照）</p>
+        <p class="note">ハイスコア <b>${save.data.hi.toLocaleString()}</b>${save.ok ? '' : '　（この端末では保存できません）'}<br>Meta Quest 3 の VR 版: <a href="https://night-shaft-quest3.netlify.app/" style="color:#7fe0ff">night-shaft-quest3.netlify.app</a></p>
       </div>
     </div>`, [], { onBack: null });
 }

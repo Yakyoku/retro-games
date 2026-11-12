@@ -1,0 +1,8 @@
+{
+  "sites": [
+    { "name": "night-shaft-2d", "siteId": "4a2ae0bc-970c-4490-93e9-6be635da3c17", "url": "https://night-shaft-2d.netlify.app/",
+      "env": { "GAME": "night-shaft", "VARIANT": "2d" }, "note": "2D ブラウザ版（デスクトップ・iPad・スマートフォン）" },
+    { "name": "night-shaft-quest3", "siteId": "d32245f6-7f34-4164-ab0f-03d791fc0e25", "url": "https://night-shaft-quest3.netlify.app/",
+      "env": { "GAME": "night-shaft", "VARIANT": "vr" }, "note": "Meta Quest 3 WebXR 版（一人称 VR）＋画面で遊ぶ 3D。/probe/ に WebXR 最小検証シーン" }
+  ]
+}

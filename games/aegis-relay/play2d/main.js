@@ -24,7 +24,7 @@ const app = createApp({
     otherVariant: { label: '3D / VR 版で遊ぶ', go: () => { location.href = otherUrl('2d'); } },
   },
 });
-window.__app = app; // 自動検証用
+window.__app = app; window.__input = input; // 自動検証用
 ui = createDomUI(uiRoot, app, { titleHint: '↑↓ で選び Enter / Z / A ボタン / タップで決定' });
 renderer = createRenderer2D(canvas, app);
 const touch = installTouch(uiRoot, input, app);

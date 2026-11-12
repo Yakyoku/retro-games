@@ -1,0 +1,635 @@
+{
+ "samples": [
+  {
+   "t": 36,
+   "screen": "play",
+   "tick": 206,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 2,
+   "heapMB": 17.9,
+   "stats": {
+    "fps": 16.60718132284134,
+    "ms": 60.214914292807215,
+    "calls": 122,
+    "tris": 26120,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 66,
+   "screen": "play",
+   "tick": 427,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 3,
+   "heapMB": 15.4,
+   "stats": {
+    "fps": 17.04026456217933,
+    "ms": 58.68453487626527,
+    "calls": 148,
+    "tris": 29880,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 96,
+   "screen": "play",
+   "tick": 722,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 4,
+   "heapMB": 17.3,
+   "stats": {
+    "fps": 17.76831389240985,
+    "ms": 56.279960273955616,
+    "calls": 152,
+    "tris": 29492,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 126,
+   "screen": "play",
+   "tick": 971,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 5,
+   "heapMB": 16.6,
+   "stats": {
+    "fps": 14.649802076174055,
+    "ms": 68.2603078731259,
+    "calls": 204,
+    "tris": 39592,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 157,
+   "screen": "play",
+   "tick": 1201,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 6,
+   "heapMB": 19.4,
+   "stats": {
+    "fps": 12.191037198548083,
+    "ms": 82.02747507973294,
+    "calls": 214,
+    "tris": 41688,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 187,
+   "screen": "play",
+   "tick": 0,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 8,
+   "heapMB": 16.7,
+   "stats": {
+    "fps": 13.701669143702084,
+    "ms": 72.98380872520526,
+    "calls": 236,
+    "tris": 43916,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 217,
+   "screen": "play",
+   "tick": 272,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 9,
+   "heapMB": 17.4,
+   "stats": {
+    "fps": 20.60595513141672,
+    "ms": 48.52966016971264,
+    "calls": 122,
+    "tris": 26120,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 247,
+   "screen": "play",
+   "tick": 551,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 10,
+   "heapMB": 18.7,
+   "stats": {
+    "fps": 16.607721968433392,
+    "ms": 60.212954064423684,
+    "calls": 120,
+    "tris": 26544,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 277,
+   "screen": "play",
+   "tick": 798,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 11,
+   "heapMB": 16.9,
+   "stats": {
+    "fps": 15.174208594830294,
+    "ms": 65.90129519774035,
+    "calls": 150,
+    "tris": 29452,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 307,
+   "screen": "play",
+   "tick": 1011,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 12,
+   "heapMB": 18.9,
+   "stats": {
+    "fps": 15.032863653997163,
+    "ms": 66.52092528851647,
+    "calls": 204,
+    "tris": 39592,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 337,
+   "screen": "play",
+   "tick": 1223,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 13,
+   "heapMB": 15.8,
+   "stats": {
+    "fps": 12.14711508570665,
+    "ms": 82.32407390102749,
+    "calls": 226,
+    "tris": 42936,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 367,
+   "screen": "play",
+   "tick": 1239,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 14,
+   "heapMB": 18.4,
+   "stats": {
+    "fps": 13.825471178817642,
+    "ms": 72.33026542575458,
+    "calls": 230,
+    "tris": 43352,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 397,
+   "screen": "play",
+   "tick": 137,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 16,
+   "heapMB": 17.9,
+   "stats": {
+    "fps": 10.97533591409734,
+    "ms": 91.11338439450802,
+    "calls": 122,
+    "tris": 26120,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 427,
+   "screen": "play",
+   "tick": 404,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 17,
+   "heapMB": 17.8,
+   "stats": {
+    "fps": 17.73550478312046,
+    "ms": 56.38407320392353,
+    "calls": 148,
+    "tris": 29880,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 457,
+   "screen": "play",
+   "tick": 621,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 18,
+   "heapMB": 19.5,
+   "stats": {
+    "fps": 15.463960702869025,
+    "ms": 64.66648611015096,
+    "calls": 144,
+    "tris": 28280,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 487,
+   "screen": "play",
+   "tick": 869,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 19,
+   "heapMB": 17.8,
+   "stats": {
+    "fps": 14.334512793274932,
+    "ms": 69.7617013163609,
+    "calls": 144,
+    "tris": 31396,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 518,
+   "screen": "play",
+   "tick": 1112,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 20,
+   "heapMB": 19.8,
+   "stats": {
+    "fps": 15.990833319588308,
+    "ms": 62.53582787177382,
+    "calls": 232,
+    "tris": 42928,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 548,
+   "screen": "play",
+   "tick": 1239,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 21,
+   "heapMB": 16.7,
+   "stats": {
+    "fps": 13.682815507366609,
+    "ms": 73.08437356782426,
+    "calls": 230,
+    "tris": 43352,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 578,
+   "screen": "play",
+   "tick": 35,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 23,
+   "heapMB": 18,
+   "stats": {
+    "fps": 15.79934827688067,
+    "ms": 63.293750000011656,
+    "calls": 100,
+    "tris": 24464,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 608,
+   "screen": "play",
+   "tick": 292,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 24,
+   "heapMB": 19.9,
+   "stats": {
+    "fps": 20.612491562742676,
+    "ms": 48.51427091946089,
+    "calls": 130,
+    "tris": 26952,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 638,
+   "screen": "play",
+   "tick": 547,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 25,
+   "heapMB": 16.2,
+   "stats": {
+    "fps": 16.50183092852123,
+    "ms": 60.59933617860745,
+    "calls": 120,
+    "tris": 26544,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 668,
+   "screen": "play",
+   "tick": 763,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 26,
+   "heapMB": 17.8,
+   "stats": {
+    "fps": 17.306668010640603,
+    "ms": 57.78119736191699,
+    "calls": 150,
+    "tris": 29452,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 698,
+   "screen": "play",
+   "tick": 984,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 27,
+   "heapMB": 18.2,
+   "stats": {
+    "fps": 13.610746122210797,
+    "ms": 73.47135792711191,
+    "calls": 204,
+    "tris": 39592,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 728,
+   "screen": "play",
+   "tick": 1210,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 28,
+   "heapMB": 20.3,
+   "stats": {
+    "fps": 13.243980764710349,
+    "ms": 75.50599912260371,
+    "calls": 218,
+    "tris": 42104,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 758,
+   "screen": "play",
+   "tick": 1239,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 29,
+   "heapMB": 18,
+   "stats": {
+    "fps": 13.63379325676362,
+    "ms": 73.34715886966437,
+    "calls": 230,
+    "tris": 43352,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 788,
+   "screen": "play",
+   "tick": 86,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 31,
+   "heapMB": 18.5,
+   "stats": {
+    "fps": 12.18925490540511,
+    "ms": 82.03946900450558,
+    "calls": 122,
+    "tris": 26120,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 818,
+   "screen": "play",
+   "tick": 307,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 32,
+   "heapMB": 19.9,
+   "stats": {
+    "fps": 15.50333887377861,
+    "ms": 64.50223452777249,
+    "calls": 134,
+    "tris": 27368,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 849,
+   "screen": "play",
+   "tick": 596,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 33,
+   "heapMB": 18.1,
+   "stats": {
+    "fps": 14.921290852853273,
+    "ms": 67.01833037513497,
+    "calls": 148,
+    "tris": 28656,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 879,
+   "screen": "play",
+   "tick": 811,
+   "area": 0,
+   "loop": 0,
+   "score": 0,
+   "games": 34,
+   "heapMB": 20.8,
+   "stats": {
+    "fps": 18.343571550180304,
+    "ms": 54.515010736290925,
+    "calls": 156,
+    "tris": 30292,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  },
+  {
+   "t": 909,
+   "screen": "play",
+   "tick": 1048,
+   "area": 0,
+   "loop": 0,
+   "score": 50,
+   "games": 35,
+   "heapMB": 18.6,
+   "stats": {
+    "fps": 12.185335858278991,
+    "ms": 82.0658545345369,
+    "calls": 210,
+    "tris": 40432,
+    "buf": [
+     1280,
+     720
+    ],
+    "xr": true
+   }
+  }
+ ],
+ "errs": []
+}

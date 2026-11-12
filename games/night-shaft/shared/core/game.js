@@ -206,7 +206,7 @@ export class Game {
     const p = this.player;
     p.inv = Math.max(0, p.inv - dt);
     p.fireCd = Math.max(0, p.fireCd - dt);
-    p.shootT += dt; p.hitT += dt;
+    p.shootT += dt; p.hitT += dt; if (p.kickT != null) p.kickT += dt;
     p.dodge = Math.max(0, p.dodge - dt);
     if (p.state === 'dead') return;
     if (p.state === 'door') {
@@ -267,6 +267,7 @@ export class Game {
       const maxStep = 8 * dt;
       const nx = p.x + Math.max(-maxStep, Math.min(maxStep, tx - p.x));
       p.walkSpeed = Math.abs(nx - p.x) / dt;
+      p.walkPhase += Math.abs(nx - p.x) * 3.93;
       if (nx !== p.x) p.face = nx > p.x ? 1 : -1;
       p.x = this.constrainX(p, nx, true);
       if (this.vrFace) p.face = this.vrFace;
@@ -274,7 +275,7 @@ export class Game {
       const dir = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
       p.vx = p.crouch ? 0 : dir * P.walk;
       if (dir) p.face = dir;
-      if (p.vx) p.walkPhase += dt * 8.5;
+      p.walkPhase += dt * Math.abs(p.vx) * 3.93; // 位相 π で 0.8m（pose.js の STRIDE）
       if (edge.jump && !p.crouch && !(car && car.state === 'moving')) {
         p.vy = P.jumpV; p.grounded = false; p.support = null; p.fallFrom = p.y; p.airT = 0; p.kicked = false;
         this.emit('jump');
@@ -292,7 +293,7 @@ export class Game {
       if (p.vy <= 0) {
         const L = this.landing(p.x, p.y, ny);
         if (L) {
-          p.y = L.y; p.grounded = true; p.vy = 0; p.vx = 0; p.support = L.s;
+          p.y = L.y; p.grounded = true; p.vy = 0; p.vx = 0; p.support = L.s; p.kicked = false; p.kickT = null;
           const drop = p.fallFrom - L.y;
           this.emit('land', { drop });
           if (drop > P.fallSafe) this.die('fall');
@@ -508,7 +509,7 @@ export class Game {
     const D = this.D;
     const pf = this.playerFloor;
     for (const e of this.enemies) {
-      e.shootT += dt; e.hitT += dt;
+      e.shootT += dt; e.hitT += dt; e.moving = false;
       if (!e.alive) { e.deadT += dt; continue; }
       const ef = Math.floor((e.y + 0.6) / FLOOR_H) + 1;
       if (Math.abs(ef - pf) > 3) continue; // 遠い階は状態を保ったまま止めておく
@@ -590,7 +591,7 @@ export class Game {
     const s = this.supportAt(ahead, e.y);
     const inMovingCar = e.support && e.support.kind === 'car' && !this.carAligned(e.support.car);
     if (!s || ahead < 0.4 || ahead > W - 0.4 || inMovingCar) { if (turnAtEdge) e.dir = -e.dir; return; }
-    e.x = nx; e.walkPhase += dt * speed * 2.6;
+    e.x = nx; e.walkPhase += dt * speed * 3.93; e.moving = true;
   }
 
   // ---- 通常ドアからの出現（予兆つき） ----

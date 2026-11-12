@@ -1,0 +1,92 @@
+/* AEGIS RELAY — 画面の部品（2D 版と、3D 版の通常画面で共通）。文字は同梱の M PLUS 1p（OFL）で描く */
+@font-face { font-family: 'AR Sans'; font-weight: 400; font-display: block; src: url('../fonts/m-plus-1p-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF, U+25A0-25FF; }
+@font-face { font-family: 'AR Sans'; font-weight: 800; font-display: block; src: url('../fonts/m-plus-1p-latin-800-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF, U+25A0-25FF; }
+@font-face { font-family: 'AR Sans'; font-weight: 400; font-display: block; src: url('../fonts/m-plus-1p-japanese-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'AR Sans'; font-weight: 800; font-display: block; src: url('../fonts/m-plus-1p-japanese-800-normal.woff2') format('woff2'); }
+
+:root {
+  --bg: #04060d; --panel: rgba(10, 16, 32, .72); --line: rgba(120, 180, 255, .22); --ink: #e8eefc; --dim: #8fa0c2;
+  --accent: #2ec5ff; --gold: #ffd166; --hot: #ff4fa8; --ok: #8affc1;
+  --u: 1px; /* 1 論理 px（盤面の高さに比例。JS が設定） */
+  --ui: 1;  /* 文字の大きさ（設定） */
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; position: fixed; inset: 0;
+  font-family: 'AR Sans', system-ui, sans-serif; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none;
+  -webkit-tap-highlight-color: transparent; }
+canvas#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#ui { position: absolute; inset: 0; pointer-events: none; }
+#ui .click { pointer-events: auto; }
+
+/* HUD（盤面の左右。縦長画面では上に寄せる） */
+.hud { position: absolute; display: flex; flex-direction: column; gap: calc(14px * var(--ui)); padding: calc(16px * var(--ui)); font-weight: 800; letter-spacing: .06em; }
+.hud .lab { font-size: calc(12px * var(--ui)); color: var(--dim); font-weight: 400; letter-spacing: .18em; }
+.hud .val { font-size: calc(28px * var(--ui)); font-variant-numeric: tabular-nums; line-height: 1.1; text-shadow: 0 0 18px rgba(46, 197, 255, .35); }
+.hud .val.small { font-size: calc(18px * var(--ui)); }
+.hud .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: calc(10px * var(--ui)) calc(14px * var(--ui)); backdrop-filter: blur(6px); }
+.hud .lives { display: flex; gap: 6px; flex-wrap: wrap; }
+.hud .lives i { width: calc(16px * var(--ui)); height: calc(20px * var(--ui)); display: block; background: linear-gradient(#e9eef7, #8fb6d8);
+  clip-path: polygon(50% 0, 62% 38%, 100% 72%, 62% 70%, 58% 100%, 42% 100%, 38% 70%, 0 72%, 38% 38%); }
+.hud .relay { color: var(--gold); }
+.hud .relay.off { color: var(--dim); }
+.hud .tag { display: inline-block; font-size: calc(11px * var(--ui)); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--gold); color: var(--gold); font-weight: 400; }
+.hud .bonus { font-size: calc(14px * var(--ui)); font-weight: 400; color: var(--ink); min-height: 1.4em; }
+.hud.top { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: calc(8px * var(--ui)) calc(14px * var(--ui)); padding: calc(8px * var(--ui)) calc(12px * var(--ui)); }
+.hud.top .card { padding: calc(4px * var(--ui)) calc(10px * var(--ui)); border-radius: 10px; }
+.hud.top .val { font-size: calc(18px * var(--ui)); }
+.hud.top .lab { font-size: calc(10px * var(--ui)); }
+
+/* 中央の帯（エリア名など） */
+.banner { position: absolute; text-align: center; transform: translate(-50%, -50%); white-space: nowrap; font-weight: 800; letter-spacing: .14em;
+  text-shadow: 0 0 24px rgba(46, 197, 255, .6), 0 2px 0 #000; transition: opacity .25s; }
+.banner .t { font-size: calc(var(--u) * 22); }
+.banner .s { font-size: calc(var(--u) * 9); color: var(--dim); font-weight: 400; letter-spacing: .1em; margin-top: .4em; }
+
+/* メニュー */
+.menu { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 4); text-align: center; }
+.menu .logo { font-weight: 800; letter-spacing: .12em; line-height: 1; font-size: calc(var(--u) * 26 * var(--ui));
+  background: linear-gradient(180deg, #fff 0%, #bfe9ff 45%, #2ec5ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 calc(var(--u) * 6) rgba(46, 197, 255, .45)); }
+.menu .logo-kana { font-size: calc(var(--u) * 8 * var(--ui)); color: var(--dim); letter-spacing: .5em; margin-top: calc(var(--u) * 1); }
+.menu .note { font-size: calc(var(--u) * 4.6 * var(--ui)); color: var(--dim); max-width: 92%; line-height: 1.6; margin-top: calc(var(--u) * 3); }
+.menu h2 { margin: 0 0 calc(var(--u) * 3); font-size: calc(var(--u) * 11 * var(--ui)); letter-spacing: .14em; }
+.menu .page { font-size: calc(var(--u) * 5.6 * var(--ui)); line-height: 1.8; max-width: 92%; text-align: left; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: calc(var(--u) * 5) calc(var(--u) * 6); }
+.menu .page p { margin: 0 0 .5em; }
+.menu ul { list-style: none; margin: calc(var(--u) * 4) 0 0; padding: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-width: 72%; }
+.menu li { pointer-events: auto; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 1em;
+  font-size: calc(var(--u) * 6.4 * var(--ui)); padding: calc(var(--u) * 2.4) calc(var(--u) * 5); border-radius: calc(var(--u) * 3);
+  background: rgba(14, 22, 44, .62); border: 1px solid var(--line); transition: background .12s, border-color .12s, transform .12s; }
+.menu li.center { justify-content: center; }
+.menu li.sel { background: linear-gradient(90deg, rgba(46, 197, 255, .26), rgba(46, 197, 255, .08)); border-color: var(--accent); transform: scale(1.02); }
+.menu li .v { color: var(--accent); font-weight: 800; display: flex; align-items: center; gap: .5em; }
+.menu li .arr { pointer-events: auto; padding: 0 .4em; color: var(--dim); }
+.menu.settings ul { max-height: calc(var(--u) * 230); overflow: auto; pointer-events: auto; touch-action: pan-y; }
+.menu.settings li { font-size: calc(var(--u) * 5.2 * var(--ui)); padding: calc(var(--u) * 1.8) calc(var(--u) * 4); }
+.menu table { border-collapse: collapse; font-size: calc(var(--u) * 5 * var(--ui)); background: var(--panel); border-radius: 12px; }
+.menu td, .menu th { padding: .35em .9em; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+.menu th { color: var(--dim); font-weight: 400; }
+.menu .big { font-size: calc(var(--u) * 18 * var(--ui)); font-weight: 800; font-variant-numeric: tabular-nums; }
+.menu .hint { font-size: calc(var(--u) * 4.4 * var(--ui)); color: var(--dim); margin-top: calc(var(--u) * 3); }
+.menu .warn { color: var(--gold); font-size: calc(var(--u) * 4.6 * var(--ui)); }
+.foot { position: absolute; right: 12px; bottom: 8px; font-size: 11px; color: #56627d; letter-spacing: .2em; }
+.foot a { color: #7d8db0; pointer-events: auto; }
+
+/* タッチ操作（指で触れたときだけ出る） */
+.touch { position: absolute; inset: 0; display: none; pointer-events: none; }
+.touch.on { display: block; }
+.touch .zone { position: absolute; left: max(16px, env(safe-area-inset-left)); width: 46%; top: 18%; bottom: calc(max(22%, 90px) + env(safe-area-inset-bottom)); pointer-events: auto; }
+.touch .stick { position: absolute; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%; border: 2px solid rgba(160, 210, 255, .35);
+  background: radial-gradient(circle, rgba(46, 197, 255, .14), rgba(46, 197, 255, .02)); }
+.touch .knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #dff6ff, #2ec5ff 70%); box-shadow: 0 0 18px rgba(46, 197, 255, .6); }
+.touch .btn { position: absolute; pointer-events: auto; border-radius: 50%; display: grid; place-items: center; font-weight: 800; letter-spacing: .1em; color: #fff; }
+.touch .fire { right: max(24px, env(safe-area-inset-right)); bottom: calc(max(22%, 90px) + env(safe-area-inset-bottom)); width: 112px; height: 112px;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 140, 200, .9), rgba(255, 79, 168, .55)); border: 2px solid rgba(255, 255, 255, .5); font-size: 15px; }
+.touch .fire.down { transform: scale(.94); filter: brightness(1.25); }
+.touch .auto { right: calc(max(24px, env(safe-area-inset-right)) + 124px); bottom: calc(max(22%, 90px) + env(safe-area-inset-bottom) + 20px); width: 64px; height: 64px;
+  background: rgba(14, 22, 44, .7); border: 1px solid var(--line); font-size: 11px; }
+.touch .auto.on { border-color: var(--gold); color: var(--gold); }
+.touch .pause { right: max(16px, env(safe-area-inset-right)); top: calc(max(12px, env(safe-area-inset-top)) + 64px); width: 52px; height: 52px; border-radius: 14px;
+  background: rgba(14, 22, 44, .7); border: 1px solid var(--line); font-size: 16px; }
+.rotate { position: absolute; inset: 0; display: none; place-items: center; text-align: center; background: rgba(4, 6, 13, .92); font-size: 18px; pointer-events: auto; }

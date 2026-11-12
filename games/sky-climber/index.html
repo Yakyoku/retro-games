@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="description" content="左右の手で窓枠をつかんで高層ビルを登る 3D クライミングゲーム。Meta Quest 3 の VR と、通常ブラウザーの 3D で遊べます。">
+<meta name="theme-color" content="#0b1730">
+<title>Sky Climber VR</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="src/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+<style>
+  :root { --ink:#f4f8ff; --dim:#b9c7d8; --line:rgba(160,200,255,.28); --acc:#ffd34a; --red:#e8453a; --sky1:#0b1730; --sky2:#1d4f8f; --ok:#7dffb0;
+    --font: "Noto Sans JP","Hiragino Sans","Yu Gothic","Meiryo",system-ui,sans-serif; --sat: env(safe-area-inset-top,0px); --sab: env(safe-area-inset-bottom,0px); --sal: env(safe-area-inset-left,0px); --sar: env(safe-area-inset-right,0px); }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html,body { margin:0; height:100%; background:#0b1730; color:var(--ink); font:16px/1.6 var(--font); overflow:hidden; -webkit-tap-highlight-color:transparent; }
+  canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; z-index:5; }
+  .screen { position:fixed; inset:0; z-index:10; display:none; overflow:auto; padding:calc(24px + var(--sat)) calc(24px + var(--sar)) calc(24px + var(--sab)) calc(24px + var(--sal)); }
+  .screen.show { display:flex; flex-direction:column; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .btn { border:1px solid var(--line); background:rgba(14,26,46,.82); color:var(--ink); padding:14px 22px; border-radius:16px; font-weight:800; font-size:clamp(16px,1.6vw,22px); letter-spacing:.02em;
+    transition:transform .15s, background .15s, border-color .15s; display:inline-flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; backdrop-filter:blur(8px); }
+  .btn small { font-weight:500; font-size:.68em; color:var(--dim); }
+  .btn:hover, .btn:focus-visible { border-color:var(--acc); background:rgba(30,52,86,.92); outline:none; transform:translateY(-2px); }
+  .btn:focus-visible { box-shadow:0 0 0 3px rgba(255,211,74,.55); }
+  .btn.primary { background:linear-gradient(135deg,#ffd34a,#ff9d3a); color:#1a1205; border-color:transparent; }
+  .btn.primary small { color:#4a3206; }
+  .btn.vr { background:linear-gradient(135deg,#7fd0ff,#5a7dff); color:#071430; border-color:transparent; }
+  .btn.vr small { color:#132a5a; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { border:1px solid var(--line); background:rgba(14,26,46,.75); padding:8px 14px; border-radius:99px; font-weight:700; font-size:15px; }
+  .chip.sel { background:var(--acc); color:#1a1205; border-color:var(--acc); }
+  .chip:focus-visible { outline:3px solid #fff; }
+  .panel { background:rgba(8,16,30,.78); border:1px solid var(--line); border-radius:22px; padding:20px 22px; backdrop-filter:blur(10px); }
+  h2 { margin:0 0 10px; font-size:clamp(22px,2.4vw,34px); }
+  .kbd { display:inline-block; min-width:1.8em; padding:0 .4em; border:1px solid var(--line); border-radius:6px; background:rgba(255,255,255,.08); font-weight:700; text-align:center; }
+  /* 起動 */
+  #scr-boot { align-items:center; justify-content:center; background:radial-gradient(1200px 800px at 70% 20%, #2a6fc0, #0b1730 70%); }
+  #scr-boot .logo { font-size:clamp(40px,7vw,96px); }
+  .loadbar { width:min(420px,70vw); height:8px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden; margin:24px 0 10px; }
+  #load-bar { height:100%; width:0; background:linear-gradient(90deg,#ffd34a,#ff9d3a); transition:width .3s; }
+  /* トップ */
+  #scr-top { justify-content:space-between; background:linear-gradient(90deg, rgba(5,12,26,.88) 0%, rgba(5,12,26,.55) 38%, rgba(5,12,26,0) 62%); }
+  .logo { margin:0; white-space:nowrap; font-weight:900; font-size:clamp(34px,5.6vw,104px); line-height:.92; letter-spacing:.02em;
+    background:linear-gradient(180deg,#ffffff 0%,#ffe9a6 55%,#ffb347 100%); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 6px 30px rgba(0,0,0,.45)); }
+  .logo .vr { display:inline-block; font-size:.42em; vertical-align:top; margin-left:.25em; padding:.05em .3em; border-radius:.25em; background:linear-gradient(135deg,#7fd0ff,#5a7dff); -webkit-background-clip:padding-box; color:#071430; filter:none; }
+  .kana { font-weight:800; letter-spacing:.4em; color:#ffe29a; margin:8px 0 0; font-size:clamp(14px,1.4vw,20px); }
+  .tag { max-width:34em; color:#dbe6f3; margin:10px 0 0; font-size:clamp(14px,1.2vw,18px); }
+  .top-main { display:grid; gap:14px; max-width:min(680px,100%); }
+  .play-row { display:flex; flex-wrap:wrap; gap:12px; }
+  .play-row .btn { flex:1 1 240px; padding:16px 22px; font-size:clamp(18px,1.8vw,26px); }
+  .note-vr { font-size:13px; color:var(--dim); margin-top:-6px; }
+  .top-opts { display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; padding:12px 16px; }
+  .top-opts label { font-weight:700; font-size:14px; color:var(--dim); display:flex; gap:10px; align-items:center; }
+  .top-links { display:flex; flex-wrap:wrap; gap:10px; }
+  .top-links a, .top-links button { color:var(--ink); text-decoration:none; padding:8px 14px; border:1px solid var(--line); border-radius:99px; background:rgba(14,26,46,.7); font-size:14px; font-weight:700; }
+  #best-list { margin:0; padding-left:1.2em; color:var(--dim); font-size:14px; }
+  #best-list b { color:var(--acc); }
+  /* 制作の注釈（トップ下部・テキストで表示） */
+  .made { margin-top:18px; align-self:stretch; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px 20px; align-items:center;
+    background:rgba(4,9,20,.86); border:1px solid rgba(255,255,255,.18); border-radius:14px; padding:12px 18px; font-size:clamp(14px,1.2vw,17px); color:#ffffff; font-weight:600; }
+  .made small { color:#c9d6e2; font-weight:500; font-size:13px; }
+  select, input[type=range] { accent-color:var(--acc); }
+  select { background:rgba(14,26,46,.9); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:6px 10px; font:inherit; font-size:14px; }
+  /* 一般の画面 */
+  .center { margin:auto; width:min(980px,100%); display:grid; gap:18px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:14px; }
+  .opt { display:flex; flex-direction:column; gap:10px; }
+  .opt h3 { margin:0; font-size:17px; color:#ffe29a; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .bgdim { background:rgba(5,12,26,.72); }
+  /* ビル選択 */
+  #bld-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:14px; }
+  .bld { position:relative; min-height:230px; border-radius:20px; border:1px solid var(--line); padding:18px; text-align:left; display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+  .bld .no { position:absolute; right:14px; top:6px; font-size:64px; font-weight:900; opacity:.25; }
+  .bld strong { font-size:22px; } .bld em { font-style:normal; font-size:12px; letter-spacing:.2em; opacity:.8; } .bld .d { font-size:14px; color:#e2ebf5; margin-top:6px; } .bld .h { margin-top:auto; font-size:13px; color:var(--acc); font-weight:700; }
+  .bld .lock { font-size:12px; color:#ffb3b3; }
+  .bld:focus-visible, .bld:hover { outline:3px solid var(--acc); }
+  .t-day { background:linear-gradient(160deg,#5aa6f0,#1f4f8a); } .t-dusk { background:linear-gradient(160deg,#ff9a5a,#5a2f6b); } .t-night { background:linear-gradient(160deg,#2a2346,#0a0f1e); } .t-tower { background:linear-gradient(160deg,#9fd0ff,#2a5fb0); }
+  .bld:disabled { filter:grayscale(.7); opacity:.6; }
+  /* プレイ中の HUD */
+  #scr-play { padding:0; pointer-events:none; }
+  #hud { position:absolute; left:calc(14px + var(--sal)); top:calc(12px + var(--sat)); display:flex; gap:10px; pointer-events:auto; }
+  .hbox { background:rgba(6,12,24,.72); border:1px solid var(--line); border-radius:14px; padding:8px 14px; min-width:96px; }
+  .hbox small { display:block; font-size:11px; color:var(--dim); letter-spacing:.1em; }
+  .hbox b { font-size:clamp(17px,1.7vw,24px); }
+  #hud-lives { color:#ff6b6b; }
+  #hud-combo { color:var(--ok); }
+  #btn-pause { position:absolute; right:calc(14px + var(--sar)); top:calc(12px + var(--sat)); pointer-events:auto; width:52px; height:52px; border-radius:16px; border:1px solid var(--line); background:rgba(6,12,24,.72); font-size:22px; font-weight:900; }
+  #prog { position:absolute; right:calc(28px + var(--sar)); top:90px; bottom:120px; width:8px; border-radius:99px; background:rgba(255,255,255,.15); }
+  #hud-prog { position:absolute; bottom:0; left:0; right:0; border-radius:99px; background:linear-gradient(0deg,#ffd34a,#7dffb0); }
+  #banner { position:absolute; left:50%; top:28%; transform:translate(-50%,-50%); text-align:center; opacity:0; pointer-events:none; text-shadow:0 4px 24px rgba(0,0,0,.6); }
+  #banner b { display:block; font-size:clamp(34px,5vw,72px); font-weight:900; } #banner span { font-size:clamp(15px,1.6vw,22px); font-weight:700; color:#ffe9a6; }
+  #banner.show { animation:ban 2.2s ease forwards; }
+  @keyframes ban { 0% { opacity:0; transform:translate(-50%,-30%) scale(.9); } 12% { opacity:1; transform:translate(-50%,-50%) scale(1); } 80% { opacity:1; } 100% { opacity:0; } }
+  #combo-pop { position:absolute; left:50%; top:16%; transform:translateX(-50%); font-weight:900; font-size:clamp(18px,2vw,28px); color:var(--ok); opacity:0; text-shadow:0 2px 12px #000; }
+  #combo-pop.show { animation:pop 1s ease forwards; } @keyframes pop { 0% { opacity:0; top:18%; } 20% { opacity:1; top:16%; } 100% { opacity:0; top:13%; } }
+  .hint { position:absolute; left:50%; bottom:calc(14px + var(--sab)); transform:translateX(-50%); font-size:13px; color:#dbe6f3; background:rgba(6,12,24,.6); border-radius:99px; padding:6px 14px; white-space:nowrap; }
+  body.touch .hint { display:none; }
+  /* タッチの操作パッド */
+  #touch { position:fixed; inset:0; z-index:8; display:none; touch-action:none; }
+  #touch.play { display:block; }
+  body:not(.touch) #touch.play { pointer-events:none; }
+  body.touch #touch.play { pointer-events:auto; }
+  .tpad { position:absolute; width:124px; height:124px; margin:-62px 0 0 -62px; border-radius:50%; border:2px solid rgba(255,255,255,.35); background:rgba(10,20,40,.35); display:none; }
+  .tpad.on { display:block; } .tpad .knob { position:absolute; left:37px; top:37px; width:50px; height:50px; border-radius:50%; background:rgba(255,211,74,.85); }
+  .tpad span { position:absolute; left:0; right:0; top:-26px; text-align:center; font-size:13px; font-weight:800; }
+  body.touch #scr-play::after { content:"左半分＝左手　右半分＝右手（指でなぞる）"; position:absolute; left:50%; bottom:calc(10px + var(--sab)); transform:translateX(-50%); font-size:12px; color:#dbe6f3; background:rgba(6,12,24,.6); padding:4px 12px; border-radius:99px; white-space:nowrap; }
+  /* 重ねる画面 */
+  .overlay { position:fixed; inset:0; z-index:30; display:none; align-items:center; justify-content:center; background:rgba(3,8,18,.72); padding:20px; }
+  .overlay.show { display:flex; }
+  .overlay .panel { width:min(920px,100%); max-height:92vh; overflow:auto; }
+  #toast { position:fixed; left:50%; bottom:calc(64px + var(--sab)); transform:translate(-50%,20px); z-index:50; background:rgba(6,12,24,.92); border:1px solid var(--acc); padding:10px 18px; border-radius:14px; opacity:0; transition:.25s; max-width:90vw; font-weight:600; pointer-events:none; }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+  #debug { position:fixed; left:8px; bottom:8px; z-index:60; white-space:pre; font:12px/1.4 ui-monospace,Consolas,monospace; background:rgba(0,0,0,.7); color:#7dffb0; padding:8px 10px; border-radius:8px; pointer-events:none; }
+  .rot { display:none; }
+  @media (orientation:portrait) and (pointer:coarse) { body[data-screen=play] .rot { display:flex; position:fixed; inset:0; z-index:70; background:rgba(5,12,26,.95); align-items:center; justify-content:center; text-align:center; padding:30px; font-size:20px; font-weight:800; } }
+  @media (max-width:700px) { #scr-top { background:linear-gradient(180deg, rgba(5,12,26,.85) 0%, rgba(5,12,26,.55) 60%, rgba(5,12,26,.85) 100%); } .play-row .btn { min-width:100%; } }
+  table.keys { border-collapse:collapse; width:100%; font-size:15px; } table.keys td, table.keys th { border-bottom:1px solid var(--line); padding:8px 6px; text-align:left; vertical-align:top; } table.keys th { color:#ffe29a; width:9em; }
+</style>
+</head>
+<body data-screen="boot">
+<canvas id="view" aria-label="ゲーム画面"></canvas>
+<div id="fade"></div>
+<div id="touch"></div>
+
+<section class="screen show" id="scr-boot" aria-live="polite">
+  <h1 class="logo">SKY CLIMBER<span class="vr">VR</span></h1>
+  <div class="loadbar"><div id="load-bar"></div></div>
+  <div id="load-msg">読み込み中…</div>
+  <button class="btn" id="load-retry" hidden>再読み込み</button>
+  <p class="made" style="max-width:640px;margin-top:40px">本ゲームはClaude Codeのクラウドセッションで制作しました。</p>
+</section>
+
+<section class="screen" id="scr-top">
+  <div class="top-main">
+    <div>
+      <h1 class="logo">SKY CLIMBER<span class="vr">VR</span></h1>
+      <p class="kana">スカイ・クライマー</p>
+      <p class="tag">左右の手で窓枠をつかみ、片手で体を支えながらもう片手を伸ばす。閉まる窓、上から落ちてくる植木鉢、横切る鳥をよけて、4 つの高層ビルの屋上を目指そう。</p>
+    </div>
+    <div class="play-row">
+      <button class="btn vr" id="btn-vr" disabled>VRで遊ぶ<small>Meta Quest 3（Quest Browser）・両手のコントローラー</small></button>
+      <button class="btn primary" id="btn-flat" autofocus>通常3Dで遊ぶ<small>ゲームパッド・キーボード・タッチ</small></button>
+    </div>
+    <div class="note-vr" id="vr-note">VR 対応を確認中…</div>
+    <button class="btn" id="btn-continue" hidden>続きから<small></small></button>
+    <div class="top-opts panel">
+      <label>難易度 <span class="chips"><button class="chip" data-set="difficulty" data-val="beginner">初心者</button><button class="chip" data-set="difficulty" data-val="standard">標準</button><button class="chip" data-set="difficulty" data-val="challenge">挑戦</button></span></label>
+      <label>画質 <select data-set="quality" aria-label="画質"><option value="auto">自動</option><option value="pcHigh">通常ブラウザー高画質</option><option value="questHigh">Quest 高画質</option><option value="standard">標準</option><option value="light">軽量</option></select></label>
+      <label>音量 <input type="range" min="0" max="1" step="0.05" data-set="vol.master" aria-label="全体の音量"><output></output></label>
+    </div>
+    <div class="top-links">
+      <button id="btn-help">操作説明</button><button id="btn-settings">設定</button><a href="credits.html">クレジット・素材と音について</a><a href="sound-test.html">サウンドテスト</a>
+    </div>
+    <div><small style="color:var(--dim)">自己ベスト</small><ul id="best-list"></ul></div>
+  </div>
+  <footer class="made"><span>本ゲームはClaude Codeのクラウドセッションで制作しました。</span><small>「クレイジー・クライマー」（日本物産・1980）の遊びに着想を得た新規制作です。キャラクター・曲・音はすべて新規に作りました。</small></footer>
+</section>
+
+<section class="screen bgdim" id="scr-setup">
+  <div class="center">
+    <h2>操作方式と難易度</h2>
+    <div class="grid2">
+      <div class="panel opt"><h3>難易度</h3>
+        <div class="chips"><button class="chip" data-set="difficulty" data-val="beginner">初心者</button><button class="chip" data-set="difficulty" data-val="standard">標準</button><button class="chip" data-set="difficulty" data-val="challenge">挑戦</button></div>
+        <small style="color:var(--dim)">初心者: 障害の間隔 1.5 倍・予告 2 秒。標準: 予告 1.5 秒。挑戦: 間隔 0.8 倍・予告 1 秒・落ちたらビルの最初から。</small></div>
+      <div class="panel opt"><h3>操作（通常 3D）</h3>
+        <table class="keys"><tr><th>ゲームパッド</th><td>左スティック＝左手、右スティック＝右手。<span class="kbd pad-ok">A</span> 決定・<span class="kbd pad-back">B</span> 戻る・<span class="kbd pad-start">Start</span> 一時停止</td></tr>
+        <tr><th>キーボード</th><td>左手 <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span>、右手 <span class="kbd">↑</span><span class="kbd">←</span><span class="kbd">↓</span><span class="kbd">→</span>、<span class="kbd">Esc</span> 一時停止</td></tr>
+        <tr><th>タッチ</th><td>画面の左半分を指でなぞる＝左手、右半分＝右手（横向き）</td></tr></table></div>
+    </div>
+    <div class="row"><button class="btn primary" id="btn-setup-next" autofocus>次へ（練習）</button><button class="btn back-top">タイトルへ</button></div>
+  </div>
+</section>
+
+<section class="screen bgdim" id="scr-calib">
+  <div class="center">
+    <h2>練習</h2>
+    <div class="panel" id="calib-flat"><p>レバーを倒した方向の、いちばん近い窓枠へ手を伸ばします。<b>レバーを戻すとつかみます</b>。片方の手でつかんでいる間だけ、もう片方を離して伸ばせます（両手が同時に離れることはありません）。</p>
+      <p>手を上へ伸ばしてつかむと、体が引き上がります。左右交互に、まだつかんだことのない高い所をつかむと <b>コンボ</b>。閉まりかけた窓（赤い目印）と、上の住人が構えた落下物（黄色の帯）に注意。</p></div>
+    <div class="panel" id="calib-vr" hidden><p>VR では、ヘッドセットの中の板で「立って測る／座って測る」を選んでください。</p></div>
+    <div class="row"><button class="btn primary" id="btn-practice" autofocus>練習壁で練習する<small>残機は減りません</small></button><button class="btn" id="btn-skip-practice">練習をとばしてビル選択へ</button><button class="btn back-top">タイトルへ</button></div>
+  </div>
+</section>
+
+<section class="screen bgdim" id="scr-select">
+  <div class="center"><h2>ビル選択</h2><div id="bld-list"></div>
+    <div class="row"><button class="btn" onclick="__sky.startPractice()">練習壁</button><button class="btn back-top">タイトルへ</button></div></div>
+</section>
+
+<section class="screen" id="scr-play">
+  <div id="hud">
+    <div class="hbox"><small>高さ</small><b id="hud-height">0m</b></div>
+    <div class="hbox"><small>得点</small><b id="hud-score">0</b></div>
+    <div class="hbox"><small>残機</small><b id="hud-lives">♥♥♥</b></div>
+    <div class="hbox"><small id="hud-stage">—</small><b id="hud-combo"></b></div>
+  </div>
+  <button id="btn-pause" aria-label="一時停止">❚❚</button>
+  <div id="prog"><div id="hud-prog"></div></div>
+  <div id="banner"><b></b><span></span></div>
+  <div id="combo-pop"></div>
+  <div class="hint">左手 W/A/S/D・右手 矢印　｜　ゲームパッド: 左右スティック　｜　Esc 一時停止</div>
+</section>
+
+<section class="screen bgdim" id="scr-result">
+  <div class="center panel"><h2 id="res-title">屋上到達！</h2><ul id="res-stats"></ul>
+    <div class="row"><button class="btn primary" id="btn-next" autofocus>次のビル</button><button class="btn back-top">タイトルへ</button></div></div>
+</section>
+<section class="screen bgdim" id="scr-final">
+  <div class="center panel"><h2>4 棟すべて制覇！</h2><p style="font-size:40px;font-weight:900;margin:0"><span id="fin-score">0</span> 点</p><p id="fin-best" style="color:var(--acc);font-weight:800"></p><ul id="fin-list"></ul>
+    <div class="row"><button class="btn primary" id="btn-final-again" autofocus>もう一度</button><button class="btn back-top">タイトルへ</button></div></div>
+</section>
+<section class="screen bgdim" id="scr-over">
+  <div class="center panel"><h2>ゲームオーバー</h2><p style="font-size:36px;font-weight:900;margin:0"><span id="over-score">0</span> 点</p><p id="over-height"></p><p id="over-best" style="color:var(--acc);font-weight:800"></p>
+    <div class="row"><button class="btn primary" id="btn-over-retry" autofocus>このビルから再挑戦</button><button class="btn back-top">タイトルへ</button></div></div>
+</section>
+
+<div class="overlay" id="ov-pause"><div class="panel"><h2>一時停止</h2><p id="pause-msg" style="color:var(--dim)"></p>
+  <div class="row"><button class="btn primary" id="btn-resume" autofocus>再開</button><button class="btn" id="btn-retry">このビルを最初から</button><button class="btn open-settings">設定</button><button class="btn back-top">タイトルへ</button></div></div></div>
+
+<div class="overlay" id="ov-settings"><div class="panel">
+  <h2>設定</h2>
+  <div class="grid2">
+    <div class="opt"><h3>難易度</h3><div class="chips"><button class="chip" data-set="difficulty" data-val="beginner">初心者</button><button class="chip" data-set="difficulty" data-val="standard">標準</button><button class="chip" data-set="difficulty" data-val="challenge">挑戦</button></div>
+      <h3>画質</h3><select data-set="quality"><option value="auto">自動（遅いときだけ下げる）</option><option value="pcHigh">通常ブラウザー高画質（4K 想定）</option><option value="questHigh">Quest 高画質</option><option value="standard">標準</option><option value="light">軽量</option></select>
+      <h3>移動の速さ</h3><label class="row"><input type="range" min="0.6" max="1.6" step="0.05" data-set="speed"><output></output></label>
+      <label class="row"><input type="checkbox" data-set="markers"> つかめる場所の目印を出す</label></div>
+    <div class="opt"><h3>VR</h3>
+      <div class="chips"><button class="chip" data-set="vrControl" data-val="direct">直接つかむ</button><button class="chip" data-set="vrControl" data-val="classic">クラシック（スティック）</button></div>
+      <div class="chips"><button class="chip" data-set="gripMode" data-val="hold">握り続ける</button><button class="chip" data-set="gripMode" data-val="toggle">押すたびに切替</button></div>
+      <div class="chips"><button class="chip" data-set="stance" data-val="stand">立って</button><button class="chip" data-set="stance" data-val="seat">座って</button></div>
+      <label class="row">身長 <input type="range" min="120" max="200" step="1" data-set="height"><output></output></label>
+      <label class="row">到達距離 <input type="range" min="1" max="1.4" step="0.05" data-set="reach"><output></output></label>
+      <label class="row">つかみの補助 <input type="range" min="1" max="2" step="0.1" data-set="grabAssist"><output></output></label>
+      <label class="row"><input type="checkbox" data-set="vignette"> 移動中のビネット（酔いにくく）</label>
+      <label class="row"><input type="checkbox" data-set="fallFx"> 落下の演出（切ると即暗転）</label></div>
+    <div class="opt"><h3>音</h3>
+      <div class="chips"><button class="chip" data-set="audioMode" data-val="vr">VR 音響（空間・環境音）</button><button class="chip" data-set="audioMode" data-val="classic">クラシック音響（原作基準・モノラル）</button></div>
+      <label class="row">全体 <input type="range" min="0" max="1" step="0.05" data-set="vol.master"><output></output> <input type="checkbox" data-set="mute.master" aria-label="全体ミュート">消音</label>
+      <label class="row">曲 <input type="range" min="0" max="1" step="0.05" data-set="vol.bgm"><output></output> <input type="checkbox" data-set="mute.bgm" aria-label="曲ミュート">消音</label>
+      <label class="row">効果音 <input type="range" min="0" max="1" step="0.05" data-set="vol.sfx"><output></output> <input type="checkbox" data-set="mute.sfx" aria-label="効果音ミュート">消音</label>
+      <label class="row">掛け声 <input type="range" min="0" max="1" step="0.05" data-set="vol.voice"><output></output> <input type="checkbox" data-set="mute.voice" aria-label="掛け声ミュート">消音</label>
+      <label class="row">環境音 <input type="range" min="0" max="1" step="0.05" data-set="vol.amb"><output></output> <input type="checkbox" data-set="mute.amb" aria-label="環境音ミュート">消音</label>
+      <label class="row">案内音声 <input type="range" min="0" max="1" step="0.05" data-set="vol.guide"><output></output> <input type="checkbox" data-set="mute.guide" aria-label="案内音声ミュート">消音</label>
+      <label class="row">案内の速さ <input type="range" min="0.7" max="1.4" step="0.05" data-set="guideRate"><output></output></label></div>
+  </div>
+  <div class="row" style="margin-top:14px"><button class="btn primary close-overlay" autofocus>閉じる</button></div>
+</div></div>
+
+<div class="overlay" id="ov-help"><div class="panel">
+  <h2>操作説明</h2>
+  <table class="keys">
+    <tr><th>VR（直接）</th><td>窓枠・配管の留め金・看板の縁に手を近づけ、<b>グリップ</b>を握ってつかむ。つかんだ手を体のほうへ引くと体が動く（両手でも移動は 1 回分）。離すとき指を開く。<b>B/Y</b> 一時停止、メニューは<b>トリガー</b>で選ぶ。</td></tr>
+    <tr><th>VR（クラシック）</th><td>左スティック＝左手、右スティック＝右手。倒すと隣の保持点へ伸ばし、中立に戻すとつかむ。</td></tr>
+    <tr><th>ゲームパッド</th><td>左右スティックで左右の手。<span class="kbd pad-ok">A</span> 決定・<span class="kbd pad-back">B</span> 戻る・<span class="kbd pad-start">Start</span> 一時停止。十字キーでメニュー移動。</td></tr>
+    <tr><th>キーボード</th><td>左手 WASD・右手 矢印。Esc 一時停止。メニューはマウスかキーボード（Tab・Enter）。</td></tr>
+    <tr><th>タッチ</th><td>左右の指で別々に。片方を離しても、もう片方はそのまま。</td></tr>
+    <tr><th>ルール</th><td>片手でもつかんでいれば落ちない。手に当たるとその手が、体に当たると片手（両手なら当たった側）が外れる。両手が外れても 0.35 秒以内なら届く保持点をつかみ直せる。屋上の縁を両手でつかむ（VR は頭を縁より上へ）とクリア。</td></tr>
+    <tr><th>得点</th><td>初めて届いた高さ 1m ごとに 100 点。まだつかんでいない高い保持点を左右交互につかむとコンボ（3 回目から 50 点、最大 200 点）。屋上で 1,000 点。</td></tr>
+  </table>
+  <div class="row" style="margin-top:14px"><button class="btn primary close-overlay" autofocus>閉じる</button></div>
+</div></div>
+
+<div id="toast" role="status"></div>
+<div class="rot">横向きにしてください（左右の手を両手の指で操作します）</div>
+<pre id="debug" hidden></pre>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

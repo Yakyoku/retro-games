@@ -1,0 +1,3 @@
+/* Noto Sans JP（SIL OFL 1.1）を Sky Climber VR で使う文字だけに絞ったもの。tools/make-font.py で生成 */
+@font-face { font-family: 'Noto Sans JP'; font-style: normal; font-weight: 400 699; font-display: swap; src: url('noto-sans-jp-500.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Sans JP'; font-style: normal; font-weight: 700 900; font-display: swap; src: url('noto-sans-jp-800.woff2') format('woff2'); }

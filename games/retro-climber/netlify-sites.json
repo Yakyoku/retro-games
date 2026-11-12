@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "tekkotsu-rescue-yk", "siteId": "155c607d-bc38-4f77-bf08-0ef548b0ae26", "url": "https://tekkotsu-rescue-yk.netlify.app/",
+      "env": { "GAME": "retro-climber", "VARIANT": "all" }, "note": "1 サイト・1 アプリで 2D クラシックと 3D VR（WebXR）を切り替える。/experiments/01-webxr-probe/ は WebXR の小さな検証ページ" }
+  ]
+}

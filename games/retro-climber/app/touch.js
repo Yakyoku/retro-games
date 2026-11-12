@@ -19,9 +19,11 @@ export class Touch {
     }
     // 最初のタッチでタッチ操作を出す（マウスだけの端末では出さない）
     addEventListener('touchstart', () => this.enable(), { passive: true, once: true });
+    // タッチが主の端末（iPad など）は最初から出す
+    if (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1) this.enable();
   }
-  enable() { if (!this.enabled) { this.enabled = true; document.body.classList.add('touch'); } }
-  show(on) { this.root.classList.toggle('show', on && this.enabled); }
+  enable() { if (!this.enabled) { this.enabled = true; document.body.classList.add('touch'); this.show(this.want); } }
+  show(on) { this.want = on; this.root.classList.toggle('show', !!on && this.enabled); }
   moveStick(e) {
     const r = this.stick.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = r.width / 2;

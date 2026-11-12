@@ -1,5 +1,5 @@
-// テスト用の自動操縦（狙うべき部位の高さ・奥行きへ寄せて撃ち続ける）。本編では使わない
-import { BOSS } from '../shared/bosses.js';
+// 自動操縦（タイトル画面のデモ・テスト用（狙うべき部位の高さ・奥行きへ寄せて撃ち続ける）。本編では使わない
+import { BOSS } from './bosses.js';
 export function botInput(g) {
   const p = g.player;
   let tgt = null, best = 1e9;

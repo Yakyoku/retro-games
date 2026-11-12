@@ -145,7 +145,7 @@ SONGS.start = {
         B(...A.map(([x, n]) => hits(x, n, p8)), ...A2.map(([x, n]) => hits(x, n, p8)), ...Bs.map(([x, n]) => 'q4 ' + hits(x, n, sy) + ' q5')),
       W0: '@bass v15 l8 ' + B(octBass(2, 'a'), octBass(2, 'e')) + ' L ' + B(...bassA, ...bassA2,
         'o3 d d d d d d e f+', 'o3 e e e e e e f+ g+', 'o3 c+ c+ c+ c+ c+ c+ <b >c+', 'o2 f+ f+ f+ f+ f+ f+ e f+',
-        'o2 b b b b b b a b', 'o3 c+ c+ c+ c+ c+ c+ d e', 'o3 d d d d e e e e', 'o3 e e e e e e d c+'),
+        'o2 b b b b b b a b', 'o3 c+ c+ c+ c+ c+ c+ <g+ b', 'o3 d d d d e e e e', 'o3 e e e e e e d c+'),
       W1: '@worgan v10 o4 l2 ' + B('r1', 'r1') + ' L ' + B('c+ e', 'g+ e', 'f+ a', 'g+ b', 'a f+', 'f+ d', 'd f+', 'e g+',
         'c+ e', 'g+ e', 'f+ a', 'g+ b', 'a f+', 'f+ d', 'g+ b', 'a e',
         'l4 d f+ a f+', 'e g+ b g+', 'e g+ >c+< g+', 'f+ a >c+< a', 'f+ b >d< b', 'g+ >c+ e c+<', 'a f+ d f+', 'g+ b >e< b'),

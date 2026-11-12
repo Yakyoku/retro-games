@@ -294,7 +294,7 @@ export class ChipSynth {
   }
 
   // ------------------------------------------------------------ 効果音（PSG-B の 3 音）
-  // 優先度: 新しい音の pri 以上… ではなく「新しい音の pri 以下」の音だけ奪える（同じ pri なら一番古いもの）。
+  // 優先度: 空きがなければ、新しい音の pri 以下の音だけ奪える（一番低いもの、同じなら一番古いもの）。
   // 同じ効果音（同じ定義）をもう一度鳴らすと、重ねずに同じチャンネルで頭から鳴らし直す。
   sfx(name) {
     const def = SFX[name];
@@ -414,8 +414,8 @@ export class ChipSynth {
       }
       let xl = (ml + sx) * vn.master, xr = (mr + sx) * vn.master;
       // 直流カット
-      let y = xl - this.dcxL + dcR * this.dcyL; this.dcxL = xl; this.dcyL = y; xl = y;
-      if (arr) { y = xr - this.dcxR + dcR * this.dcyR; this.dcxR = xr; this.dcyR = y; xr = y; } else xr = xl;
+      let y = xl - this.dcxL + dcR * this.dcyL; if (y < 1e-18 && y > -1e-18) y = 0; this.dcxL = xl; this.dcyL = y; xl = y;
+      if (arr) { y = xr - this.dcxR + dcR * this.dcyR; if (y < 1e-18 && y > -1e-18) y = 0; this.dcxR = xr; this.dcyR = y; xr = y; } else xr = xl;
       // ピーク抑え: 0.8 を超えそうなら全体を下げ、ゆっくり戻す。最後に柔らかく丸める
       const pk = Math.max(Math.abs(xl), Math.abs(xr));
       this.limEnv = pk > this.limEnv ? pk : this.limEnv * this.limRel;

@@ -1,5 +1,5 @@
 import { Game } from '../shared/game.js';
-import { botInput } from './bot.js';
+import { botInput } from '../shared/bot.js';
 for (const variant of ['2d','3d']) for (let st=1; st<=7; st++) {
   const g = new Game({ variant, stage: st, invincible: true, difficulty:'normal' });
   g.debugFullPower();

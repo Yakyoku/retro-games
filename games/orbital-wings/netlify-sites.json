@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "orbital-wings-gic", "siteId": "7aaa0766-e75c-4dac-bdf8-35099eadd3ad", "url": "https://orbital-wings-gic.netlify.app/",
+      "env": { "GAME": "orbital-wings", "VARIANT": "all" }, "note": "1 サイトに入口・2D 版（/2d/）・3D/VR 版（/3d/）。同名で始まる orbital-wings-ow1 / -giur は別の過去成果物（触らない）" }
+  ]
+}

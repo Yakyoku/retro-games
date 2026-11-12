@@ -5,7 +5,7 @@ import { Game, segDist2 } from '../shared/game.js';
 import { FixedStep } from '../shared/loop.js';
 import { STAGES } from '../shared/stages.js';
 import { GAUGE, OPTION, SHIELD, SCORE, PLAYER, TICK } from '../shared/config.js';
-import { botInput } from './bot.js';
+import { botInput } from '../shared/bot.js';
 
 const quiet = (g) => { g.enemies = []; g.ebullets = []; g.stage = { ...g.stage, events: [] }; g.evCursor = 0; };
 function play(g, n, inp = {}) { for (let i = 0; i < n; i++) { g.tick(typeof inp === 'function' ? inp(g, i) : inp); g.drainEvents(); } }

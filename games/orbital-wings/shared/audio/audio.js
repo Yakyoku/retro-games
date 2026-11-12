@@ -113,7 +113,7 @@ export class AudioEngine {
       if (this._music === m.id) this._music = null;
       if (typeof this.onMusicEnd === 'function') { try { this.onMusicEnd(m.id); } catch (e) { console.error(e); } }
     } else if (m.type === 'pos') {
-      const w = this._waiters.get(m.req); if (w) { this._waiters.delete(m.req); w(m); }
+      const w = this._waiters.get(m.req); if (w) { this._waiters.delete(m.req); const { type, req, ...pos } = m; w(pos); }
     }
   }
 

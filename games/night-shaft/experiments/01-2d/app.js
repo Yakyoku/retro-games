@@ -239,7 +239,7 @@ function startStage() {
   R.camY = null; R.fx = []; R.popups = []; R.scarf = null;
   audio.stopAll(); audio.clearPaused();
   const d = audio.playJingle('start') || 0;
-  bgmAt = d ? d - 0.35 : 0;
+  bgmAt = d ? d - 0.35 : 0.01; // ジングルがまだ描けていない時も、ステージの BGM は必ず始める
   toast(`${STAGES[run.stage].name}　書類 ${game.docTotal} 件を回収せよ`, 'info', 3.2);
   layout(true);
 }

@@ -8,14 +8,14 @@ const DEAD = 0.38;
 
 export class Input2D {
   constructor() {
-    this.keys = new Set(); this.touch = {}; this.prev = {}; this.device = 'kb'; this.pad = null; this.padName = ''; this.padStyle = 'xbox';
+    this.keys = new Set(); this.tapped = new Set(); this.touch = {}; this.prev = {}; this.device = 'kb'; this.pad = null; this.padName = ''; this.padStyle = 'xbox';
     this.listeners = [];
     this.onDevice = null; this.onPadChange = null;
     addEventListener('keydown', (e) => {
       const a = KEYMAP[e.code];
       if (!a) return;
       if (!e.metaKey && !e.ctrlKey) e.preventDefault();
-      this.keys.add(a); this.setDevice('kb');
+      this.keys.add(a); this.tapped.add(a); this.setDevice('kb');
     }, { passive: false });
     addEventListener('keyup', (e) => { const a = KEYMAP[e.code]; if (a) this.keys.delete(a); });
     const clear = () => this.releaseAll();
@@ -24,7 +24,7 @@ export class Input2D {
     addEventListener('gamepadconnected', (e) => { this.padLabel(e.gamepad); this.onPadChange && this.onPadChange(true, e.gamepad.id); });
     addEventListener('gamepaddisconnected', (e) => { this.padHeld = {}; this.onPadChange && this.onPadChange(false, e.gamepad.id); });
   }
-  releaseAll() { this.keys.clear(); this.touch = {}; this.padHeld = {}; this.resetTouchUi && this.resetTouchUi(); }
+  releaseAll() { this.keys.clear(); this.tapped.clear(); this.touch = {}; this.padHeld = {}; this.resetTouchUi && this.resetTouchUi(); }
   setDevice(d) { if (this.device !== d) { this.device = d; this.onDevice && this.onDevice(d); } }
   padLabel(gp) {
     const id = (gp && gp.id || '').toLowerCase();
@@ -92,11 +92,14 @@ export class Input2D {
 
   poll() {
     const pad = this.pollPad();
-    const k = (a) => this.keys.has(a) || !!pad[a] || !!this.touch[a];
+    // 1 フレームの間に押して離したキーも、次の読み取りまでは押されたことにする（短い押下を取りこぼさない）
+    const kb = (a) => this.keys.has(a) || this.tapped.has(a);
+    const k = (a) => kb(a) || !!pad[a] || !!this.touch[a];
     const cur = {
       left: k('left'), right: k('right'), up: k('up'), down: k('down'), fire: k('fire'), jump: k('jump'),
-      pause: k('pause'), ok: this.keys.has('ok') || this.keys.has('jump') || !!pad.ok, back: this.keys.has('back') || !!pad.back || this.keys.has('pause'),
+      pause: k('pause'), ok: kb('ok') || kb('jump') || !!pad.ok, back: kb('back') || !!pad.back || kb('pause'),
     };
+    this.tapped.clear();
     const edge = {};
     for (const [a, v] of Object.entries(cur)) edge[a] = v && !this.prev[a];
     this.prev = cur;

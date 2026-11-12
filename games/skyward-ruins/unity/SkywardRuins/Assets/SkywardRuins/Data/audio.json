@@ -1,0 +1,252 @@
+{
+ "air_fire": {
+  "loop": false,
+  "gain": 0.42,
+  "priority": 3,
+  "maxVoices": 3,
+  "cooldown": 0.05,
+  "spatial": false,
+  "len": 0.075,
+  "desc": "対空発射（高い矩形の急下降）"
+ },
+ "ground_fire": {
+  "loop": false,
+  "gain": 0.5,
+  "priority": 4,
+  "maxVoices": 2,
+  "cooldown": 0.1,
+  "spatial": false,
+  "len": 0.3,
+  "desc": "対地発射（下降する柔らかい笛音）"
+ },
+ "bomb_land": {
+  "loop": false,
+  "gain": 0.55,
+  "priority": 4,
+  "maxVoices": 3,
+  "cooldown": 0.03,
+  "spatial": true,
+  "len": 0.22,
+  "desc": "爆撃の着弾（低い衝撃）"
+ },
+ "air_kill": {
+  "loop": false,
+  "gain": 0.6,
+  "priority": 6,
+  "maxVoices": 3,
+  "cooldown": 0.03,
+  "spatial": true,
+  "len": 0.34,
+  "desc": "空中敵撃破（高めの金属破裂）"
+ },
+ "armor_hit": {
+  "loop": false,
+  "gain": 0.4,
+  "priority": 3,
+  "maxVoices": 2,
+  "cooldown": 0.06,
+  "spatial": true,
+  "len": 0.09,
+  "desc": "装甲への命中・シャードに弾かれる"
+ },
+ "ground_kill": {
+  "loop": false,
+  "gain": 0.66,
+  "priority": 6,
+  "maxVoices": 3,
+  "cooldown": 0.03,
+  "spatial": true,
+  "len": 0.6,
+  "desc": "地上物撃破（低い爆発）"
+ },
+ "player_hit": {
+  "loop": false,
+  "gain": 0.85,
+  "priority": 10,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 1.5,
+  "desc": "自機被弾（下降音と崩落ノイズ）"
+ },
+ "obelisk_reveal": {
+  "loop": false,
+  "gain": 0.7,
+  "priority": 8,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.9,
+  "desc": "隠し対象の出現（上昇する鐘）"
+ },
+ "obelisk_hit": {
+  "loop": false,
+  "gain": 0.5,
+  "priority": 6,
+  "maxVoices": 2,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.18,
+  "desc": "出現後の命中（石の打音）"
+ },
+ "obelisk_break": {
+  "loop": false,
+  "gain": 0.7,
+  "priority": 8,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.8,
+  "desc": "隠し対象の破壊（鐘＋砕ける音）"
+ },
+ "banner_reveal": {
+  "loop": false,
+  "gain": 0.7,
+  "priority": 8,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.7,
+  "desc": "旗の出現"
+ },
+ "extend": {
+  "loop": false,
+  "gain": 0.75,
+  "priority": 9,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 1.2,
+  "desc": "残機追加（上昇ファンファーレ）"
+ },
+ "fortress_warn": {
+  "loop": false,
+  "gain": 0.7,
+  "priority": 9,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 1.7,
+  "desc": "要塞接近の警告（2 音交互）"
+ },
+ "core_open": {
+  "loop": false,
+  "gain": 0.5,
+  "priority": 7,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.25,
+  "desc": "コアが開く（上昇音）"
+ },
+ "core_clang": {
+  "loop": false,
+  "gain": 0.55,
+  "priority": 6,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": true,
+  "len": 0.3,
+  "desc": "閉じたコアに弾かれる"
+ },
+ "fortress_destroyed": {
+  "loop": false,
+  "gain": 0.9,
+  "priority": 10,
+  "maxVoices": 1,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 2.6,
+  "desc": "要塞撃破（連鎖爆発）"
+ },
+ "enemy_fire": {
+  "loop": false,
+  "gain": 0.22,
+  "priority": 2,
+  "maxVoices": 2,
+  "cooldown": 0.08,
+  "spatial": true,
+  "len": 0.06,
+  "desc": "敵の発射（小さく、警告として聞き取れる程度）"
+ },
+ "ui_move": {
+  "loop": false,
+  "gain": 0.35,
+  "priority": 1,
+  "maxVoices": 2,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.05,
+  "desc": "メニュー移動"
+ },
+ "ui_select": {
+  "loop": false,
+  "gain": 0.4,
+  "priority": 1,
+  "maxVoices": 2,
+  "cooldown": 0.03,
+  "spatial": false,
+  "len": 0.16,
+  "desc": "メニュー決定"
+ },
+ "bgm_play": {
+  "loop": true,
+  "gain": 0.55,
+  "priority": 0,
+  "maxVoices": 1,
+  "cooldown": 0,
+  "spatial": false,
+  "len": 15.238,
+  "bpm": 126,
+  "bars": 8,
+  "desc": "プレイ中（8 小節ループ・126BPM）"
+ },
+ "bgm_fortress": {
+  "loop": true,
+  "gain": 0.58,
+  "priority": 0,
+  "maxVoices": 1,
+  "cooldown": 0,
+  "spatial": false,
+  "len": 6.667,
+  "bpm": 144,
+  "bars": 4,
+  "desc": "要塞戦（4 小節ループ・144BPM）"
+ },
+ "jingle_start": {
+  "loop": false,
+  "gain": 0.65,
+  "priority": 0,
+  "maxVoices": 1,
+  "cooldown": 0,
+  "spatial": false,
+  "len": 4.8,
+  "bpm": 120,
+  "bars": 2,
+  "desc": "ゲーム開始"
+ },
+ "jingle_loop": {
+  "loop": false,
+  "gain": 0.65,
+  "priority": 0,
+  "maxVoices": 1,
+  "cooldown": 0,
+  "spatial": false,
+  "len": 4.436,
+  "bpm": 132,
+  "bars": 2,
+  "desc": "1 周達成"
+ },
+ "jingle_gameover": {
+  "loop": false,
+  "gain": 0.65,
+  "priority": 0,
+  "maxVoices": 1,
+  "cooldown": 0,
+  "spatial": false,
+  "len": 6.2,
+  "bpm": 96,
+  "bars": 2,
+  "desc": "ゲームオーバー"
+ }
+}

@@ -1,0 +1,24 @@
+{
+    "name": "SkywardRuins.Editor",
+    "rootNamespace": "SkywardRuins.EditorTools",
+    "references": [
+        "SkywardRuins.Core",
+        "SkywardRuins.Runtime",
+        "Unity.InputSystem",
+        "UnityEngine.UI",
+        "WebXR",
+        "Unity.XR.Management",
+        "Unity.XR.Management.Editor"
+    ],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        { "name": "com.de-panther.webxr", "expression": "0.22.0", "define": "SKYWARD_WEBXR" }
+    ],
+    "noEngineReferences": false
+}

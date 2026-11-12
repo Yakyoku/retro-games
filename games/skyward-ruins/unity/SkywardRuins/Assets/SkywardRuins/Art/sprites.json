@@ -1,0 +1,158 @@
+{
+ "player": {
+  "frames": 2,
+  "fps": 12,
+  "w": 17,
+  "h": 18
+ },
+ "dart": {
+  "frames": 2,
+  "fps": 8,
+  "w": 13,
+  "h": 13
+ },
+ "arc": {
+  "frames": 4,
+  "fps": 10,
+  "w": 14,
+  "h": 14
+ },
+ "seeker": {
+  "frames": 2,
+  "fps": 6,
+  "w": 13,
+  "h": 15
+ },
+ "crosser": {
+  "frames": 3,
+  "fps": 8,
+  "w": 19,
+  "h": 11
+ },
+ "sniper": {
+  "frames": 2,
+  "fps": 4,
+  "w": 15,
+  "h": 15
+ },
+ "heavy": {
+  "frames": 2,
+  "fps": 4,
+  "w": 21,
+  "h": 21
+ },
+ "shard": {
+  "frames": 8,
+  "fps": 10,
+  "w": 16,
+  "h": 16
+ },
+ "turret": {
+  "frames": 2,
+  "fps": 0,
+  "w": 14,
+  "h": 14
+ },
+ "tank": {
+  "frames": 2,
+  "fps": 8,
+  "w": 13,
+  "h": 14
+ },
+ "bunker": {
+  "frames": 3,
+  "fps": 0,
+  "w": 18,
+  "h": 18
+ },
+ "radar": {
+  "frames": 6,
+  "fps": 6,
+  "w": 15,
+  "h": 15
+ },
+ "obelisk": {
+  "frames": 7,
+  "fps": 10,
+  "w": 14,
+  "h": 18
+ },
+ "banner": {
+  "frames": 2,
+  "fps": 4,
+  "w": 14,
+  "h": 16
+ },
+ "fortress": {
+  "frames": 2,
+  "fps": 3,
+  "w": 112,
+  "h": 88
+ },
+ "fortturret": {
+  "frames": 2,
+  "fps": 0,
+  "w": 14,
+  "h": 14
+ },
+ "core": {
+  "frames": 4,
+  "fps": 8,
+  "w": 22,
+  "h": 22
+ },
+ "shot": {
+  "frames": 1,
+  "fps": 0,
+  "w": 3,
+  "h": 8
+ },
+ "bomb": {
+  "frames": 2,
+  "fps": 12,
+  "w": 7,
+  "h": 7
+ },
+ "bullet": {
+  "frames": 2,
+  "fps": 15,
+  "w": 7,
+  "h": 7
+ },
+ "sight": {
+  "frames": 3,
+  "fps": 0,
+  "w": 15,
+  "h": 15
+ },
+ "boomair": {
+  "frames": 6,
+  "fps": 14,
+  "w": 20,
+  "h": 20
+ },
+ "boomground": {
+  "frames": 6,
+  "fps": 12,
+  "w": 24,
+  "h": 24
+ },
+ "crater": {
+  "frames": 1,
+  "fps": 0,
+  "w": 16,
+  "h": 16
+ },
+ "bombburst": {
+  "frames": 4,
+  "fps": 20,
+  "w": 23,
+  "h": 23
+ },
+ "spark": {
+  "frames": 2,
+  "fps": 20,
+  "w": 7,
+  "h": 7
+ }
+}

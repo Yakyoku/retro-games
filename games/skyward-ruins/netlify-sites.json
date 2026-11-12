@@ -1,0 +1,7 @@
+{
+  "sites": [
+    { "name": "skyward-ruins-cloud-yk", "siteId": "63cf70d2-76cb-470f-be03-a99a0e46dfed", "url": "https://skyward-ruins-cloud-yk.netlify.app/",
+      "env": { "GAME": "skyward-ruins", "VARIANT": "all" },
+      "note": "Claude Code クラウド制作版の新規サイト。Unity WebGL 成果物（webgl/）があればトップで配信、無ければ制作状況ページ。既存の skyward-ruins-unity は別物なので触らない" }
+  ]
+}

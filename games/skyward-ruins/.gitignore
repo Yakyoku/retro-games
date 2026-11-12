@@ -1,0 +1,9 @@
+core-tests/bin/
+core-tests/obj/
+tools/compile-check/bin/
+tools/compile-check/obj/
+tools/compile-check/*.csproj
+tools/preview/models.html
+tools/preview/sim/compose.html
+tools/preview/sim/*-terrain.png
+dist/

@@ -1,0 +1,11 @@
+{
+  "name": "retro-digger",
+  "private": true,
+  "type": "module",
+  "description": "地底探検：ポンプ・パトロール — 2D アーケード・通常 3D・Meta Quest 3 WebXR の掘削アクション（Claude Code で制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

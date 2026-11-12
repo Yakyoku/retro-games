@@ -4,6 +4,9 @@ import { TICK, PLAYER as P, DIFFICULTY, WEAPONS, SCORE, ENEMIES, BOSSES } from '
 import { getStages, T } from './stages.js';
 
 const VIEW_W = 24, VIEW_H = 13.5;
+// 見えている範囲（u）。描画側が画面の形に合わせて広げられる（2D は最大 32×18）。敵の出現・カメラ・弾の消去はこれに従う
+const VW = (g) => (g.view ? g.view.w : VIEW_W), VH = (g) => (g.view ? g.view.h : VIEW_H);
+export function setView(g, w, h) { g.view = { w: Math.max(VIEW_W * 0.75, Math.min(32, w)), h: Math.max(VIEW_H * 0.75, Math.min(18, h)) }; }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const sign = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
 function rng(s) { return () => { s |= 0; s = (s + 0x6d2b79f5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -380,7 +383,7 @@ function updateShots(g) {
       }
       hitTargets(g, s, w);
     }
-    if (s.dist > w.range || s.y < -2 || Math.abs(s.x - bx.x) > VIEW_W / 2 + 3 || s.y > bx.y + VIEW_H / 2 + 6) s.dead = true;
+    if (s.dist > w.range || s.y < -2 || Math.abs(s.x - bx.x) > VW(g) / 2 + 3 || s.y > bx.y + VH(g) / 2 + 6) s.dead = true;
   }
   g.shots = g.shots.filter((s) => !s.dead);
 }
@@ -503,18 +506,19 @@ function checkpoints(g) {
 export function updateCamera(g, snap = false) {
   const p = g.player, d = g.def;
   let tx, ty;
-  if (g.lockCam) { tx = d.boss.x0 + VIEW_W / 2; ty = d.boss.y0 + VIEW_H / 2; }
+  if (g.lockCam) { tx = d.boss.x0 + 12; ty = d.boss.y0 + VH(g) / 2; } // ボスの間（幅 24）の中央、床の位置は変えない
   else {
-    tx = p.x + p.face * 1.2; ty = p.y + (d.vertical ? 2.2 : 2.6);
-    tx = clamp(tx, VIEW_W / 2, d.W - VIEW_W / 2); ty = clamp(ty, VIEW_H / 2, d.H - VIEW_H / 2);
-    if (d.W <= VIEW_W + 4) tx = d.W / 2;
+    g.look = (g.look ?? 0) + ((p.face * Math.min(2.4, 0.9 + Math.abs(p.vx) * 0.4)) - (g.look ?? 0)) * (1 - Math.exp(-TICK * 2.5)); // 進む向きの先を滑らかに見せる
+    tx = p.x + g.look; ty = p.y + (d.vertical ? 2.2 : 2.6);
+    tx = clamp(tx, VW(g) / 2, d.W - VW(g) / 2); ty = clamp(ty, VH(g) / 2, d.H - VH(g) / 2);
+    if (d.W <= VW(g) + 4) tx = d.W / 2;
   }
   if (snap) { g.cam.x = tx; g.cam.y = ty; return; }
   const k = 1 - Math.exp(-TICK * (g.lockCam ? 3 : 6));
   g.cam.x += (tx - g.cam.x) * k; g.cam.y += (ty - g.cam.y) * (1 - Math.exp(-TICK * 4));
   // プレイヤーが画面外に出ない
-  g.cam.x = clamp(g.cam.x, p.x - VIEW_W / 2 + 3, p.x + VIEW_W / 2 - 3);
-  g.cam.y = clamp(g.cam.y, p.y - VIEW_H / 2 + 2.5, p.y + VIEW_H / 2 - 2.5);
+  g.cam.x = clamp(g.cam.x, p.x - VW(g) / 2 + 3, p.x + VW(g) / 2 - 3);
+  g.cam.y = clamp(g.cam.y, p.y - VH(g) / 2 + 2.5, p.y + VH(g) / 2 - 2.5);
 }
 function bossTrigger(g) {
   const bd = g.def.boss, p = g.player;
@@ -575,11 +579,11 @@ function updateEnemies(g, frozen) {
   if (!frozen) {
     for (let i = g.dormant.length - 1; i >= 0; i--) {
       const d = g.dormant[i];
-      if (Math.abs(d.x - cam.x) < VIEW_W / 2 + 1.5 && Math.abs(d.y - cam.y) < VIEW_H / 2 + 2.5 && g.enemies.length < ENEMY_CAP) {
+      if (Math.abs(d.x - cam.x) < VW(g) / 2 + 1.5 && Math.abs(d.y - cam.y) < VH(g) / 2 + 2.5 && g.enemies.length < ENEMY_CAP) {
         g.dormant.splice(i, 1); g.enemies.push(makeEnemy(g, d));
       }
     }
-    for (const e of g.enemies) if (e.home && !e.dead && (Math.abs(e.x - cam.x) > VIEW_W / 2 + 10 || Math.abs(e.y - cam.y) > VIEW_H + 4)) { e.sleep = true; }
+    for (const e of g.enemies) if (e.home && !e.dead && (Math.abs(e.x - cam.x) > VW(g) / 2 + 10 || Math.abs(e.y - cam.y) > VH(g) + 4)) { e.sleep = true; }
     for (const e of g.enemies) if (e.sleep) g.dormant.push(e.home);
     g.enemies = g.enemies.filter((e) => !e.sleep);
     updateSpawners(g);
@@ -764,7 +768,7 @@ const ENEMY_AI = {
   },
   turret(g, e, rank) {
     const c = ENEMIES.turret, cam = g.cam;
-    if (Math.abs(e.x - cam.x) > VIEW_W / 2 || Math.abs(e.y - cam.y) > VIEW_H / 2) { e.st = 'idle'; return; }
+    if (Math.abs(e.x - cam.x) > VW(g) / 2 || Math.abs(e.y - cam.y) > VH(g) / 2) { e.st = 'idle'; return; }
     if (e.st === 'idle') { e.cd -= TICK; if (e.cd <= 0 && pAlive(g)) setE(e, 'warn'); }
     else if (e.st === 'warn') {
       if (e.t > c.warn) {
@@ -789,7 +793,7 @@ function updateSpawners(g) {
     // プレイヤーの前方 3〜6u、画面内の地面（穴や他の敵の上は避ける）
     for (let k = 0; k < 6; k++) {
       const side = g.rand() < 0.7 ? p.face : -p.face, x = p.x + side * (3 + g.rand() * 3.5);
-      if (x < s.x0 || x > s.x1 || Math.abs(x - g.cam.x) > VIEW_W / 2 - 1) continue;
+      if (x < s.x0 || x > s.x1 || Math.abs(x - g.cam.x) > VW(g) / 2 - 1) continue;
       const y = surfaceBelow(g, x, p.y + 2.5, 5);
       if (y == null || Math.abs(y - p.y) > 2.5 || tileI(g, Math.floor(x), y - 1) !== T.SOLID) continue;
       if (g.enemies.some((e) => Math.abs(e.x - x) < 1.2 && Math.abs(e.y - y) < 1.5)) continue;
@@ -818,7 +822,7 @@ function updateEShots(g) {
       s.x += s.vx * TICK; s.y += s.vy * TICK;
       if (!s.ghost && isSolid(g, Math.floor(s.x), Math.floor(s.y))) { s.dead = true; if (s.kind === 'clod') emit(g, 'thud', { soft: true }); }
     }
-    if (s.t > s.life || s.y < -2 || Math.abs(s.x - g.cam.x) > VIEW_W) s.dead = true;
+    if (s.t > s.life || s.y < -2 || Math.abs(s.x - g.cam.x) > VW(g)) s.dead = true;
   }
   g.eshots = g.eshots.filter((s) => !s.dead);
 }

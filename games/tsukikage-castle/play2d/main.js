@@ -38,6 +38,7 @@ export async function start() {
     app.frame(dt);
     touch.root.classList.toggle('menu', app.screen !== 'play');
     r.reserve.bottom = touch.visible() && app.screen === 'title' ? 120 : 0;
+    r.reserve.right = touch.visible() ? 64 : 0; // 右上のポーズボタンと HUD が重ならない
     r.render(app.g, app.alpha(), dt);
     // FPS と自動画質（50fps 未満が 3 秒続いたら 1 段下げる）
     fpsN++; fpsT += dt;

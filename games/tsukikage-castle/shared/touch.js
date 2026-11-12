@@ -11,22 +11,29 @@ export function installTouch(app, host) {
     <button class="t-btn t-pause" data-a="pause" aria-label="ポーズ">II</button>`;
   host.appendChild(root);
   const st = document.createElement('style');
+  // 大きさは画面の短い辺に合わせる（--u）。押していないときは半透明、スティックは触れた場所に小さく出る
   st.textContent = `
-  #touch { position:fixed; inset:0; pointer-events:none; z-index:20; display:none; --lift:max(18vh, 72px); }
+  #touch { position:fixed; inset:0; pointer-events:none; z-index:20; display:none; --u:clamp(46px, 11vmin, 76px); --lift:max(10vh, 40px); }
   #touch.on { display:block; }
-  #touch .t-zone { position:absolute; left:calc(16px + env(safe-area-inset-left)); bottom:calc(var(--lift) + env(safe-area-inset-bottom)); width:min(42vw, 420px); height:min(52vh, 360px); pointer-events:auto; touch-action:none; }
-  #touch .t-ring { position:absolute; width:150px; height:150px; margin:-75px 0 0 -75px; left:50%; top:60%; border-radius:50%; border:2px solid rgba(243,200,106,.45); background:rgba(10,12,24,.25); }
-  #touch .t-knob { position:absolute; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; border-radius:50%; background:radial-gradient(circle at 35% 35%, #fff6dc, #c8a050); opacity:.85; }
-  #touch .t-btn { position:absolute; pointer-events:auto; touch-action:none; border-radius:50%; border:2px solid rgba(243,200,106,.6); color:#fff8e6; font:700 30px "Hiragino Mincho ProN","Yu Mincho",serif;
-    background:radial-gradient(circle at 35% 30%, rgba(90,80,140,.75), rgba(20,16,40,.75)); -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
-  #touch .t-btn.down { background:radial-gradient(circle at 35% 30%, rgba(243,200,106,.9), rgba(120,80,20,.85)); color:#000; }
-  #touch .t-jump { width:96px; height:96px; right:calc(24px + env(safe-area-inset-right)); bottom:calc(var(--lift) + env(safe-area-inset-bottom)); }
-  #touch .t-attack { width:104px; height:104px; right:calc(140px + env(safe-area-inset-right)); bottom:calc(var(--lift) - 26px + env(safe-area-inset-bottom)); }
-  #touch .t-pause { width:56px; height:56px; right:calc(18px + env(safe-area-inset-right)); top:calc(96px + env(safe-area-inset-top)); font:700 18px system-ui; }
-  #touch.lefty .t-zone { left:auto; right:calc(16px + env(safe-area-inset-right)); }
-  #touch.lefty .t-jump { right:auto; left:calc(24px + env(safe-area-inset-left)); }
-  #touch.lefty .t-attack { right:auto; left:calc(140px + env(safe-area-inset-left)); }
-  @media (max-height:420px) { #touch .t-jump { width:80px; height:80px; } #touch .t-attack { width:88px; height:88px; right:calc(120px + env(safe-area-inset-right)); } #touch.lefty .t-attack { left:calc(120px + env(safe-area-inset-left)); } #touch { --lift:max(14vh, 56px); } }`;
+  #touch .t-zone { position:absolute; left:calc(12px + env(safe-area-inset-left)); bottom:calc(var(--lift) + env(safe-area-inset-bottom)); width:min(40vw, 380px); height:min(56vh, 340px); pointer-events:auto; touch-action:none; }
+  #touch .t-ring { position:absolute; width:calc(var(--u) * 1.45); height:calc(var(--u) * 1.45); transform:translate(-50%, -50%); left:calc(var(--u) * 1.0); top:calc(100% - var(--u) * 1.0); border-radius:50%;
+    border:1.5px solid rgba(243,200,106,.28); background:radial-gradient(circle, rgba(10,12,24,.10), rgba(10,12,24,.22)); opacity:.45; transition:opacity .15s; }
+  #touch .t-zone.active .t-ring { opacity:1; border-color:rgba(243,200,106,.55); }
+  #touch .t-knob { position:absolute; left:50%; top:50%; width:calc(var(--u) * 0.62); height:calc(var(--u) * 0.62); margin:calc(var(--u) * -0.31) 0 0 calc(var(--u) * -0.31); border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, rgba(255,246,220,.9), rgba(200,160,80,.75)); box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  #touch .t-btn { position:absolute; pointer-events:auto; touch-action:none; border-radius:50%; border:1.5px solid rgba(243,200,106,.45); color:rgba(255,248,230,.92);
+    font:700 calc(var(--u) * 0.36) "Hiragino Mincho ProN","Yu Mincho",serif; background:radial-gradient(circle at 35% 30%, rgba(90,80,140,.42), rgba(20,16,40,.42));
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; transition:transform .06s, background .06s; }
+  #touch .t-btn.down { background:radial-gradient(circle at 35% 30%, rgba(243,200,106,.85), rgba(120,80,20,.75)); color:#000; transform:scale(.92); }
+  #touch .t-jump { width:var(--u); height:var(--u); right:calc(14px + env(safe-area-inset-right)); bottom:calc(var(--lift) + var(--u) * 0.55 + env(safe-area-inset-bottom)); }
+  #touch .t-attack { width:calc(var(--u) * 1.08); height:calc(var(--u) * 1.08); right:calc(14px + var(--u) * 1.18 + env(safe-area-inset-right)); bottom:calc(var(--lift) + env(safe-area-inset-bottom)); }
+  #touch .t-pause { width:calc(var(--u) * 0.58); height:calc(var(--u) * 0.58); right:calc(10px + env(safe-area-inset-right)); top:calc(10px + env(safe-area-inset-top)); font:700 calc(var(--u) * 0.2) system-ui; opacity:.75; }
+  #touch.lefty .t-zone { left:auto; right:calc(12px + env(safe-area-inset-right)); }
+  #touch.lefty .t-zone .t-ring { left:auto; right:calc(var(--u) * 0.0); }
+  #touch.lefty .t-jump { right:auto; left:calc(14px + env(safe-area-inset-left)); }
+  #touch.lefty .t-attack { right:auto; left:calc(14px + var(--u) * 1.18 + env(safe-area-inset-left)); }
+  #touch.lefty .t-pause { right:auto; left:calc(10px + env(safe-area-inset-left)); }
+  @media (max-height:500px) { #touch { --u:clamp(42px, 12.5vmin, 62px); --lift:max(6vh, 20px); } }`;
   document.head.appendChild(st);
   const state = { left: false, right: false, up: false, down: false, jump: false, attack: false, pause: false };
   const push = () => app.input.setTouch({ ...state });
@@ -34,9 +41,9 @@ export function installTouch(app, host) {
   let stickId = null, cx = 0, cy = 0;
   const show = (on) => { root.classList.toggle('on', on); app.touchVisible = on; };
   const setStick = (dx, dy) => {
-    const r = 60, d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / r);
+    const r = ring.offsetWidth * 0.36, d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / r);
     knob.style.transform = `translate(${(dx / d) * k * r}px, ${(dy / d) * k * r}px)`;
-    const dead = 14;
+    const dead = Math.max(8, r * 0.28);
     state.left = dx < -dead && Math.abs(dx) > Math.abs(dy) * 0.5; state.right = dx > dead && Math.abs(dx) > Math.abs(dy) * 0.5;
     state.up = dy < -dead * 1.6 && Math.abs(dy) > Math.abs(dx) * 0.7; state.down = dy > dead * 1.6 && Math.abs(dy) > Math.abs(dx) * 0.7;
     push();
@@ -44,15 +51,15 @@ export function installTouch(app, host) {
   zone.addEventListener('pointerdown', (e) => {
     if (stickId !== null) return; stickId = e.pointerId; zone.setPointerCapture(e.pointerId);
     const b = zone.getBoundingClientRect(); cx = e.clientX; cy = e.clientY;
-    ring.style.left = `${cx - b.left}px`; ring.style.top = `${cy - b.top}px`; setStick(0, 0); app.unlock();
+    ring.style.left = `${cx - b.left}px`; ring.style.top = `${cy - b.top}px`; ring.style.right = 'auto'; zone.classList.add('active'); setStick(0, 0); app.unlock();
   });
   zone.addEventListener('pointermove', (e) => {
     if (e.pointerId !== stickId) return;
     let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy);
-    if (d > 80) { cx += (dx / d) * (d - 80); cy += (dy / d) * (d - 80); dx = e.clientX - cx; dy = e.clientY - cy; } // 指が輪の外へ出たら中心が付いてくる
+    const lim = ring.offsetWidth * 0.6; if (d > lim) { cx += (dx / d) * (d - lim); cy += (dy / d) * (d - lim); dx = e.clientX - cx; dy = e.clientY - cy; } // 指が輪の外へ出たら中心が付いてくる
     setStick(dx, dy);
   });
-  const endStick = (e) => { if (e.pointerId !== stickId) return; stickId = null; state.left = state.right = state.up = state.down = false; knob.style.transform = ''; push(); };
+  const endStick = (e) => { if (e.pointerId !== stickId) return; stickId = null; state.left = state.right = state.up = state.down = false; knob.style.transform = ''; zone.classList.remove('active'); ring.style.left = ''; ring.style.top = ''; ring.style.right = ''; push(); };
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) zone.addEventListener(ev, endStick);
   for (const b of root.querySelectorAll('.t-btn')) {
     const a = b.dataset.a;

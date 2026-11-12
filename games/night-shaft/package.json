@@ -1,0 +1,11 @@
+{
+  "name": "night-shaft",
+  "private": true,
+  "type": "module",
+  "description": "NIGHT SHAFT — エレベーターを使って書類を集めるスパイアクション（2D ブラウザ版 + Meta Quest 3 WebXR 版。Claude Code のクラウドセッションで制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

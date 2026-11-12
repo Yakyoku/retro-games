@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<title>WebXR 検証 — 鉄骨レスキュー</title>
+<script src="../../shared/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }</script>
+<style>
+body { margin: 0; background: #0d1424; color: #f6f1e4; font: 16px/1.6 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px; }
+button { font: inherit; font-weight: 800; padding: .7em 1.4em; border-radius: 10px; border: 0; background: #ff9a1a; color: #1b0e04; cursor: pointer; }
+pre { background: #10182c; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
+canvas { display: block; }
+</style>
+</head>
+<body>
+<main>
+<h1>WebXR の小さな検証</h1>
+<p>本編の前に、Meta Quest 3 の Meta Quest Browser で「HTTPS で読み込める・VR を始められる・左右の目に別の絵が届く・頭の追跡・左右のコントローラー・板の文字・VR の終了と再入場」を確かめるページです。</p>
+<p>VR の中では、<b>左目にだけ赤い「L」、右目にだけ青い「R」</b>が見えれば左右眼の描き分けが正しく動いています。右トリガーで目の前の板の色が変わります。右 B で VR を終了します。</p>
+<p><button id="go">VR を開始</button> <a href="../../" style="color:#ffc51a">← ゲームへ</a></p>
+<pre id="log">確認中…</pre>
+<p style="color:#b9c3d3">このゲームはClaudeセッションで制作しました。</p>
+</main>
+<script type="module">
+import * as THREE from 'three';
+const log = document.getElementById('log');
+const lines = [];
+const say = (s) => { lines.push(s); log.textContent = lines.join('\n'); };
+say(`安全な接続（HTTPS）: ${isSecureContext ? 'はい' : 'いいえ'}`);
+say(`navigator.xr: ${navigator.xr ? 'あり' : 'なし'}`);
+let sup = false;
+if (navigator.xr) { try { sup = await navigator.xr.isSessionSupported('immersive-vr'); } catch {} }
+say(`immersive-vr 対応: ${sup ? 'はい' : 'いいえ'}`);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(10, 10); renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local-floor');
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a2440);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 2));
+const floor = new THREE.GridHelper(10, 20, 0x5577aa, 0x334466); scene.add(floor);
+function label(t, color) { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); g.fillStyle = color; g.font = '900 200px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, 128, 136); const tx = new THREE.CanvasTexture(c); return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshBasicMaterial({ map: tx, transparent: true })); }
+const L = label('L', '#ff4040'); L.position.set(-0.25, 1.5, -1.5); L.layers.set(1); scene.add(L);   // 左目だけ（レイヤー 1）
+const R = label('R', '#40a0ff'); R.position.set(0.25, 1.5, -1.5); R.layers.set(2); scene.add(R);   // 右目だけ（レイヤー 2）
+const pc = document.createElement('canvas'); pc.width = 1024; pc.height = 512; const pg = pc.getContext('2d'); const ptex = new THREE.CanvasTexture(pc);
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), new THREE.MeshBasicMaterial({ map: ptex })); panel.position.set(0, 1.1, -1.6); scene.add(panel);
+let color = '#22304f', enters = 0;
+const ctrls = [0, 1].map((i) => { const c = renderer.xr.getControllerGrip(i); const m = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.12), new THREE.MeshStandardMaterial({ color: i ? 0x40a0ff : 0xff6040 })); c.add(m); scene.add(c); const t = renderer.xr.getController(i); scene.add(t); let src = null; t.addEventListener('connected', (e) => (src = e.data)); t.addEventListener('disconnected', () => (src = null)); return { get src() { return src; } }; });
+let prevTrig = false;
+renderer.xr.addEventListener('sessionstart', () => { enters++; say(`VR 開始（${enters} 回目）`); const s = renderer.xr.getSession(); say(`  frameRate: ${s.frameRate ?? '不明'}  supportedFrameRates: ${s.supportedFrameRates ? [...s.supportedFrameRates].join(',') : '不明'}`); });
+renderer.xr.addEventListener('sessionend', () => say('VR 終了（もう一度ボタンで再入場できます）'));
+renderer.setAnimationLoop((t, frame) => {
+  const xrc = renderer.xr.getCamera();
+  if (renderer.xr.isPresenting && xrc.cameras.length === 2) { xrc.cameras[0].layers.enable(1); xrc.cameras[1].layers.enable(2); }
+  let txt = [];
+  const ref = renderer.xr.getReferenceSpace();
+  const pose = frame && ref ? frame.getViewerPose(ref) : null;
+  if (pose) { const p = pose.transform.position; txt.push(`頭 x${p.x.toFixed(2)} y${p.y.toFixed(2)} z${p.z.toFixed(2)}  目 ${pose.views.length}`); const bl = renderer.xr.getBaseLayer(); if (bl && bl.getViewport) { const v = bl.getViewport(pose.views[0]); txt.push(`片眼の描画 ${v.width}×${v.height}`); } }
+  for (const c of ctrls) { const s = c.src; if (!s || !s.gamepad) continue; const gp = s.gamepad; txt.push(`${s.handedness}: 軸 ${[...gp.axes].map((a) => a.toFixed(1)).join(' ')}  押下 ${gp.buttons.map((b, i) => (b.pressed ? i : '')).filter((x) => x !== '').join(',')}`);
+    if (s.handedness === 'right') { const trig = gp.buttons[0] && gp.buttons[0].pressed; if (trig && !prevTrig) color = color === '#22304f' ? '#2f7a3a' : '#22304f'; prevTrig = trig; if (gp.buttons[5] && gp.buttons[5].pressed) renderer.xr.getSession().end(); } }
+  pg.fillStyle = color; pg.fillRect(0, 0, 1024, 512); pg.fillStyle = '#fff'; pg.font = '600 40px sans-serif'; txt.forEach((l, i) => pg.fillText(l, 30, 70 + i * 56)); pg.fillText('右トリガー: 色を変える　右 B: 終了', 30, 480); ptex.needsUpdate = true;
+  renderer.render(scene, camera);
+});
+document.getElementById('go').onclick = async () => {
+  if (!sup) { say('この端末では immersive-vr を開始できません'); return; }
+  try { const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] }); await renderer.xr.setSession(s); }
+  catch (e) { say(`開始できませんでした: ${e.name} ${e.message}`); }
+};
+</script>
+</body>
+</html>

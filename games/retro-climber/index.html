@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="description" content="鉄骨レスキュー 2D / VR — 樽をかわして鉄骨を登り、巨大な敵から仲間を救出するアクションゲーム。2D クラシックと Meta Quest 3 の WebXR に対応。">
+<meta name="theme-color" content="#0d1424">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>鉄骨レスキュー 2D / VR</title>
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="app/style.css">
+<script src="shared/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }</script>
+</head>
+<body>
+<canvas id="gl" aria-label="ゲーム画面"></canvas>
+
+<div id="loading" class="screen show" role="status">
+  <div class="load-box">
+    <div class="logo small">鉄骨レスキュー</div>
+    <div class="bar"><i id="load-bar"></i></div>
+    <p id="load-msg">読み込み中…</p>
+    <button id="load-retry" class="btn" hidden>もう一度読み込む</button>
+  </div>
+</div>
+
+<!-- トップ／タイトル（入口ページとゲーム内タイトルを 1 つに統合） -->
+<div id="title" class="screen" aria-label="タイトル">
+  <div class="title-wrap">
+    <h1 class="logo"><span class="logo-main">鉄骨レスキュー</span><span class="logo-sub">IRON SUMMIT &nbsp;2D / VR</span></h1>
+    <p class="tagline">樽をかわして、鉄骨を登れ。最上階でミナが待っている。</p>
+    <ul class="menu" id="title-menu" role="menu"></ul>
+    <p class="records" id="title-records"></p>
+  </div>
+  <p class="made-note" id="made-note">このゲームはClaudeセッションで制作しました。</p>
+</div>
+
+<div id="panel" class="screen" aria-live="polite">
+  <div class="panel-box">
+    <h2 id="panel-title"></h2>
+    <div id="panel-body"></div>
+    <ul class="menu" id="panel-menu" role="menu"></ul>
+    <p class="hint" id="panel-hint"></p>
+  </div>
+</div>
+
+<div id="hud" aria-hidden="true">
+  <div class="hud-row top">
+    <div class="hud-cell"><b>SCORE</b><span id="hud-score">0</span></div>
+    <div class="hud-cell"><b>HI</b><span id="hud-hi">0</span></div>
+    <div class="hud-cell stage"><b id="hud-stage">第1面</b><span id="hud-stage-sub"></span></div>
+    <div class="hud-cell"><b>TIME</b><span id="hud-time">0</span></div>
+    <div class="hud-cell lives"><b>残り</b><span id="hud-lives"></span></div>
+  </div>
+  <div class="hud-tags">
+    <span id="hud-practice" class="tag" hidden>練習</span>
+    <span id="hud-hammer" class="tag hammer" hidden>ハンマー <i id="hud-hammer-t"></i></span>
+    <span id="hud-device" class="tag device" hidden></span>
+  </div>
+  <div id="hud-tutorial" class="tutorial" hidden></div>
+  <div id="hud-banner" class="banner" hidden></div>
+  <div id="hud-fps" class="fps" hidden></div>
+</div>
+
+<div id="touch" aria-hidden="true">
+  <div id="t-stick" class="t-stick"><i class="t-knob"></i><span class="t-arrow u">▲</span><span class="t-arrow d">▼</span><span class="t-arrow l">◀</span><span class="t-arrow r">▶</span></div>
+  <div class="t-buttons">
+    <button id="t-act" class="t-btn act" data-act="act">道具<br><small>装置</small></button>
+    <button id="t-jump" class="t-btn jump" data-act="jump">ジャンプ</button>
+  </div>
+  <button id="t-pause" class="t-btn pause" data-act="pause" aria-label="ポーズ">Ⅱ</button>
+</div>
+
+<script type="module" src="app/main.js"></script>
+</body>
+</html>

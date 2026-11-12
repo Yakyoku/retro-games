@@ -61,8 +61,8 @@ function resetAttempt(g, fresh) {
   g.movers = def.movers.map((m) => ({ ...m, cx: m.x, cy: m.y, dx: 0, dy: 0 }));
   g.jets = def.jets.map((j) => ({ ...j, on: false, warn: false }));
   g.boss = null; g.bossState = 'none'; g.lockCam = false;
-  g.cam = { x: 0, y: 0 }; updateCamera(g, true);
-  g.mode = 'ready'; g.modeT = fresh ? 1.2 : 1.0;
+  g.cam = { x: 0, y: 0 }; updateCamera(g, true); g.pcam = { ...g.cam };
+  g.mode = 'ready'; g.modeT = fresh ? 2.4 : 1.0;
   g.spawnSafeT = 2.5;
   if (!fresh) emit(g, 'respawn', {});
 }
@@ -70,7 +70,7 @@ function resetAttempt(g, fresh) {
 function makePlayer(x, y) {
   return { x, y, px: x, py: y, vx: 0, vy: 0, face: 1, ground: true, onMover: -1, armor: true, inv: 0, crouch: false, climb: false, ladderX: 0,
     fireCD: 0, throwT: 0, hurtT: 0, deadT: 0, coyote: 0, buffer: 0, state: 'idle', st: 0, landT: 0, turnT: 0, drop: 0, cause: '', w: P.w, h: P.hStand,
-    walkPhase: 0, climbPhase: 0, armorT: 0, dir: 0 };
+    walkPhase: 0, climbPhase: 0, armorT: 0, dir: 0, safe: { x, y } };
 }
 
 export function emit(g, type, data = {}) { g.events.push({ type, ...data }); }
@@ -178,6 +178,8 @@ export function step(g, input = {}) {
   g.tick++;
   const p = g.player;
   p.px = p.x; p.py = p.y;
+  g.pcam.x = g.cam.x; g.pcam.y = g.cam.y;
+  for (const m of g.movers) { m.pcx = m.cx; m.pcy = m.cy; }
   for (const e of g.enemies) { e.px = e.x; e.py = e.y; }
   for (const s of g.shots) { s.px = s.x; s.py = s.y; }
   for (const s of g.eshots) { s.px = s.x; s.py = s.y; }

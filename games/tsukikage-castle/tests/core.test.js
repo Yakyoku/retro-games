@@ -140,12 +140,12 @@ test('稼ぎ防止: 倒した敵はカメラを往復しても復活せず、亡
   assert.ok(emerged <= s.cap, `発生 ${emerged} ≤ ${s.cap}`);
   // 画面外へ離れた敵は元の位置で眠る（倒した敵は戻らない）
   const g2 = createGame({ stage: 0, god: true }); run(g2, {}, 80);
-  g2.player.x = 66; run(g2, {}, 60);
+  g2.player.x = 66; g2.player.y = 4; run(g2, {}, 240);
   const sk = g2.enemies.find((e) => e.type === 'skeleton');
   assert.ok(sk); sk.hp = 0.1; g2.shots.push({ kind: 'lance', x: sk.x, y: sk.y + 0.8, px: sk.x, py: sk.y, vx: 0, vy: 0, dist: 0, w: 1, h: 1, hits: new Set(), t: 0, face: 1 });
   step(g2, {}); assert.ok(g2.killed.has(sk.id));
   const score = g2.score;
-  g2.player.x = 20; run(g2, {}, 200); g2.player.x = 66; run(g2, {}, 200);
+  g2.player.x = 20; g2.player.y = 3; run(g2, {}, 300); g2.player.x = 66; g2.player.y = 4; run(g2, {}, 300);
   assert.ok(!g2.enemies.some((e) => e.id === sk.id) && !g2.dormant.some((e) => e.id === sk.id));
   assert.ok(g2.score - score < SCORE.strong * 3);
 });

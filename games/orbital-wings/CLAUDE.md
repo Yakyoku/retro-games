@@ -38,6 +38,12 @@ games/orbital-wings/
 - 2026-11-12 Playwright のリクエスト差し替えは AudioWorklet の読み込みを拾えない（ScriptProcessor に落ちる）。公開版の HTTPS では worklet で鳴ることを確認
 - 2026-11-12 3D 版はフォーク（同じ文脈を持つ並行作業）で制作し、統合した
 
-## 現在地と次の作業
-- 現在地は TEST_REPORT.md の「未検証」「既知の問題」を参照
-- 実機（iPad・Quest 3・50 インチ）での確認、人の耳での音の確認は依頼者の手元で行う必要がある
+## 現在地（2026-11-12）
+- 2D・3D/VR とも全 7 面が公開版で動作（ビルド 8caad0d7e05c）。自動テスト 34 件合格。詳細は TEST_REPORT.md
+- 3D の「立体音響」設定は未実装のため外した（save.js の既定値 spatial は互換のため残っている）
+
+## 次の作業（優先順）
+1. 依頼者の実機確認の結果を反映: Quest 3（読みやすさ・72/90Hz・コントローラー）、iPad（タッチ・Safari の音）、50 インチ 4K
+2. 人の耳での音の確認 → 音量比・音色の調整（shared/audio/songs.js・sfx.js）
+3. 通常プレイでの難易度調整（shared/stages.js の出現、config.js の DIFFICULTY）
+4. 3D モデルの造形の作り込み（3d/models.js）

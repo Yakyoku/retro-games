@@ -126,6 +126,9 @@ class App {
       else el.addEventListener(evt, () => { const v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? +el.value : el.value; this.setSetting(key, v); });
     });
     $('#hud').addEventListener('pointerdown', () => this.audio.unlock());
+    // iOS Safari は touchend／click の中でないと音を出せないことがあるので、そちらでも開始する
+    document.addEventListener('touchend', () => this.audio.unlock(), { passive: true });
+    document.addEventListener('click', () => this.audio.unlock(), { passive: true });
     document.addEventListener('pointerdown', () => this.audio.unlock(), { once: false, passive: true });
     this.syncSettingsUI();
   }
@@ -189,7 +192,8 @@ class App {
   controlKind() { return this.vr ? (this.settings.vrControl === 'direct' ? 'vr-direct' : 'vr-classic') : this.lastInputKind === 'pad' ? 'flat-pad' : this.lastInputKind === 'touch' ? 'flat-touch' : 'flat-kb'; }
   newGame(stageId, run) {
     const s = this.settings, direct = this.vr && s.vrControl === 'direct';
-    const g = new Game({ stageId, difficulty: s.difficulty, control: direct ? 'direct' : 'classic', run, reachMul: s.reach, speedMul: s.speed, pull: s.pull, grabAssist: s.grabAssist, gripMode: s.gripMode });
+    const autoGrab = s.autoGrab === 'on' || (s.autoGrab === 'touch' && this.touch.active && !this.vr);
+    const g = new Game({ stageId, difficulty: s.difficulty, control: direct ? 'direct' : 'classic', run, autoGrab, reachMul: s.reach, speedMul: s.speed, pull: s.pull, grabAssist: s.grabAssist, gripMode: s.gripMode });
     if (g.solver) g.solver.offset.z = 0.42 - this.calib.headZ;
     return g;
   }

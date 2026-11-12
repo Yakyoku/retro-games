@@ -37,6 +37,7 @@ export class Climber {
     this.index = makeHoldIndex(building.holds);
     this.reachMul = opts.reachMul ?? 1;
     this.speedMul = opts.speedMul ?? 1;
+    this.autoGrab = !!opts.autoGrab; // 到達したら中立に戻さなくてもつかむ（タッチの既定）
     this.available = opts.available || (() => true); // 窓が閉じた保持点は false
     this.supports = opts.supports || [{ y: 0, x0: -1e9, x1: 1e9 }]; // 立てる床（地面・安全区画）
     this.events = [];
@@ -139,7 +140,7 @@ export class Climber {
         const e = 1 - (1 - r.t) * (1 - r.t);
         r.cur = { x: r.from.x + (tgt.x - r.from.x) * e, y: r.from.y + (tgt.y - r.from.y) * e };
         h.x = r.cur.x; h.y = r.cur.y;
-        if (r.t >= 1 && !d && allowGrab) {
+        if (r.t >= 1 && (!d || this.autoGrab) && allowGrab) {
           const sh = this.shoulder(s);
           if (this.available(tgt.id) && dist(tgt.x, tgt.y, sh.x, sh.y) <= this.reach + 0.45) this.grab(s, tgt.id);
           else { h.reach = null; this.events.push({ type: 'miss', side: s }); }

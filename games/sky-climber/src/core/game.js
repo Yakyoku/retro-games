@@ -20,7 +20,7 @@ export class Game {
     this.hz = new Hazards(this.b, this.diff, (opts.seed ?? this.def.seed));
     this.supports = [{ y: 0, x0: -1e9, x1: 1e9 }, ...this.b.ledges.map((l) => ({ y: l.y, x0: l.x - 0.85, x1: l.x + 0.85, ledge: l }))];
     this.climber = new Climber(this.b, startPose(this.b), {
-      reachMul: opts.reachMul ?? 1, speedMul: opts.speedMul ?? 1,
+      reachMul: opts.reachMul ?? 1, speedMul: opts.speedMul ?? 1, autoGrab: opts.autoGrab,
       available: (id) => this.hz.holdAvailable(this.b.holds[id]), supports: this.supports,
     });
     this.run = opts.run || { score: 0, lives: RULES.lives };

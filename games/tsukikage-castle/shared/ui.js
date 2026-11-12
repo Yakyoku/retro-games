@@ -166,7 +166,7 @@ export class UI {
           if (sel) { ctx.fillStyle = 'rgba(243,200,106,0.16)'; roundRect(ctx, x + 18 * s, yy + 4 * s, pw - 36 * s, h - 8 * s, 10 * s); ctx.fill(); ctx.fillStyle = C.gold; ctx.beginPath(); ctx.moveTo(x + 36 * s, yy + h / 2 - 12 * s); ctx.lineTo(x + 54 * s, yy + h / 2); ctx.lineTo(x + 36 * s, yy + h / 2 + 12 * s); ctx.fill(); }
           this.text(ctx, label, isTitle ? W / 2 : x + 70 * s, yy + h / 2, 30 * s, it.disabled ? '#6d6a63' : sel ? '#fff8e6' : C.ink, isTitle ? 'center' : 'left', SANS, sel ? 700 : 500);
           if (it.adj && sel) this.text(ctx, '◀ ▶', x + pw - 40 * s, yy + h / 2, 24 * s, C.gold, 'right');
-          this.hits.push({ i, x: rect.x + x, y: rect.y + yy, w: pw, h, adj: !!it.adj });
+          if (!it.disabled) this.hits.push({ i, x: rect.x + x, y: rect.y + yy, w: pw, h, adj: !!it.adj });
         }
       }
       yy += h;

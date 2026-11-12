@@ -26,15 +26,11 @@ if (has3d) copy('play3d', variant === 'vr' ? 'play' : 'play3d');
 if (has3d) {
   if (!existsSync(join(threeDir, 'build', 'three.module.js'))) { console.error(`[tsukikage] three が見つかりません: ${threeDir}`); process.exit(1); }
   const v = join(dist, 'vendor', 'three');
-  mkdirSync(join(v, 'addons', 'webxr'), { recursive: true });
+  mkdirSync(v, { recursive: true });
   for (const f of ['three.module.js', 'three.core.js']) cpSync(join(threeDir, 'build', f), join(v, f));
-  const jsm = join(threeDir, 'examples', 'jsm');
-  for (const f of ['webxr/XRControllerModelFactory.js', 'webxr/VRButton.js']) cpSync(join(jsm, f), join(v, 'addons', f));
-  cpSync(join(jsm, 'libs', 'motion-controllers.module.js'), join(v, 'addons', 'libs', 'motion-controllers.module.js'));
-  mkdirSync(join(v, 'addons', 'loaders'), { recursive: true });
-  cpSync(join(jsm, 'loaders', 'GLTFLoader.js'), join(v, 'addons', 'loaders', 'GLTFLoader.js'));
+  // addons は形をまとめる関数だけ使う（コントローラーの型データなど外部から読むものは使わない）
   mkdirSync(join(v, 'addons', 'utils'), { recursive: true });
-  cpSync(join(jsm, 'utils', 'BufferGeometryUtils.js'), join(v, 'addons', 'utils', 'BufferGeometryUtils.js'));
+  cpSync(join(threeDir, 'examples', 'jsm', 'utils', 'BufferGeometryUtils.js'), join(v, 'addons', 'utils', 'BufferGeometryUtils.js'));
 }
 const threePkg = has3d ? JSON.parse(readFileSync(join(threeDir, 'package.json'), 'utf8')) : null;
 let commit = (process.env.COMMIT_REF || '').slice(0, 7);

@@ -1,0 +1,1 @@
+{"name":"tsukikage-castle","private":true,"type":"module","scripts":{"build":"node tools/build.js","check":"node tools/check.js","test":"node --test tests/","reach":"node tools/reach.js"}}

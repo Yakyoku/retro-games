@@ -7,7 +7,7 @@ import { DIFF, W, CAR_W, FLOOR_H, level, floorOf, E as EN, P as PL } from '../..
 import { Save } from '../../shared/core/save.js';
 import { AudioEngine, playGameEvents, DEFAULT_VOLUME } from '../../shared/audio/engine.js';
 import { LOOK } from '../../shared/art/palette.js';
-import { enemyPoseKind } from '../../shared/art/pose.js';
+import { Animator, enemyAnimState } from '../../shared/art/pose.js';
 import { World3D, lampLight, ZB, ZF, ESC_Z0, ESC_Z1 } from './world3d.js';
 import { Person3D, makeGunModel, makeHandModel } from './chars3d.js';
 import { MenuPanel, WristHud, MessagePanel } from './vrui.js';
@@ -115,7 +115,7 @@ const pbMat = new THREE.MeshBasicMaterial({ color: 0xfff4c0 });
 const sparkGeo = new THREE.BoxGeometry(0.025, 0.025, 0.025);
 function getEnemyModel(e) {
   let m = enemyModels.get(e.id);
-  if (!m) { m = pool[e.type].pop() || new Person3D(LOOK.guard[e.type] || LOOK.guard[0]); scene.add(m.root); enemyModels.set(e.id, m); m.root.visible = true; m.z = 0; }
+  if (!m) { m = pool[e.type].pop() || new Person3D(LOOK.guard[e.type] || LOOK.guard[0]); scene.add(m.root); enemyModels.set(e.id, m); m.root.visible = true; m.z = 0; m.anim = new Animator(e.id); }
   return m;
 }
 function spark(pos, color = 0xffd27a, n = 10) {
@@ -774,8 +774,9 @@ function updateEnemies(dt, t) {
     const m = getEnemyModel(e);
     const nearCover = game.byFloor[ef] && game.byFloor[ef].covers.some((c) => Math.abs(c.x - e.x) < c.w / 2 + 0.6);
     m.z += ((nearCover ? -1.15 : 0) - m.z) * Math.min(1, dt * 3);
-    const kind = enemyPoseKind(e);
-    m.update(e.x, e.y, m.z, e.dir, kind, { phase: e.walkPhase, t: kind === 'dead' ? e.deadT : t + e.id, shootT: e.shootT, hitT: e.hitT, speed: e.moving ? 1.5 : 0 }, dt);
+    const st = enemyAnimState(e, game, t);
+    const kind = st.kind;
+    m.update(e.x, e.y, m.z, st, dt);
     m.setBrightness(lampLight(game, Math.max(1, Math.min(game.stage.floors, ef)), e.x, e.y + 1.2, m.z) * 0.9);
     m.setVisor(e.state === 'windup' ? 1 - Math.max(0, e.t) / game.D.windup : 0);
     m.root.visible = !(kind === 'dead' && e.deadT > 1.0 && Math.floor(e.deadT * 16) % 2);

@@ -1,7 +1,8 @@
 // 2D 版の描画。すべてベクターで描く（解像度を上げても粗くならない・素材の拡大劣化が無い）。
 // ワールド座標（m、y 上向き）のまま setTransform で描き、文字だけ画面座標に戻して描く。
 import { W, CAR_W, FLOOR_H, level, floorOf } from '../../shared/core/const.js';
-import { computePose, playerPoseKind, enemyPoseKind, SKEL } from '../../shared/art/pose.js';
+import { Animator, playerAnimState, enemyAnimState } from '../../shared/art/pose.js';
+import { drawPerson } from './person2d.js';
 import { LOOK, THEME } from '../../shared/art/palette.js';
 import { makeRng } from '../../shared/core/rng.js';
 
@@ -10,7 +11,7 @@ const VIEW_W = 26.4; // 見える幅（ビル 24m + 両側の外）
 export class Renderer2D {
   constructor(canvas) {
     this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
-    this.fx = []; this.popups = []; this.scarf = null; this.shake = 0; this.camY = null; this.bg = null;
+    this.fx = []; this.popups = []; this.anims = new Map(); this.scarf = null; this.shake = 0; this.camY = null; this.bg = null;
     this.vp = { x: 0, y: 0, w: 1, h: 1 };
     this.deco = new Map();
   }
@@ -85,6 +86,7 @@ export class Renderer2D {
     for (let f = fTop; f >= fBot; f--) this.drawFloorProps(game, f, th, t);
     c.restore();
     for (const car of game.cars) this.drawCar(game, car, t);
+    this.lastDt = dt;
     for (const e of game.enemies) if (e.y > camB - 3 && e.y < camB + viewH + 1) this.drawEnemy(game, e, t);
     this.drawPlayer(game, t, dt);
     for (let f = fTop; f >= fBot; f--) this.drawCovers(game, f, th);
@@ -439,139 +441,59 @@ export class Renderer2D {
     c.fillStyle = g; c.fillRect(0, L, W, FLOOR_H);
   }
 
-  // ---- 人物 ----
+  // ---- 人物（v2: Animator で動きを作り、person2d.js で描く） ----
+  anim(key, seed) { let a = this.anims.get(key); if (!a) { a = new Animator(seed); this.anims.set(key, a); } a.seen = this.frameNo; return a; }
   drawPlayer(game, t, dt) {
     const p = game.player;
-    if (p.state === 'door') return this.drawDoorWalk(game, p, t);
-    if (p.inv > 0 && p.state === 'play' && Math.floor(t * 14) % 2 === 0) return; // 無敵の点滅
-    const kind = playerPoseKind(p);
-    const pose = computePose(kind, { phase: p.walkPhase, t: kind === 'dead' ? p.t : t, shootT: p.shootT, hitT: p.hitT, airT: p.airT });
-    if (p.state === 'dead') p.t += dt;
-    this.updateScarf(p, pose, dt);
-    this.drawPerson(p.x, p.y, p.face, pose, LOOK.agent, { scarf: this.scarf });
-  }
-  drawDoorWalk(game, p, t) {
-    // ドアに入って出てくる（0.3 秒で消え、0.3 秒で現れる）
-    const k = p.t > 0.8 ? (1.1 - p.t) / 0.3 : p.t < 0.3 ? 1 - p.t / 0.3 : 1;
-    const c = this.ctx; c.save(); c.globalAlpha = 1 - Math.min(1, k);
-    const pose = computePose('door', { t });
-    this.drawPerson(p.x, p.y, p.face, pose, LOOK.agent, {});
+    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; this.scarf = null; }
+    this.frameNo = (this.frameNo || 0) + 1;
+    const A = this.anim('p', 3).update(dt, { ...playerAnimState(p, t), deadT: undefined });
+    const c = this.ctx;
+    let alpha = 1;
+    if (p.state === 'door') alpha = p.t > 0.8 ? 1 - (1.1 - p.t) / 0.3 : p.t < 0.3 ? 1 - p.t / 0.3 : 0; // ドアに入って消え、出てくる
+    else if (p.inv > 0 && p.state === 'play') alpha = 0.45 + 0.4 * Math.abs(Math.sin(t * 12)); // 無敵（強い点滅ではなく脈打つ半透明）
+    this.updateScarf(p, A, dt);
+    c.save(); c.globalAlpha = Math.max(0, Math.min(1, alpha));
+    this.drawScarfTail(LOOK.agent);
+    drawPerson(c, p.x, p.y, A.faceV, A, LOOK.agent, { scarf: true });
     c.restore();
+    // 使われなくなった敵の動きの状態を捨てる
+    if (this.frameNo % 120 === 0) for (const [k, a] of this.anims) if (a.seen < this.frameNo - 60) this.anims.delete(k);
   }
   drawEnemy(game, e, t) {
+    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; }
     const look = LOOK.guard[e.type] || LOOK.guard[0];
-    const kind = enemyPoseKind(e);
-    if (kind === 'dead' && e.deadT > 1.0 && Math.floor(e.deadT * 16) % 2) return;
-    const pose = computePose(kind, { phase: e.walkPhase, t: kind === 'dead' ? e.deadT : t + e.id, shootT: e.shootT, hitT: e.hitT });
+    const A = this.anim(e.id, e.id).update(this.lastDt || 1 / 60, enemyAnimState(e, game, t));
+    if (!e.alive && e.deadT > 1.0) { this.ctx.save(); this.ctx.globalAlpha = Math.max(0, 1 - (e.deadT - 1.0) / 0.4); }
     const c = this.ctx;
-    if (e.state === 'spawn') { c.save(); c.globalAlpha = Math.max(0.2, 1 - e.spawnT / 0.35); }
-    this.drawPerson(e.x, e.y, e.dir, pose, look, { windup: e.state === 'windup' ? 1 - Math.max(0, e.t) / game.D.windup : 0, low: e.lowShot });
-    if (e.state === 'spawn') c.restore();
+    const spawning = e.state === 'spawn';
+    if (spawning) { c.save(); c.globalAlpha = Math.max(0.15, 1 - e.spawnT / 0.35); }
+    drawPerson(c, e.x, e.y, A.faceV, A, look, { windup: e.state === 'windup' ? 1 - Math.max(0, e.t) / game.D.windup : 0, scale: spawning ? 0.9 + 0.1 * (1 - e.spawnT / 0.35) : 1 });
+    if (spawning) c.restore();
+    if (!e.alive && e.deadT > 1.0) this.ctx.restore();
   }
-
-  updateScarf(p, pose, dt) {
-    const nx = p.x + pose.neck[0] * p.face, ny = p.y + pose.neck[1] - 0.05;
-    if (!this.scarf) this.scarf = Array.from({ length: 5 }, () => ({ x: nx, y: ny, vx: 0, vy: 0 }));
+  updateScarf(p, A, dt) {
+    const P = A.pose; const f = A.faceV >= 0 ? 1 : -1;
+    const nx = p.x + P.neck[0] * f - 0.04 * f, ny = p.y + P.neck[1] - 0.06;
+    if (!this.scarf) this.scarf = Array.from({ length: 6 }, () => ({ x: nx, y: ny, vx: 0, vy: 0 }));
     const pts = this.scarf;
     pts[0].x = nx; pts[0].y = ny;
+    const wind = -f * (0.6 + A.speed * 0.5);
     for (let i = 1; i < pts.length; i++) {
       const q = pts[i];
-      q.vy -= 3 * dt; q.vx += (-p.face * 1.5 - (p.vx || 0) * 0.6) * dt;
-      q.vx *= 0.9; q.vy *= 0.9;
+      q.vy += (-2.2 + Math.sin(performance.now() / 160 + i) * 0.8 * (0.3 + A.speed * 0.3)) * dt; q.vx += wind * dt * 3;
+      q.vx *= 0.88; q.vy *= 0.88;
       q.x += q.vx * dt * 8; q.y += q.vy * dt * 8;
       const a = pts[i - 1]; const dx = q.x - a.x, dy = q.y - a.y; const d = Math.hypot(dx, dy) || 1;
-      const L = 0.11; q.x = a.x + dx / d * L; q.y = a.y + dy / d * L;
+      const L = 0.085; q.x = a.x + dx / d * L; q.y = a.y + dy / d * L;
     }
   }
-
-  drawPerson(x, y, face, P, look, o = {}) {
-    const c = this.ctx;
-    c.save();
-    c.translate(x, y); c.scale(face, 1);
-    const limb = (a, b, w, col) => { c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); };
-    const leg = (L, dark) => {
-      limb(L.hip, L.knee, 0.17, dark ? look.pantsDark : look.pants);
-      limb(L.knee, L.ankle, 0.14, dark ? look.pantsDark : look.pants);
-      c.fillStyle = look.shoe; c.beginPath();
-      c.moveTo(L.ankle[0] - 0.06, L.ankle[1] + 0.04); c.lineTo(L.toe[0], L.toe[1] + 0.02); c.lineTo(L.toe[0], L.toe[1] - 0.02);
-      c.lineTo(L.ankle[0] - 0.08, L.toe[1] - 0.02); c.closePath(); c.fill();
-    };
-    const armDraw = (A, dark, gun) => {
-      const sleeve = dark ? look.coatDark : look.coat;
-      limb(A.shoulder, A.elbow, 0.13, sleeve);
-      limb(A.elbow, A.hand, 0.11, sleeve);
-      c.fillStyle = look.glove || look.skin; c.beginPath(); c.arc(A.hand[0], A.hand[1], 0.055, 0, 7); c.fill();
-      if (gun) {
-        c.save(); c.translate(A.hand[0], A.hand[1]); c.rotate(-(A.foreAngle - Math.PI / 2));
-        c.fillStyle = look.gunDark; c.fillRect(-0.03, -0.11, 0.07, 0.11);
-        c.fillStyle = look.gun; c.fillRect(-0.03, -0.01, 0.27, 0.07);
-        c.fillStyle = look.gunDark; c.fillRect(0.2, 0.0, 0.05, 0.05);
-        c.restore();
-      }
-    };
-    // 奥の腕・脚
-    armDraw(P.arms[1], true, false);
-    leg(P.legs[1], true);
-    // マフラーの後ろ側
-    if (o.scarf && look.scarf) {
-      c.save(); c.scale(face, 1); c.translate(-x, -y);
-      c.strokeStyle = look.scarfDark; c.lineWidth = 0.09; c.lineCap = 'round'; c.lineJoin = 'round';
-      c.beginPath(); c.moveTo(o.scarf[0].x, o.scarf[0].y); for (const q of o.scarf) c.lineTo(q.x, q.y); c.stroke();
-      c.restore();
+  drawScarfTail(look) {
+    const c = this.ctx; const pts = this.scarf; if (!pts) return;
+    for (const [col, w] of [['#07090f', 0.13], [look.scarfDark, 0.095], [look.scarf, 0.055]]) {
+      c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(pts[0].x, pts[0].y); for (const q of pts) c.lineTo(q.x, q.y); c.stroke();
     }
-    // 胴（上着）
-    const lean = P.lean; const hip = P.hip, sh = P.shoulder;
-    const ox = Math.cos(lean), oy = -Math.sin(lean);
-    const hem = look.kind === 'agent' ? 0.3 : 0.1;
-    c.fillStyle = look.coat;
-    c.beginPath();
-    c.moveTo(sh[0] - ox * 0.15, sh[1] - oy * 0.15);
-    c.quadraticCurveTo(sh[0] + ox * 0.2, sh[1] + oy * 0.2 + 0.02, sh[0] + ox * 0.16, sh[1] + oy * 0.16 - 0.04);
-    c.lineTo(hip[0] + ox * 0.16 + Math.sin(lean) * -hem + 0.05, hip[1] - hem);
-    c.lineTo(hip[0] - ox * 0.18 - 0.06, hip[1] - hem - 0.02);
-    c.closePath(); c.fill();
-    c.fillStyle = look.coatLight; c.globalAlpha = 0.5;
-    c.beginPath(); c.moveTo(sh[0] + ox * 0.1, sh[1] + oy * 0.1 - 0.03); c.lineTo(hip[0] + ox * 0.13 + 0.03, hip[1] - hem + 0.05); c.lineTo(hip[0] + ox * 0.06, hip[1] - hem + 0.05); c.closePath(); c.fill();
-    c.globalAlpha = 1;
-    if (look.vest) { c.fillStyle = look.vest; c.beginPath(); c.moveTo(sh[0] - ox * 0.13, sh[1] - 0.08); c.lineTo(sh[0] + ox * 0.15, sh[1] - 0.08); c.lineTo(hip[0] + ox * 0.15, hip[1] + 0.12); c.lineTo(hip[0] - ox * 0.15, hip[1] + 0.12); c.fill(); }
-    // ベルト
-    c.strokeStyle = look.kind === 'agent' ? '#11151f' : '#1c1418'; c.lineWidth = 0.05;
-    c.beginPath(); c.moveTo(hip[0] - ox * 0.17, hip[1] + 0.07); c.lineTo(hip[0] + ox * 0.16, hip[1] + 0.07); c.stroke();
-    // 手前の脚
-    leg(P.legs[0], false);
-    // 頭
-    const hd = P.head; const r = SKEL.headR;
-    limb(P.shoulder, P.neck, 0.1, look.skinDark);
-    c.fillStyle = look.skin; c.beginPath(); c.ellipse(hd[0], hd[1], r * 0.92, r, -lean * 0.5, 0, 7); c.fill();
-    if (look.kind === 'agent') {
-      c.fillStyle = look.hair;
-      c.beginPath(); c.moveTo(hd[0] - r * 1.0, hd[1] - r * 0.1);
-      c.quadraticCurveTo(hd[0] - r * 1.05, hd[1] + r * 1.15, hd[0] + r * 0.25, hd[1] + r * 1.08);
-      c.quadraticCurveTo(hd[0] + r * 1.05, hd[1] + r * 0.9, hd[0] + r * 0.95, hd[1] + r * 0.35);
-      c.quadraticCurveTo(hd[0] + r * 0.4, hd[1] + r * 0.62, hd[0] - r * 0.2, hd[1] + r * 0.45);
-      c.quadraticCurveTo(hd[0] - r * 0.45, hd[1] + r * 0.1, hd[0] - r * 0.55, hd[1] - r * 0.45);
-      c.closePath(); c.fill();
-      c.fillStyle = '#1a1a1a'; c.beginPath(); c.ellipse(hd[0] + r * 0.55, hd[1] + r * 0.05, r * 0.09, r * 0.13, 0, 0, 7); c.fill();
-      c.strokeStyle = look.skinDark; c.lineWidth = 0.012; c.beginPath(); c.moveTo(hd[0] + r * 0.88, hd[1] - r * 0.05); c.lineTo(hd[0] + r * 1.02, hd[1] - r * 0.28); c.lineTo(hd[0] + r * 0.86, hd[1] - r * 0.33); c.stroke();
-      c.fillStyle = look.skinDark; c.beginPath(); c.ellipse(hd[0] - r * 0.15, hd[1] - r * 0.05, r * 0.14, r * 0.2, 0, 0, 7); c.fill();
-    } else {
-      // ヘルメットとバイザー（構えると光る＝撃ってくる合図）
-      c.fillStyle = look.helmet;
-      c.beginPath(); c.ellipse(hd[0] - r * 0.05, hd[1] + r * 0.2, r * 1.08, r * 0.95, 0, Math.PI * 0.95, Math.PI * 2.05); c.fill();
-      c.fillRect(hd[0] - r * 1.1, hd[1] + r * 0.05, r * 0.5, r * 0.3);
-      const glow = o.windup ? 0.4 + 0.6 * o.windup : 0;
-      c.fillStyle = glow ? `rgba(255,${Math.round(220 - glow * 160)},${Math.round(150 - glow * 120)},1)` : look.visor;
-      c.beginPath(); c.moveTo(hd[0] + r * 0.05, hd[1] + r * 0.18); c.lineTo(hd[0] + r * 1.0, hd[1] + r * 0.18); c.lineTo(hd[0] + r * 0.9, hd[1] - r * 0.12); c.lineTo(hd[0] + r * 0.1, hd[1] - r * 0.1); c.fill();
-      if (glow) { c.fillStyle = `rgba(255,120,60,${glow * 0.35})`; c.beginPath(); c.arc(hd[0] + r * 0.6, hd[1], r * 1.2, 0, 7); c.fill(); }
-      c.strokeStyle = look.helmetDark; c.lineWidth = 0.02; c.beginPath(); c.moveTo(hd[0] - r * 0.2, hd[1] - r * 0.05); c.lineTo(hd[0] + r * 0.4, hd[1] - r * 0.95); c.stroke();
-    }
-    // 手前の腕と銃
-    armDraw(P.arms[0], false, true);
-    if (look.band) { const A = P.arms[0]; c.strokeStyle = look.band; c.lineWidth = 0.14; c.beginPath(); const m = [(A.shoulder[0] * 0.6 + A.elbow[0] * 0.4), (A.shoulder[1] * 0.6 + A.elbow[1] * 0.4)]; c.moveTo(m[0] - 0.02, m[1]); c.lineTo(m[0] + 0.02, m[1]); c.stroke(); }
-    // マフラーの前側（首元）
-    if (o.scarf && look.scarf) { c.fillStyle = look.scarf; c.beginPath(); c.ellipse(P.neck[0] + 0.01, P.neck[1] - 0.04, 0.1, 0.06, -lean, 0, 7); c.fill(); }
-    if (o.windup && o.low) { c.fillStyle = 'rgba(255,170,60,0.9)'; c.beginPath(); c.moveTo(0.35, 0.18); c.lineTo(0.55, 0.28); c.lineTo(0.55, 0.08); c.fill(); }
-    c.restore();
   }
 
   drawBullets(game, t) {

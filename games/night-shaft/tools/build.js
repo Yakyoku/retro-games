@@ -47,9 +47,10 @@ else {
 <ul><li><a href="experiments/01-2d/">2D 版</a></li><li><a href="experiments/02-vr/">Quest 3 WebXR 版</a></li><li><a href="experiments/00-xr-probe/">WebXR 最小検証シーン</a></li></ul>`);
 }
 // importmap の three の場所（VR ページだけ）: VARIANT=all では experiments/02-vr/ から ../../vendor
-for (const page of ['index.html', 'probe/index.html', 'experiments/02-vr/index.html', 'experiments/00-xr-probe/index.html']) {
+const htmlPages = [];
+(function walkHtml(d, rel = '') { for (const f of readdirSync(d)) { const p = join(d, f); const r = rel ? rel + '/' + f : f; if (statSync(p).isDirectory()) { if (f !== 'vendor') walkHtml(p, r); } else if (f.endsWith('.html')) htmlPages.push(r); } })(dist);
+for (const page of htmlPages) {
   const p = join(dist, page);
-  if (!existsSync(p)) continue;
   const html = readFileSync(p, 'utf8');
   if (!html.includes('__VENDOR__')) continue;
   const depth = page.split('/').length - 1;

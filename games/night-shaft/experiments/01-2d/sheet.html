@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><title>NIGHT SHAFT キャラクターシート（確認用）</title>
+<body style="margin:0;background:#4a505b;color:#fff;font:14px sans-serif"><canvas id="c" width="2400" height="1500"></canvas>
+<script type="module">
+// 確認用: 全ての姿勢を大きく並べる（?debug の代わり。公開ページからはリンクしない）
+import { computePose } from '../../shared/art/pose.js';
+import { LOOK } from '../../shared/art/palette.js';
+import { drawPerson } from './person2d.js';
+const cv = document.getElementById('c'); const c = cv.getContext('2d');
+c.fillStyle = '#5b616c'; c.fillRect(0, 0, 2400, 1500);
+const S = 140;
+const poses = [['idle', {}], ['move', { phase: 0, run: 0 }], ['move', { phase: 1.2, run: 0 }], ['move', { phase: 0, run: 1 }], ['move', { phase: 0.8, run: 1 }], ['move', { phase: 1.6, run: 1 }],
+  ['crouch', {}], ['aimLow', { gunY: 0.72 }], ['aimLow', { gunY: 0.42 }], ['aim', { aimK: 0.3 }], ['aim', { shootT: 0.03 }], ['jump', { vy: 4 }], ['jump', { vy: 0 }], ['jump', { vy: -5 }],
+  ['kick', { kickT: 0.03 }], ['kick', { kickT: 0.2 }], ['idle', { landT: 0.07 }], ['idle', { hitT: 0.05 }], ['dead', { deadT: 0.1 }], ['dead', { deadT: 0.35 }], ['dead', { deadT: 1 }], ['door', {}], ['ride', { escDir: 1 }]];
+const looks = [LOOK.agent, LOOK.guard[0], LOOK.guard[1], LOOK.guard[2]];
+const per = 12;
+looks.forEach((lk, row) => poses.forEach(([k, o], i) => {
+  const col = i % per, sub = Math.floor(i / per);
+  if (row > 1 && sub > 0) return;
+  const x = 80 + col * 192 + (k === 'dead' ? 60 : 0), y = 300 + (row * 2 + sub) * 0;
+  const yy = row < 2 ? 280 + row * 700 + sub * 330 : 0;
+  if (row >= 2) return;
+  c.setTransform(S, 0, 0, -S, x, yy);
+  c.fillStyle = '#3e434c'; c.fillRect(-0.7, -0.04, 1.4, 0.04);
+  drawPerson(c, 0, 0, 1, { pose: computePose(k, { t: 1, ...o }), hem: k === 'move' ? -0.25 * (o.run || 0) - 0.1 : 0, blink: false }, lk, { scarf: lk.kind === 'agent', windup: k === 'aim' && o.aimK ? 0.6 : 0 });
+  c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#fff'; c.fillText(k + ' ' + JSON.stringify(o).replace(/[{}"]/g, ''), x - 70, yy + 26);
+}));
+// 敵 3 型の比較
+[LOOK.guard[0], LOOK.guard[1], LOOK.guard[2], LOOK.agent].forEach((lk, i) => {
+  const x = 1500 + i * 220, yy = 1420;
+  c.setTransform(S * 1.4, 0, 0, -S * 1.4, x, yy);
+  drawPerson(c, 0, 0, 1, { pose: computePose('aim', { t: 1 }), hem: 0, blink: false }, lk, { scarf: lk.kind === 'agent' });
+});
+window.done = true;
+</script>

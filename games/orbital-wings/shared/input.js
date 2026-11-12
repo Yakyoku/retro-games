@@ -22,6 +22,7 @@ export class Input {
   constructor({ depth = false } = {}) {
     this.depth = depth;
     this.keys = new Set();
+    this.taps = new Set();          // 1 フレーム内に押して離したキーも取りこぼさない（次の poll まで押した扱い）
     this.prevMenu = {};
     this.touch = { mx: 0, my: 0, fire: false, power: false, pause: false };
     this.sources = [];               // 追加の入力源（XR など）: () => partial state
@@ -36,7 +37,7 @@ export class Input {
     const codes = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyZ', 'KeyX', 'ShiftLeft', 'ShiftRight', 'Escape', 'Enter', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyP', 'Backspace']);
     addEventListener('keydown', (e) => {
       if (codes.has(e.code)) e.preventDefault();
-      if (!e.repeat) this.keys.add(e.code);
+      if (!e.repeat) { this.keys.add(e.code); this.taps.add(e.code); }
       this._device('keyboard');
     }, { passive: false });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -49,7 +50,7 @@ export class Input {
   }
   _device(d) { if (this.lastDevice !== d) { this.lastDevice = d; this.onDevice?.(d); } }
   releaseAll() {
-    this.keys.clear();
+    this.keys.clear(); this.taps.clear();
     Object.assign(this.touch, { mx: 0, my: 0, fire: false, power: false, pause: false });
     this.heldFire = false;
     this.prevPadButtons = [];
@@ -77,7 +78,9 @@ export class Input {
 
   // 毎 tick 呼ぶ。edge 系（power / pause / menu）は押した瞬間だけ true
   poll() {
-    const k = this.keys;
+    const k = new Set([...this.keys, ...this.taps]);
+    this.taps.clear();
+    const tt = this.touchTaps || {}; this.touchTaps = {};
     let mx = (k.has('ArrowRight') || k.has('KeyD') ? 1 : 0) - (k.has('ArrowLeft') || k.has('KeyA') ? 1 : 0);
     let my = (k.has('ArrowUp') || k.has('KeyW') ? 1 : 0) - (k.has('ArrowDown') || k.has('KeyS') ? 1 : 0);
     let mz = (k.has('KeyE') ? 1 : 0) - (k.has('KeyQ') ? 1 : 0);
@@ -89,7 +92,7 @@ export class Input {
     const pad = this._readPad();
     if (pad) { mx += pad.mx; my += pad.my; mz += pad.mz; fire ||= pad.fire; power ||= pad.power; pause ||= pad.pause; confirm ||= pad.confirm; back ||= pad.back; }
     const t = this.touch;
-    mx += t.mx; my += t.my; fire ||= t.fire; power ||= t.power; pause ||= t.pause;
+    mx += t.mx; my += t.my; fire ||= t.fire || !!tt.fire; power ||= t.power || !!tt.power; pause ||= t.pause || !!tt.pause;
     for (const src of this.sources) {
       const s = src(); if (!s) continue;
       mx += s.mx || 0; my += s.my || 0; mz += s.mz || 0; fire ||= !!s.fire; power ||= !!s.power; pause ||= !!s.pause; confirm ||= !!s.confirm; back ||= !!s.back;
@@ -154,7 +157,7 @@ export function attachTouch(input, root) {
   root.addEventListener('pointerup', end); root.addEventListener('pointercancel', end);
   const hold = (sel, key) => {
     const b = ui.querySelector(sel);
-    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.setPointerCapture?.(e.pointerId); input.touch[key] = true; b.classList.add('down'); });
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.setPointerCapture?.(e.pointerId); input.touch[key] = true; (input.touchTaps ||= {})[key] = true; b.classList.add('down'); });
     const up = (e) => { input.touch[key] = false; b.classList.remove('down'); };
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   };

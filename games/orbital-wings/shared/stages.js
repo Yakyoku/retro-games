@@ -89,7 +89,7 @@ function stage1() {
   m.form(98, 5, { y: 12, pat: 'swoop', turnX: 18, z: 'spread' });
   m.gnd(112, 'hatch', 'f'); m.gnd(120, 'turret', 'c'); m.gnd(126, 'turret', 'f', { z: -1.5 });
   // 第 1 の火山（噴火）
-  m.gnd(150, 'vent', 'f', { props: { rate: 26, max: 34 } });
+  m.gnd(150, 'vent', 'f', { props: { rate: 36, max: 22 } });
   m.form(150, 5, { y: 15, pat: 'wave', z: 'p' });
   m.gnd(172, 'walker', 'f'); m.gnd(178, 'walker', 'f', { z: 1.6 });
   m.form(185, 4, { y: 12, pat: 'swoop', turnX: 14 });
@@ -98,13 +98,13 @@ function stage1() {
   m.gnd(240, 'turret', 'c'); m.gnd(248, 'turret', 'c', { z: 1.6 }); m.gnd(256, 'hatch', 'c');
   m.form(250, 5, { y: 4, pat: 'swoop', turnX: 17 });
   // 第 2 の火山（天井から逆さに噴く）
-  m.gnd(285, 'vent', 'c', { props: { rate: 30, max: 30 } });
+  m.gnd(285, 'vent', 'c', { props: { rate: 38, max: 22 } });
   m.form(290, 6, { y: 9, pat: 'loop', z: 'alt' });
   m.gnd(310, 'turret', 'f'); m.gnd(318, 'walker', 'f'); m.gnd(326, 'turret', 'f', { z: -1.6 }); m.gnd(334, 'hatch', 'f');
   m.form(330, 5, { y: 14, pat: 'wave', z: 'spread' });
   m.one(350, 'heavy', { y: 9 });
   // 第 3 の火山（大噴火）
-  m.gnd(385, 'vent', 'f', { props: { rate: 18, max: 40 } });
+  m.gnd(385, 'vent', 'f', { props: { rate: 26, max: 32 } });
   m.form(370, 4, { y: 15, pat: 'swoop', turnX: 20 });
   m.form(400, 5, { y: 14, pat: 'chase', from: 'left' });
   m.one(420, 'dart', { y: 9, props: { carrier: true, pat: 'wave', speed: 6 } });

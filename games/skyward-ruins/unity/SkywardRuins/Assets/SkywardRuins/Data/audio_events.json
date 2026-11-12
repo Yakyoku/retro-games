@@ -1,0 +1,29 @@
+{
+  "_comment": "ゲームのイベント → 鳴らす音（cue）と曲の切替（bgm。\"-\" は停止）。ProjectBuilder が GameDatabase.audioEvents に取り込む",
+  "events": [
+    { "ev": "AirFire", "cue": "air_fire" },
+    { "ev": "GroundFire", "cue": "ground_fire" },
+    { "ev": "BombLand", "cue": "bomb_land" },
+    { "ev": "AirKill", "cue": "air_kill" },
+    { "ev": "HeavyHit", "cue": "armor_hit" },
+    { "ev": "ShardBlock", "cue": "armor_hit" },
+    { "ev": "GroundKill", "cue": "ground_kill" },
+    { "ev": "FortTurretKill", "cue": "ground_kill" },
+    { "ev": "PlayerHit", "cue": "player_hit", "bgm": "-" },
+    { "ev": "Respawn", "cue": "", "bgm": "bgm_play" },
+    { "ev": "Extend", "cue": "extend" },
+    { "ev": "BannerGet", "cue": "extend" },
+    { "ev": "ObeliskReveal", "cue": "obelisk_reveal" },
+    { "ev": "ObeliskHit", "cue": "obelisk_hit" },
+    { "ev": "ObeliskBreak", "cue": "obelisk_break" },
+    { "ev": "BannerReveal", "cue": "banner_reveal" },
+    { "ev": "FortressWarn", "cue": "fortress_warn", "bgm": "bgm_fortress" },
+    { "ev": "CoreOpen", "cue": "core_open" },
+    { "ev": "CoreClang", "cue": "core_clang" },
+    { "ev": "FortressDestroyed", "cue": "fortress_destroyed", "bgm": "bgm_play" },
+    { "ev": "FortressLeave", "cue": "", "bgm": "bgm_play" },
+    { "ev": "LoopComplete", "cue": "jingle_loop" },
+    { "ev": "GameOver", "cue": "jingle_gameover", "bgm": "-" },
+    { "ev": "EnemyFire", "cue": "enemy_fire" }
+  ]
+}

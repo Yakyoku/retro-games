@@ -1,0 +1,49 @@
+# Skyward Ruins：Unity WebGL を GitHub Actions でビルドし、Netlify の同じサイトへ公開する。
+# 置き場所: リポジトリの .github/workflows/skyward-ruins-unity.yml（作品フォルダ外のため、利用者の確認後に配置する）
+# 必要な Secrets: UNITY_EMAIL, UNITY_PASSWORD（または UNITY_LICENSE / UNITY_SERIAL）
+# 任意の Secrets: NETLIFY_AUTH_TOKEN（あれば Netlify へ公開。サイト ID は netlify-sites.json から読む）
+name: skyward-ruins-unity
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ 'games/skyward-ruins/unity/**', 'games/skyward-ruins/ci/**' ]
+concurrency: { group: skyward-ruins-unity, cancel-in-progress: true }
+jobs:
+  webgl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: 空き容量を作る（Unity イメージ用）
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: games/skyward-ruins/unity/SkywardRuins/Library
+          key: skyward-library-${{ hashFiles('games/skyward-ruins/unity/SkywardRuins/Packages/manifest.json') }}
+      - name: Unity で生成・テスト・ビルド（GameCI の Unity 6000.0.64f1 WebGL イメージ）
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        run: |
+          docker run --rm -e UNITY_EMAIL -e UNITY_PASSWORD -e UNITY_LICENSE -e UNITY_SERIAL -e HOME=/root \
+            -v "$GITHUB_WORKSPACE:/work" -w /work unityci/editor:ubuntu-6000.0.64f1-webgl-3.2.2 \
+            bash games/skyward-ruins/ci/unity-build.sh
+      - name: 成果物を作品フォルダへ（tools/build.js が webgl/ を配信する）
+        run: |
+          sudo chown -R "$(id -u)" games/skyward-ruins
+          rm -rf games/skyward-ruins/webgl && cp -r games/skyward-ruins/unity/SkywardRuins/Builds/WebGL games/skyward-ruins/webgl
+          GAME=skyward-ruins VARIANT=all node tools/build-game.js || (npm ci && GAME=skyward-ruins VARIANT=all node tools/build-game.js)
+      - uses: actions/upload-artifact@v4
+        with: { name: skyward-ruins-webgl, path: dist, retention-days: 30 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: skyward-ruins-unity-logs, path: games/skyward-ruins/unity/SkywardRuins/Logs/ci, retention-days: 14 }
+      - name: Netlify へ公開（NETLIFY_AUTH_TOKEN がある場合）
+        env: { NETLIFY_AUTH_TOKEN: '${{ secrets.NETLIFY_AUTH_TOKEN }}' }
+        if: env.NETLIFY_AUTH_TOKEN != ''
+        run: |
+          SITE=$(node -e "console.log(require('./games/skyward-ruins/netlify-sites.json').sites[0].siteId)")
+          npx -y netlify-cli@17 deploy --prod --dir dist --site "$SITE" --message "Unity WebGL ${GITHUB_SHA::7}"

@@ -1,0 +1,12 @@
+{
+  "name": "skyward-ruins",
+  "private": true,
+  "type": "module",
+  "description": "Skyward Ruins — Unity（6000.0 LTS・URP・WebXR Export）で作る縦スクロール・シューティング（Claude Code のクラウドセッションで制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "assets": "node tools/gen-sprites.mjs && node tools/gen-audio.mjs && node tools/gen-models.mjs",
+    "test": "cd core-tests && dotnet run -c Release"
+  }
+}

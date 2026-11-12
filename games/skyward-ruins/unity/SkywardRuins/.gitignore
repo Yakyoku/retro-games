@@ -1,0 +1,12 @@
+# Unity が作る作業領域（再生成できる）
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+MemoryCaptures/
+Builds/
+*.csproj
+*.sln
+.vs/
+.idea/

@@ -58,7 +58,7 @@ function setupComposer() {
   composer.addPass(new OutputPass());
   // 仕上げ: 周辺を暗く落とし（周辺減光）、黒をつぶし、明るい毒の色だけ彩度を残す。うっすら粒子（フィルムの粒）と、画面の端の色ずれ
   gradePass = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 0.62 }, uGrain: { value: 0.035 }, uCA: { value: 0.006 } },
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 0.62 }, uGrain: { value: 0.035 }, uCA: { value: 0.0035 } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uVig, uGrain, uCA; varying vec2 vUv;
       void main(){ vec2 c = vUv - 0.5; float r = dot(c, c);

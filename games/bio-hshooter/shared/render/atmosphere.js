@@ -43,7 +43,8 @@ export class Atmosphere {
     const fogC = new THREE.Color(pal.fog), tox = new THREE.Color(pal.toxic ?? pal.accent), glow = new THREE.Color(pal.glow);
     this.toxC = tox; this.fogC = fogC;
     // --- 毒の霧の層（ノイズを 2 回ずらして重ね、ふちだけ毒の色に光らせる。普通の合成なので奥の星を隠して暗くする）
-    const layers = this.vr || this.lite ? [[-34, 0.42], [-95, 0.55]] : [[-28, 0.38], [-62, 0.48], [-120, 0.6]];
+    // 画面いっぱいの半透明の板は重いので、大画面 2 層、スマホと VR は 1 層
+    const layers = this.vr || this.lite ? [[-60, 0.62]] : [[-34, 0.42], [-100, 0.6]];
     this.fogMats = [];
     for (const [z, dens] of layers) {
       const m = new THREE.ShaderMaterial({

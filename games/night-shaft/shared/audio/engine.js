@@ -42,6 +42,8 @@ export class AudioEngine {
       if (this.pendingBgm === name) this.playBgm(name);
     }
     this.renderMs = performance.now() - t0;
+    this.songsReady = true;
+    if (this.pendingBgm) this.playBgm(this.pendingBgm);
   }
 
   toBuffer(data) {

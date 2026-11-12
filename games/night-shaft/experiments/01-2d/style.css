@@ -111,3 +111,17 @@ input[type=range] { width: 160px; accent-color: var(--amber); }
 #debug { position: absolute; left: 8px; bottom: 8px; z-index: 30; font: 12px/1.4 ui-monospace, monospace; background: rgba(0,0,0,.7); padding: 6px 8px; border-radius: 6px; white-space: pre; pointer-events: none; }
 body.retro #cv { image-rendering: pixelated; }
 body.retro #app::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 3; background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+
+/* 縦長のスマートフォン: タイトルが画面に収まるように詰める。収まらない時はスクロールできる */
+#screen { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 760px) and (orientation: portrait) {
+  #screen { align-items: flex-start; }
+  .logo { font-size: clamp(40px, 13vw, 64px); }
+  .tagline { display: none; }
+  .made { font-size: 13px; padding: 10px 12px; }
+  .made small { font-size: 10.5px; line-height: 1.55; }
+  .panel { padding: 14px; }
+  .mi { min-height: 46px; padding: 8px 14px; font-size: 15px; }
+  .mi small { font-size: 11px; }
+}
+body.portrait-touch #minimap { display: none; }

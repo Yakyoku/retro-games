@@ -372,14 +372,13 @@ function updateEnemy(g, e, dt, df) {
     }
     case 'land': if (e.t >= RULES.ghostLandGuard) { e.state = 'walk'; e.t = 0; } return;
   }
-  // walk: セルの中心から隣のセルの中心へ
+  // walk: セルの中心から隣のセルの中心へ。経路の有無は毎 tick 数える
+  { const [cgx, cgz] = toCell(e.x, e.z); if (df[cgz * m.w + cgx] < 0) e.noPath += dt; else e.noPath = 0; e.ghostIn -= dt; }
   const [tx, tz] = cellCenter(e.tgx, e.tgz);
   const dx = tx - e.x, dz = tz - e.z, L = Math.hypot(dx, dz);
   if (L < 1e-4) {
     e.gx = e.tgx; e.gz = e.tgz;
     const here = df[e.gz * m.w + e.gx];
-    if (here < 0) e.noPath += dt; else e.noPath = 0;
-    e.ghostIn -= dt;
     const want = e.type === 'chaser' ? (e.noPath > T.ghostAfterNoPath || (e.ghostIn <= 0 && here > 5)) : e.noPath > T.ghostAfterNoPath * 2;
     if (want) { e.state = 'ghostWarn'; e.t = 0; emit(g, 'ghost-warn', { enemy: e }); return; }
     if (e.type === 'fire') {

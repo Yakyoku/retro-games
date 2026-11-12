@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>キャラクター設定資料 — ポンプ・パトロール</title>
+<script src="shared/error-overlay.js"></script>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
+<style>
+  :root { --bg:#0b0807; --ink:#f6efe6; --dim:#c2b2a2; --line:rgba(255,220,170,.18); --amber:#ffc93c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  header { padding:28px clamp(16px,5vw,72px) 8px; }
+  h1 { margin:0; font-size:clamp(26px,3.6vw,48px); }
+  .credit { color:var(--dim); margin:6px 0 0; }
+  a { color:var(--amber); }
+  section { padding:16px clamp(16px,5vw,72px); }
+  h2 { font-size:clamp(20px,2.2vw,30px); margin:18px 0 6px; }
+  .row { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); }
+  .card { background:linear-gradient(165deg,rgba(32,22,16,.9),rgba(12,8,6,.95)); border:1px solid var(--line); border-radius:20px; padding:16px; }
+  .card p { color:var(--dim); margin:8px 0 0; font-size:15px; }
+  canvas { width:100%; display:block; border-radius:12px; background:#1a120c; }
+  .pal { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .pal span { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--dim); }
+  .pal i { width:22px; height:22px; border-radius:6px; border:1px solid #000; display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>キャラクター設定資料</h1>
+  <p class="credit">このゲームはClaude Codeのクラウドセッションで制作しました。　<a href="./">← トップへ</a></p>
+</header>
+<section>
+  <h2>2D（断面図）の演技</h2>
+  <div class="row">
+    <div class="card"><canvas id="c-hero" width="900" height="420"></canvas><p><b>ポンプ隊員</b>　黄色いヘルメットとヘッドランプ、大きな目、緑のつなぎ、背中の赤い空気タンク、手元のノズル。左から: 待機・歩行・送気・ミス。</p></div>
+    <div class="card"><canvas id="c-chaser" width="900" height="420"></canvas><p><b>プクモ（追跡型）</b>　ミント色の丸い体と双葉の触角。左から: 通常・膨張 1/3・2/3・最大前・通り抜けの予兆・通り抜け中（砂の輪郭と目だけ）。</p></div>
+    <div class="card"><canvas id="c-fire" width="900" height="420"></canvas><p><b>ボイラン（火炎型）</b>　朱色の釜の体と頭の煙突、眠たげなまぶた。左から: 通常・溜め（煙突が吹き、頬と口が光り、まぶたが上がる）・噴射・膨張。</p></div>
+  </div>
+</section>
+<section>
+  <h2>3D モデル（ドラッグで回転）</h2>
+  <div class="row">
+    <div class="card"><canvas id="c-3d" width="1200" height="640" style="touch-action:none"></canvas><p>外部のモデルファイルは使わず、プリミティブから組み立てています。膨張では胴・頬・目・手足が連動します（下のつまみ）。</p>
+      <label>膨らみ <input type="range" id="amt" min="0" max="100" value="0"></label>　<label><input type="checkbox" id="charge"> ボイランの溜め</label></div>
+  </div>
+  <div class="pal" id="pal"></div>
+</section>
+<script type="module">
+  import { drawHero, drawChaser, drawFire, PAL } from './shared/sprites2d.js';
+  import * as THREE from 'three';
+  import { makeChaser, makeFire, poseEnemy, makeNozzle } from './shared/models3d.js';
+  const ctxOf = (id) => document.getElementById(id).getContext('2d');
+  function bg(c) { const g = c.createLinearGradient(0, 0, 0, c.canvas.height); g.addColorStop(0, '#c98a3c'); g.addColorStop(1, '#6e3a1c'); c.fillStyle = g; c.fillRect(0, 0, c.canvas.width, c.canvas.height); c.fillStyle = '#1a0f0a'; c.fillRect(0, 150, c.canvas.width, 150); }
+  function frame(now) {
+    const t = now / 1000;
+    let c = ctxOf('c-hero'); bg(c); const S = 120;
+    drawHero(c, 120, 225, S, { face: 'right', moving: false, walk: 0, pumping: -1 }, t);
+    drawHero(c, 340, 225, S, { face: 'right', moving: true, walk: t, pumping: -1 }, t);
+    drawHero(c, 560, 225, S, { face: 'right', moving: false, pumping: (t * 3.3) % 1 }, t);
+    drawHero(c, 780, 225, S, { face: 'right', dead: true, deadT: (t % 2), cause: 'enemy' }, t);
+    c = ctxOf('c-chaser'); bg(c);
+    const st = (state, amt, extra = {}) => ({ state, amt, anim: t, face: 'right', look: [1, 0], t: 0, ...extra });
+    [[st('walk', 0)], [st('inflated', 0.33)], [st('inflated', 0.66)], [st('inflated', 0.9, { recovering: true })], [st('ghostWarn', 0)], [st('ghost', 0)]].forEach(([s], i) => drawChaser(c, 80 + i * 150, 225, 105, s, t));
+    c = ctxOf('c-fire'); bg(c);
+    [[st('walk', 0)], [st('charge', 0, { t: (t % 1) })], [st('breath', 0)], [st('inflated', 0.6)]].forEach(([s], i) => drawFire(c, 120 + i * 220, 225, 120, s, t));
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  const pal = document.getElementById('pal');
+  for (const [k, v] of Object.entries(PAL)) pal.insertAdjacentHTML('beforeend', `<span><i style="background:${v}"></i>${k} ${v}</span>`);
+  // 3D
+  const cv = document.getElementById('c-3d');
+  const r = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); r.setPixelRatio(Math.min(2, devicePixelRatio)); r.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a120c);
+  const cam = new THREE.PerspectiveCamera(35, cv.width / cv.height, 0.1, 50); cam.position.set(0, 1.4, 5.2); cam.lookAt(0, 0.6, 0);
+  scene.add(new THREE.HemisphereLight(0xfff1dc, 0x3a2414, 1.2)); const d = new THREE.DirectionalLight(0xffffff, 1.5); d.position.set(2, 4, 3); scene.add(d);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(4, 48), new THREE.MeshStandardMaterial({ color: 0x5a3a20, roughness: 1 })); floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const turn = new THREE.Group(); scene.add(turn);
+  const ch = makeChaser(); ch.position.x = -1.1; turn.add(ch);
+  const fi = makeFire(); fi.position.x = 1.1; turn.add(fi);
+  const nz = makeNozzle(); nz.scale.setScalar(4); nz.position.set(0, 1.9, 0); nz.rotation.y = Math.PI / 2; turn.add(nz);
+  let rot = 0, drag = null;
+  cv.addEventListener('pointerdown', (e) => { drag = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => { if (drag != null) { rot += (e.clientX - drag) * 0.01; drag = e.clientX; } });
+  cv.addEventListener('pointerup', () => { drag = null; });
+  function loop(now) {
+    const t = now / 1000; if (drag == null) rot += 0.004; turn.rotation.y = rot;
+    const amt = document.getElementById('amt').value / 100;
+    poseEnemy(ch, { state: amt ? 'inflated' : 'walk', anim: t, t: 0, id: 0 }, amt, false, t, [0, 0]);
+    poseEnemy(fi, { state: document.getElementById('charge').checked ? 'charge' : amt ? 'inflated' : 'walk', anim: t, t: t % 1, id: 1 }, amt, false, t, [0, 0]);
+    r.render(scene, cam); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -546,10 +546,15 @@ async function enterVR() {
     toast('VR を開始できませんでした: ' + (e && e.message || e), 4000);
   }
 }
+// 実際の片眼レンダーサイズ（パネル解像度とは別）を記録する
 function xrInfo(session) {
-  const l = session.renderState.baseLayer; if (!l) return;
-  window.__xrInfo = { framebuffer: [l.framebufferWidth, l.framebufferHeight], perEye: [l.framebufferWidth / 2, l.framebufferHeight], frameRate: session.frameRate || null };
-  if (DEBUG) toast(`VR 描画 ${l.framebufferWidth}×${l.framebufferHeight}（片眼 ${l.framebufferWidth / 2}×${l.framebufferHeight}）${session.frameRate ? ' ' + session.frameRate + 'Hz' : ''}`, 5000);
+  setTimeout(() => {
+    const l = (renderer.xr.getBaseLayer && renderer.xr.getBaseLayer()) || session.renderState.baseLayer;
+    if (!l) return;
+    const w = l.framebufferWidth || l.textureWidth * 2, h = l.framebufferHeight || l.textureHeight;
+    window.__xrInfo = { framebuffer: [w, h], perEye: [w / 2, h], frameRate: session.frameRate || null, scale: quality === 'high' ? 1.2 : 1.0 };
+    if (DEBUG || S.showFps) toast(`VR 描画 片眼 ${w / 2}×${h}${session.frameRate ? '・' + session.frameRate + 'Hz' : ''}`, 5000);
+  }, 1200);
 }
 function onXREnd() {
   // VR を出たら安全に一時停止し、入力を初期化して HTML のメニューへ
@@ -571,7 +576,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { if 
 addEventListener('blur', () => { if (mode === 'play' && !inXR()) pause(); });
 
 if (DEBUG) {
-  window.__game = () => g; window.__world = world; window.__renderer = renderer;
+  window.__game = () => g; window.__world = world; window.__renderer = renderer; window.__vr = { vrMenu, hands, ctrlObjs };
   addEventListener('keydown', (e) => { if (!g || mode !== 'play') return; if (e.code === 'KeyN') for (const en of g.enemies) en.alive = false; if (e.code === 'KeyI') { g.player.guard = 9999; toast('無敵'); } });
 }
 window.__credit = CREDIT;

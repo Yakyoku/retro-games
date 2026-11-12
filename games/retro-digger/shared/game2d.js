@@ -364,12 +364,13 @@ function updateEnemy(g, e, dt) {
   }
   // walk: セルの中心から中心へ
   const df = distanceField(g);
+  // 経路の有無は毎 tick 数える（セルの中心に着いたときだけ数えると、通り抜けの判断が遅れる）
+  if (df[idx(b, Math.round(e.x), Math.round(e.y))] < 0) e.noPath += dt; else e.noPath = 0;
+  e.ghostIn -= dt;
   const atCenter = Math.abs(e.x - e.tx) < EPS && Math.abs(e.y - e.ty) < EPS;
   if (atCenter) {
     const c = e.tx, r = e.ty;
     const here = df[idx(b, c, r)];
-    if (here < 0) e.noPath += dt; else e.noPath = 0;
-    e.ghostIn -= dt;
     // 通り抜けの判断（追跡型は経路がないとき・ときどき。火炎型は経路がないまま長いときだけ）
     const ghostWanted = e.type === 'chaser' ? (e.noPath > TUNE2D.ghostAfterNoPath || (e.ghostIn <= 0 && here > 6))
       : e.noPath > TUNE2D.ghostAfterNoPath * 2;

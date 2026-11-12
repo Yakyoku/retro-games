@@ -25,7 +25,7 @@ function outline(ctx, S) { ctx.lineWidth = S * 0.035; ctx.strokeStyle = PAL.ink;
 export function drawHero(ctx, x, y, S, st, t) {
   ctx.save();
   orient(ctx, x, y, st.face);
-  ctx.scale(S, S);
+  ctx.scale(S * 1.12, S * 1.12); // 主人公は敵より少し大きく見せる（当たり判定は同じ）
   const u = 1 / S; // 線の太さを S に合わせるため、以下は単位 1 = 1 セル
   if (st.dead) { heroDeath(ctx, st, t); ctx.restore(); return; }
   const ph = st.moving ? st.walk * 9 : 0;

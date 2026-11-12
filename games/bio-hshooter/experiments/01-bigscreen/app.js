@@ -12,6 +12,7 @@ import { BOSS } from '../../shared/bosses.js';
 import { World } from '../../shared/render/world.js';
 import { Input } from '../../shared/input.js';
 import { TouchControls, isTouchDevice } from '../../shared/touch.js';
+import { installNoZoom } from '../../shared/no-zoom.js';
 const TOUCH = isTouchDevice();
 import { GameAudio } from '../../shared/audio/audio.js';
 import { ENDING_TEXT } from '../../shared/story.js';
@@ -62,8 +63,8 @@ function resize() {
   baseDpr = Math.min(window.devicePixelRatio || 1, TOUCH ? 2 : 4); // スマートフォンは描画倍率を 2 までに
   setupComposer();
 }
-addEventListener('resize', resize);
-resize();
+// 画面の大きさが変わったら（iPad のツールバー・回転・分割表示も含めて）盤面を合わせ直す。拡大ジェスチャーは止める
+const layout = installNoZoom(resize); // 最初の 1 回もここで呼ばれる
 
 // ---------------------------------------------------------------- 状態
 const touch = new TouchControls(document.body); // 画面全体に置く（横長のスマホでは盤面の左右の黒帯にボタンが来る）

@@ -1,6 +1,7 @@
 /* VOIDBLOOM 大画面版。盤面は常に 16:9。--u は盤面の高さの 1%（4K でも文字がにじまないよう DOM で描く） */
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #e3edf5; cursor: default;
+/* ページ自体を固定（iPad Safari のスクロール・弾むスクロールで盤面がずれないように） */
+html, body { position: fixed; inset: 0; width: 100%; margin: 0; height: 100%; background: #000; overflow: hidden; color: #e3edf5; cursor: default;
   font-family: ui-monospace, "Cascadia Mono", Consolas, "Hiragino Sans", "Yu Gothic UI", monospace; }
 #stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); --u: 1vh; width: calc(var(--u) * 177.7778); height: calc(var(--u) * 100); background: #000; }
 canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -51,6 +52,7 @@ h2 { font-size: calc(var(--u) * 6); letter-spacing: .4em; margin: 0 0 calc(var(-
 #debug { position: absolute; left: 1%; top: 6%; font-size: calc(var(--u) * 1.4); color: #9f9; background: rgba(0, 0, 0, .6); padding: .5em .8em; white-space: pre; pointer-events: none; }
 
 /* ---------------- スマートフォン（タッチ操作） ---------------- */
+*, html, body { touch-action: none; }
 html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 #touch { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
 #touch[hidden] { display: none; }

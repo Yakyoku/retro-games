@@ -4,6 +4,7 @@
 // 動きはすべて「実時間の指数減衰／ばね」で書き、72・90・120・144Hz のどれでも同じ速さ・同じ滑らかさになるようにする。
 import * as THREE from 'three';
 import { materials, colorOf, U } from './materials.js';
+import { heartbeat } from './atmosphere.js';
 
 const G = {}; // ジオメトリのキャッシュ
 const geo = (key, fn) => G[key] || (G[key] = fn());
@@ -23,6 +24,25 @@ const lx = (p, a) => (p.pox == null ? p.ox : p.pox + (p.ox - p.pox) * a);
 const ly = (p, a) => (p.poy == null ? p.oy : p.poy + (p.oy - p.poy) * a);
 const lang = (e, a) => { if (e.pang == null) return e.ang; const d = Math.atan2(Math.sin(e.ang - e.pang), Math.cos(e.ang - e.pang)); return e.pang + d * a; };
 
+// 不規則な呼吸（周期の違う正弦の和。一定の拍子にならない）-1〜1
+export const breath = (t, seed = 0) => 0.6 * Math.sin(t * 1.9 + seed) + 0.3 * Math.sin(t * 3.1 + seed * 1.7) + 0.1 * Math.sin(t * 7.3 + seed * 2.9);
+// まばたき: 1.5〜5 秒おきに 0.16 秒で閉じて開く。alert（撃つ前・撃った直後）は瞳が開く（大きく）
+function makeBlink(seed = 0) {
+  let t = 0, next = 0.5 + (Math.abs(Math.sin(seed * 12.9898)) * 3), ph = -1;
+  return (dt, alert = 0) => {
+    t += dt;
+    if (ph < 0 && t > next) ph = 0;
+    let lid = 1;
+    if (ph >= 0) { ph += dt; lid = Math.min(1, Math.abs(ph - 0.08) / 0.08); if (ph > 0.16) { ph = -1; t = 0; next = 1.5 + Math.random() * 3.5; } }
+    return { lid: Math.max(0.06, lid), pupil: 1 + 0.35 * alert };
+  };
+}
+function blinkEye(eye, b, base = 1) { eye.scale.set(base * b.pupil, base * b.pupil * b.lid, base * b.pupil); }
+// 2 点をつなぐ膜（円柱を伸ばして向ける）
+const LINK_G = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+function linkMesh(mat) { const m = new THREE.Mesh(LINK_G, mat); return m; }
+function setLink(m, ax, ay, az, bx, by, bz, r) { const dx = bx - ax, dy = by - ay, dz = bz - az, len = Math.hypot(dx, dy, dz) || 1e-4; m.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2); m.scale.set(r, len, r); m.quaternion.setFromUnitVectors(Y_AXIS, new THREE.Vector3(dx / len, dy / len, dz / len)); }
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 // 目が自機を見る: 元の位置から look 方向へ最大 r だけずらす（減衰で追う）
 function lookAt(eye, base, ctx, r, flip = false, dt = 1 / 60) {
   const lx2 = ctx.lookX ?? -1, ly2 = (ctx.lookY ?? 0) * (flip ? -1 : 1), d = Math.hypot(lx2, ly2) || 1;
@@ -194,7 +214,9 @@ B.drifter = () => {
   const collar = mesh(geo('dr-c', () => new THREE.TorusGeometry(0.33, 0.045, 6, 20)), M.bone); collar.rotation.y = Math.PI / 2; collar.position.x = 0.12; g.add(collar);
   const sp = spikeRing(5, 0.3, 0.42, 0.06, M.bone, 'x'); sp.position.x = 0.38; sp.rotation.z = -Math.PI / 2; g.add(sp);
   const eye = mesh(geo('dr-e', () => new THREE.SphereGeometry(0.12, 12, 8)), M.gEye); eye.position.x = -0.42; g.add(eye);
-  return { face: true, organic: true, obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { const v = Math.hypot(ctx.vx || 0, ctx.vy || 0); b.rotation.x = t * 3 + e.i; collar.rotation.x = t * 3 + e.i; sp.rotation.x = Math.sin(t * (5 + v * 0.8) + e.i) * (0.2 + v * 0.03); sp.scale.setScalar(1 - Math.min(0.25, v * 0.02)); } };
+  const blink = makeBlink(Math.random() * 9);
+  return { face: true, organic: true, chains: [{ ax: 0.42, ay: 0.12, n: 5, seg: 0.2, r: 0.05, mat: 'teal' }, { ax: 0.42, ay: -0.12, n: 5, seg: 0.2, r: 0.05, mat: 'teal' }],
+    obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { const v = Math.hypot(ctx.vx || 0, ctx.vy || 0); blinkEye(eye, blink(dt, ctx.recoil || 0)); const br = 1 + breath(t, e.id) * 0.04; b.scale.set(br, 2 - br, br); b.rotation.x = t * 3 + e.i; collar.rotation.x = t * 3 + e.i; sp.rotation.x = Math.sin(t * (5 + v * 0.8) + e.i) * (0.2 + v * 0.03); sp.scale.setScalar(1 - Math.min(0.25, v * 0.02)); } };
 };
 B.hookjaw = () => {
   const M = materials(), g = new THREE.Group();
@@ -203,7 +225,8 @@ B.hookjaw = () => {
   const jawG = geo('hj-j', () => { const c = new THREE.ConeGeometry(0.07, 0.42, 6); c.rotateZ(Math.PI / 2); return c; });
   const j1 = mesh(jawG, M.bone), j2 = mesh(jawG, M.bone); j1.position.set(-0.45, 0.1, 0); j2.position.set(-0.45, -0.1, 0); g.add(j1, j2);
   const eye = mesh(geo('hj-e', () => new THREE.SphereGeometry(0.07, 8, 6)), M.gEye); eye.position.set(-0.3, 0.12, 0.15); g.add(eye);
-  return { face: true, organic: true, obj: g, anim(e, t) { const bite = e.turn ? 0.45 + Math.sin(t * 22) * 0.25 : 0.2 + Math.sin(t * 9) * 0.08; j1.rotation.z = bite; j2.rotation.z = -bite; } };
+  const blink = makeBlink(Math.random() * 9); let gape = 0.2;
+  return { face: true, organic: true, obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { const d = Math.hypot(ctx.lookX ?? 9, ctx.lookY ?? 0); gape = damp(gape, e.turn ? 0.35 + Math.max(0, 1 - d / 7) * 0.6 : 0.2, 8, dt); const bite = gape + Math.sin(t * (e.turn ? 22 : 9)) * (e.turn ? 0.2 : 0.06); j1.rotation.z = bite; j2.rotation.z = -bite; blinkEye(eye, blink(dt, e.turn ? 1 : 0)); } };
 };
 B.lantern = (e) => {
   const M = materials(), g = new THREE.Group();
@@ -213,7 +236,9 @@ B.lantern = (e) => {
   const rings = [0, 1, 2].map((k) => { const r = mesh(ringG, M.bone); r.rotation.y = k * Math.PI / 3; g.add(r); return r; });
   const cap = mesh(geo('ln-cap', () => new THREE.ConeGeometry(0.3, 0.3, 10)), M.gunmetal); cap.position.y = 0.62; g.add(cap);
   const cap2 = cap.clone(); cap2.rotation.z = Math.PI; cap2.position.y = -0.62; g.add(cap2);
-  return { obj: g, anim(e2, t) { core.rotation.y = t * 3; core.rotation.x = t * 2; g.rotation.y = t * 0.8; for (const r of rings) r.rotation.x = Math.sin(t) * 0.2; } };
+  const c0 = coreM.color.clone();
+  return { chains: [-0.25, 0, 0.25].map((ax) => ({ ax, ay: -0.62, n: 6, seg: 0.22, r: 0.045, mat: 'bone', bx: 0, by: -5 })),
+    obj: g, anim(e2, t) { core.rotation.y = t * 3; core.rotation.x = t * 2; g.rotation.y = t * 0.8; for (const r of rings) r.rotation.x = Math.sin(t) * 0.2; const fl = 0.85 + 0.15 * Math.sin(t * 9.1) * Math.sin(t * 3.7 + 1); coreM.color.copy(c0).multiplyScalar(fl); } };
 };
 B.nodule = () => {
   const M = materials(), g = new THREE.Group();
@@ -222,40 +247,63 @@ B.nodule = () => {
   const barrel = new THREE.Group(); barrel.position.y = -0.05; g.add(barrel);
   barrel.add(mesh(geo('nd-bar', () => { const c = new THREE.CylinderGeometry(0.08, 0.11, 0.7, 10); c.rotateZ(Math.PI / 2); c.translate(0.35, 0, 0); return c; }), M.gunmetal));
   const eye = mesh(geo('nd-e', () => new THREE.SphereGeometry(0.13, 12, 8)), M.gEye); eye.position.y = 0.12; g.add(eye);
-  let ang = null; const eyeBase = eye.position.clone();
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { g.rotation.z = e.flip ? Math.PI : 0; const target = lang(e, a); ang = ang == null ? target : dampAngle(ang, target, 14, dt); barrel.rotation.z = e.flip ? ang + Math.PI : ang;
-    const tell = e.cd < 24 ? 1 - e.cd / 24 : 0; eye.scale.setScalar(1 + Math.sin(t * 6) * 0.08 + tell * 0.6 + Math.sin(t * 40) * 0.1 * tell); lookAt(eye, eyeBase, ctx, 0.08, e.flip, dt); } };
+  let ang = null; const eyeBase = eye.position.clone(); const blink = makeBlink(Math.random() * 9);
+  return { chains: [{ ax: -0.3, ay: 0.15, n: 4, seg: 0.2, r: 0.035, mat: 'flesh', bx: 0, by: 3 }, { ax: 0.3, ay: 0.15, n: 4, seg: 0.2, r: 0.035, mat: 'flesh', bx: 0, by: 3 }], obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { g.rotation.z = e.flip ? Math.PI : 0; const target = lang(e, a); ang = ang == null ? target : dampAngle(ang, target, 14, dt); barrel.rotation.z = e.flip ? ang + Math.PI : ang;
+    const tell = e.cd < 24 ? 1 - e.cd / 24 : 0; blinkEye(eye, blink(dt, tell), 1 + Math.sin(t * 6) * 0.05 + tell * 0.45 + Math.sin(t * 40) * 0.08 * tell); lookAt(eye, eyeBase, ctx, 0.08, e.flip, dt); } };
 };
 B.stilter = () => {
   const M = materials(), g = new THREE.Group();
   const body = mesh(geo('st-b', () => blob(0.5, 2, 0.1, 6.1, 1.3, 0.7, 0.9)), M.gunmetal); body.position.y = 0.15; g.add(body);
   const eye = mesh(geo('st-e', () => new THREE.SphereGeometry(0.12, 12, 8)), M.gEye); eye.position.set(-0.45, 0.25, 0); g.add(eye);
-  const legG = geo('st-l', () => { const c = new THREE.CylinderGeometry(0.04, 0.06, 0.9, 8); c.translate(0, -0.45, 0); return c; });
-  const legs = [-0.4, 0, 0.4].map((x, k) => { const l = mesh(legG, M.steel); l.position.set(x, 0, k === 1 ? 0.3 : -0.2); g.add(l); return l; });
-  // 歩く速さに合わせて脚を回す（描画上の横速度から歩調を作る）
-  let phase = 0, sq = { x: 1, v: 0 }; const eyeBase = eye.position.clone();
+  const segG = geo('st-seg', () => { const c = new THREE.CylinderGeometry(1, 0.8, 1, 8); return c; });
+  const joints = geo('st-j', () => new THREE.SphereGeometry(0.07, 8, 6));
+  const A = 0.5, Bn = 0.55, FLOOR = -0.88;   // 腿・すねの長さ、足の高さ（ローカル）
+  const legs = [-0.38, 0, 0.38].map((hx, k) => {
+    const thigh = mesh(segG, M.steel), shin = mesh(segG, M.steel), knee = mesh(joints, M.darkSteel);
+    const z = k === 1 ? 0.28 : -0.2; g.add(thigh, shin, knee);
+    return { hx, z, thigh, shin, knee, rest: hx * 1.7, fw: null, lift: 0, from: 0, to: 0, t: 1 };
+  });
+  let sq = { x: 1, v: 0 }; const eyeBase = eye.position.clone(); const blink = makeBlink(Math.random() * 9);
   return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) {
     g.rotation.z = e.flip ? Math.PI : 0;
-    const walk = Math.abs(e.wv ?? 1.6);
-    phase += dt * walk * 4.2;   // 歩幅に合った歩調（滑って見えない）
+    const sgn = e.flip ? -1 : 1, bx = ctx.x ?? 0;
     const crouch = e.crouch > 0 ? 1 - e.crouch / 12 : 0, land = e.land > 0 ? e.land / 12 : 0;
-    // しゃがみ→跳ぶ→着地でつぶれる（ばねで弾む）
-    const target = 1 - crouch * 0.35 - land * 0.3 + (e.air ? 0.12 : 0);
-    const k = spring(sq, target, 22, dt, 0.45);
+    const k = spring(sq, 1 - crouch * 0.35 - land * 0.3 + (e.air ? 0.12 : 0), 22, dt, 0.45);
     body.scale.set(1 + (1 - k) * 0.5, k, 1 + (1 - k) * 0.3);
-    body.position.y = 0.15 - (1 - k) * 0.35 + (walk > 0.2 ? Math.abs(Math.sin(phase)) * 0.06 : 0);
-    legs.forEach((l, i) => { l.rotation.z = e.air ? (i - 1) * 0.5 : Math.sin(phase + i * 2) * 0.45 * Math.min(1, walk / 1.2) + (1 - k) * (i - 1) * 0.8; });
-    lookAt(eye, eyeBase, ctx, 0.06, e.flip, dt);
+    const hy = 0.12 - (1 - k) * 0.35;
+    body.position.y = hy + 0.05;
+    const walkDir = Math.sign(e.wv || 0) * sgn;
+    legs.forEach((L, i) => {
+      // 足の位置は盤面座標で覚えておく（体が動いても足は地面に残る）
+      if (L.fw == null) L.fw = bx + L.rest * sgn;
+      let fx = (L.fw - bx) * sgn, fy = FLOOR;
+      if (e.air) { L.fw = bx + (L.rest * 0.6) * sgn; fx = L.rest * 0.6; fy = FLOOR + 0.35; L.t = 1; }
+      else {
+        // 離れすぎたら踏み出す（隣の脚と同時には上げない）
+        const busy = legs.some((o) => o !== L && o.t < 1);
+        if (L.t >= 1 && !busy && Math.abs(fx - L.rest) > 0.3) { L.from = L.fw; L.to = bx + (L.rest + walkDir * 0.22) * sgn; L.t = 0; }
+        if (L.t < 1) { L.t = Math.min(1, L.t + dt / 0.13); const u = L.t * L.t * (3 - 2 * L.t); L.fw = L.from + (L.to - L.from) * u; fx = (L.fw - bx) * sgn; fy = FLOOR + Math.sin(L.t * Math.PI) * 0.22; }
+      }
+      // 2 関節の逆運動学（膝は上へ曲がる）
+      const dx = fx - L.hx, dy = fy - hy; let d = Math.hypot(dx, dy); d = Math.min(d, A + Bn - 0.01);
+      const th = Math.atan2(dy, dx), cosA = (A * A + d * d - Bn * Bn) / (2 * A * d), phi = Math.acos(Math.max(-1, Math.min(1, cosA)));
+      const bend = L.hx < 0 ? -1 : 1, ta = th + phi * bend;   // 膝は上・外側へ
+      const kx = L.hx + Math.cos(ta) * A, ky = hy + Math.sin(ta) * A;
+      setLink(L.thigh, L.hx, hy, L.z, kx, ky, L.z, 0.05);
+      setLink(L.shin, kx, ky, L.z, fx, fy, L.z, 0.04);
+      L.knee.position.set(kx, ky, L.z);
+    });
+    blinkEye(eye, blink(dt, crouch)); lookAt(eye, eyeBase, ctx, 0.06, e.flip, dt);
   } };
 };
 B.puff = () => {
   const M = materials(), g = new THREE.Group();
   const b = mesh(geo('pf-b', () => blob(0.85, 3, 0.14, 8.8)), M.fleshTeal); g.add(b);
   const pores = spikeRing(8, 0.82, 0.18, 0.09, M.gBio); g.add(pores);
-  return { obj: g, anim(e, t) { const k = 1 + Math.sin(t * 4 + e.id) * 0.06; b.scale.set(k, 2 - k, k); g.rotation.z = t * 0.4; } };
+  return { organic: true, obj: g, anim(e, t) { const k = 1 + breath(t * 1.6, e.id) * 0.07; b.scale.set(k, 2 - k, k); g.rotation.z = t * 0.4; pores.scale.setScalar(1 + breath(t * 2.3, e.id + 3) * 0.12); } };
 };
 B.spore = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('sp-b', () => blob(0.26, 2, 0.2, 2.2, 1.3, 0.85, 0.85)), M.fleshTeal); g.add(b); const c = mesh(geo('sp-c', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gBio); c.position.x = -0.18; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { b.rotation.x = t * 6; } }; };
-B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { const w = e.windup || 0; b.rotation.x = t * (8 + w * 30); b.position.y = Math.sin(t * 90) * 0.04 * w; c.scale.setScalar(1 + w * 1.2); } }; };
+B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); const wm = new THREE.MeshBasicMaterial({ color: 0x9dffd0, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }); const wingG = geo('nt-w', () => { const x = new THREE.PlaneGeometry(0.42, 0.16); x.translate(0.06, 0, 0.1); x.rotateX(Math.PI / 2); return x; }); const wings = [1, -1].map((sg) => { const w = mesh(wingG, wm); w.scale.z = sg; w.position.y = 0.08; g.add(w); return w; }); return { face: true, organic: true, obj: g, anim(e, t) { const fl = Math.sin(t * 70) * 0.9; wings[0].rotation.x = fl; wings[1].rotation.x = -fl; const w = e.windup || 0; b.rotation.x = t * (8 + w * 30); b.position.y = Math.sin(t * 90) * 0.04 * w; c.scale.setScalar(1 + w * 1.2); } }; };
 B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b', () => { const x = new THREE.ConeGeometry(0.16, 0.7, 8); x.rotateZ(Math.PI / 2); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
 B.coilworm = (e) => {
   const M = materials(), g = new THREE.Group();
@@ -265,7 +313,8 @@ B.coilworm = (e) => {
   const eye = mesh(geo('cw-e', () => new THREE.SphereGeometry(0.16, 12, 8)), M.gEye); eye.position.set(-0.55, 0.25, 0.3); head.add(eye);
   const eye2 = eye.clone(); eye2.position.z = -0.3; head.add(eye2);
   const segG = geo('cw-s', () => blob(0.58, 2, 0.08, 1.1)), bandG = geo('cw-band', () => new THREE.TorusGeometry(0.5, 0.08, 8, 24));
-  const segs = [];
+  const segs = [], links = [];
+  for (let k = 1; k < e.parts.length; k++) { const l = linkMesh(M.flesh); g.add(l); links.push(l); }
   for (let k = 1; k < e.parts.length; k++) {
     const s = new THREE.Group(); s.add(mesh(segG, M.fleshTeal)); const band = mesh(bandG, M.steel); band.rotation.y = Math.PI / 2; s.add(band);
     s.scale.setScalar(e.parts[k].r / 0.6); g.add(s); segs.push(s);
@@ -279,6 +328,7 @@ B.coilworm = (e) => {
         s.position.set(x, y, 0);
         s.rotation.set(t * 2 + k, 0, Math.atan2(ly(q, a) - y, lx(q, a) - x));
         const pulse = 1 + 0.07 * Math.sin(t * 7 - k * 0.8); s.scale.setScalar((e2.parts[k].r / 0.6) * pulse);
+        setLink(links[k - 1], x, y, 0, lx(q, a), ly(q, a), 0, e2.parts[k].r * 0.55);
       }
       { const x1 = lx(e2.parts[1], a), y1 = ly(e2.parts[1], a); if (x1 * x1 + y1 * y1 > 1e-4) head.rotation.z = Math.atan2(-y1, -x1) - Math.PI; }
       jaw.rotation.x = Math.sin(t * 6) * 0.4;
@@ -296,7 +346,7 @@ B.hatcher = () => {
     if (e.cd > lastCd) contract = 1; lastCd = e.cd;           // 産んだ瞬間に袋が縮む
     contract = damp(contract, 0, 5, dt);
     const swell = e.cd < 18 ? 1 - e.cd / 18 : 0;              // 産む前に口がふくらむ
-    const k = 1 + Math.sin(t * 3) * 0.04 + swell * 0.08 - contract * 0.12;
+    const k = 1 + breath(t * 1.4, 7) * 0.05 + swell * 0.08 - contract * 0.12 + (swell > 0.6 ? Math.sin(t * 47) * 0.025 : 0);
     sac.scale.set(k, 2 - k, k);
     mouth.scale.setScalar(0.6 + swell * 0.7 + Math.sin(t * 6) * 0.08);
     lips.scale.setScalar(1 + swell * 0.35);
@@ -317,8 +367,8 @@ B.bulwark = () => {
   const seamM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff3048).multiplyScalar(2.4), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const seam = mesh(geo('bw-seam', () => new THREE.TorusGeometry(1.0, 0.05, 6, 40)), seamM); seam.rotation.x = Math.PI / 2; g.add(seam);
   const spikes = spikeRing(10, 1.08, 0.3, 0.07, M.darkSteel); g.add(spikes);
-  let open = 0;
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) { open = damp(open, e.open, 18, dt); const o = open * 0.85; halves[0].rotation.z = o; halves[1].rotation.z = -o; core.rotation.y = t * 2; core.scale.setScalar(0.8 + open * 0.4); seamM.opacity = Math.min(1, 0.25 + open * 1.5); const c = e.t % 170, tr = c > 96 && c < 112 ? 1 : 0; spikes.rotation.z = t * 0.3 + Math.sin(t * 60) * 0.04 * tr; spikes.scale.setScalar(1 + tr * 0.08); } };
+  let open = 0, wasOpen = 0;
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) { const step = Math.round(e.open * 5) / 5; open = damp(open, step, 26, dt); const o = open * 0.85; if (e.open > 0.12 && wasOpen <= 0.12 && ctx.emit) { ctx.emit('steam', -0.9, 0.2); ctx.emit('steam', -0.9, -0.2); } wasOpen = e.open; halves[0].rotation.z = o; halves[1].rotation.z = -o; core.rotation.y = t * 2; core.scale.setScalar(0.8 + open * 0.4); seamM.opacity = Math.min(1, 0.25 + open * 1.5); const c = e.t % 170, tr = c > 96 && c < 112 ? 1 : 0; spikes.rotation.z = t * 0.3 + Math.sin(t * 60) * 0.04 * tr; spikes.scale.setScalar(1 + tr * 0.08); } };
 };
 // シスル: 金属の芯から針。針の付け根だけが琥珀に光る（以前の黄一色の芯は強すぎた）
 B.thistle = () => {
@@ -329,7 +379,7 @@ B.thistle = () => {
   g.add(spikeRing(8, 0.34, 0.5, 0.05, M.steel, 'x'));
   const tipG = geo('th-t', () => new THREE.SphereGeometry(0.045, 6, 4));
   for (let k = 0; k < 8; k++) { const a2 = k / 8 * Math.PI * 2; const m = mesh(tipG, M.gAmber); m.position.set(Math.cos(a2) * 0.3, Math.sin(a2) * 0.3, 0); g.add(m); }
-  return { obj: g, anim(e, t) { const arm = e.arm ? 1 - e.arm / 24 : 0; g.rotation.z = t * (1.5 + arm * 10); g.rotation.y = t; glowC.scale.setScalar(0.85 + 0.25 * Math.max(0, Math.sin(t * 8)) + arm * (1.2 + Math.sin(t * 50) * 0.4)); g.scale.setScalar(1 + arm * 0.35); } };
+  const spk = g.children.filter((c) => c.isGroup); return { obj: g, anim(e, t) { const arm = e.arm ? 1 - e.arm / 24 : 0; for (const q of spk) q.scale.setScalar(0.85 + 0.15 * breath(t * 1.3, e.id) + arm * 0.5); g.rotation.z = t * (1.5 + arm * 10); g.rotation.y = t; glowC.scale.setScalar(0.85 + 0.25 * Math.max(0, Math.sin(t * 8)) + arm * (1.2 + Math.sin(t * 50) * 0.4)); g.scale.setScalar(1 + arm * 0.35); } };
 };
 B.skimmer = () => {
   const M = materials(), g = new THREE.Group();
@@ -347,13 +397,17 @@ B.cannon = () => {
   const bg = geo('cn-bar', () => { const c = new THREE.CylinderGeometry(0.09, 0.12, 1.1, 10); c.rotateZ(Math.PI / 2); c.translate(0.55, 0, 0); return c; });
   const barrels = [0.16, -0.16].map((z) => { const b = mesh(bg, M.steel); b.position.z = z; bar.add(b); return b; });
   const lamp = mesh(geo('cn-l', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); lamp.position.set(0, 0.25, 0.4); g.add(lamp);
-  let ang = null, recoil = 0, lastBurst = 0;
-  return { obj: g, anim(e, t, a = 1, dt = 1 / 60) {
+  const heatM = new THREE.MeshBasicMaterial({ color: 0xff6a20, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const heats = barrels.map((b) => { const h = mesh(geo('cn-h', () => new THREE.SphereGeometry(0.13, 10, 8)), heatM); h.position.x = 1.08; b.add(h); return h; });
+  let ang = null, recoil = 0, lastBurst = 0, heat = 0, smokeT = 0;
+  return { obj: g, anim(e, t, a = 1, dt = 1 / 60, ctx = {}) {
     g.rotation.z = e.flip ? Math.PI : 0;
     const target = lang(e, a); ang = ang == null ? target : dampAngle(ang, target, 16, dt);
     bar.rotation.z = e.flip ? ang + Math.PI : ang;
     // 撃つたびに砲身が後ろへ下がって戻る
-    if (e.burst !== lastBurst && e.burst < lastBurst) recoil = 1; lastBurst = e.burst;
+    if (e.burst !== lastBurst && e.burst < lastBurst) { recoil = 1; heat = Math.min(1.2, heat + 0.45); } lastBurst = e.burst;
+    heat = Math.max(0, heat - dt * 0.6); heatM.opacity = Math.min(1, heat) * (0.7 + 0.3 * Math.sin(t * 30));
+    smokeT -= dt; if (heat > 0.25 && smokeT <= 0 && ctx.emit) { smokeT = 0.12; const fx = Math.cos(bar.rotation.z) * 1.1, fy = 0.05 + Math.sin(bar.rotation.z) * 1.1; ctx.emit('smoke', e.flip ? -fx : fx, e.flip ? -fy : fy); }
     recoil = damp(recoil, 0, 9, dt); for (const b of barrels) b.position.x = -0.18 * recoil;
     lamp.visible = e.cd < 30 || Math.floor(t * 3) % 2 === 0; lamp.scale.setScalar(e.cd < 30 ? 1.6 + Math.sin(t * 40) * 0.3 : 1);
   } };
@@ -394,7 +448,7 @@ B.ossuary = (e) => {
   const eyes = [];
   for (let k = 0; k < 6; k++) { const m = mesh(geo('os-eye', () => new THREE.SphereGeometry(0.16, 12, 8)), M.gEye); m.position.set(1.3 + (k % 3) * 0.7, (k < 3 ? 1 : -1) * (1.6 + (k % 3) * 0.2), 1.6); m.userData.bx = m.position.x; m.userData.by = m.position.y; g.add(m); eyes.push(m); }
   const flash = flashShell(1.1); g.add(flash);
-  let glow = 0.9;
+  let glow = 0.9; const plag = e.petals.map(() => ({ x: 0, v: 0 })); const blinks = eyes.map((m, k) => makeBlink(k * 3.7 + 1));
   return {
     obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) {
       const br = 1 + 0.025 * Math.sin(t * 1.7), out = 1 + (ctx.dying || 0) * 0.35; // 呼吸と、撃破時に部位が外へずれる
@@ -404,12 +458,14 @@ B.ossuary = (e) => {
       core.position.set(lx(b.parts[0], a), ly(b.parts[0], a), 0.4);
       glow = damp(glow, b.parts[0].active ? 2.8 + Math.sin(t * 18) * 0.8 : 0.9, 10, dt);
       coreM.color.setRGB(1.0 * glow, 0.31 * glow, 0.7 * glow);
-      core.scale.setScalar(0.75 + b.open * 0.35);
+      core.scale.setScalar((0.75 + b.open * 0.35) * (1 + heartbeat(t, 66) * 0.12));
       // 斉射の直前（閉じているときの 46 tick 周期の 8〜20 tick）は花弁が震える
       const c = b.t % 330, cc = c % 46, tell = c < 170 && cc >= 8 && cc < 20 ? 1 : 0;
-      b.petals.forEach((p, k) => { const m = petals[k], x = lx(p, a) * out, y = ly(p, a) * out, tr = tell * Math.sin(t * 55 + k) * 0.08; m.position.set(x + tr, y, 0.6); m.rotation.z = Math.atan2(y, x - 0.3) - Math.PI / 2 + tr; });
+      b.petals.forEach((p, k) => { const m = petals[k], x = lx(p, a) * out, y = ly(p, a) * out, tr = tell * Math.sin(t * 55 + k) * 0.08; m.position.set(x + tr, y, 0.6);
+        const want = Math.atan2(y, x - 0.3) - Math.PI / 2; if (plag[k].init == null) { plag[k].x = want; plag[k].init = 1; } const r2 = spring(plag[k], want, 9, dt, 0.5); m.rotation.z = r2 + tr; m.scale.set(1, 1 + (want - r2) * 0.4, 1); });
       b.tail.forEach((p, k) => { tail[k].position.set(lx(p, a), ly(p, a), 0); tail[k].rotation.z = t + k; });
-      for (const m of eyes) { m.scale.setScalar(0.8 + 0.3 * Math.sin(t * 4 + m.userData.bx)); const lxx = ctx.lookX ?? -1, lyy = ctx.lookY ?? 0, d = Math.hypot(lxx, lyy) || 1; m.position.x = damp(m.position.x, m.userData.bx + lxx / d * 0.08, 8, dt); m.position.y = damp(m.position.y, m.userData.by + lyy / d * 0.08, 8, dt); }
+      eyes.forEach((m, k) => { const bl = blinks[k](dt, tell); const base = 0.8 + 0.3 * Math.sin(t * 4 + m.userData.bx); m.scale.set(base * bl.pupil, base * bl.pupil * bl.lid, base * bl.pupil); });
+      for (const m of eyes) { const lxx = ctx.lookX ?? -1, lyy = ctx.lookY ?? 0, d = Math.hypot(lxx, lyy) || 1; m.position.x = damp(m.position.x, m.userData.bx + lxx / d * 0.08, 8, dt); m.position.y = damp(m.position.y, m.userData.by + lyy / d * 0.08, 8, dt); }
       flash.position.copy(core.position); flash.userData.set(ctx.hit || 0);
     },
   };
@@ -437,7 +493,9 @@ B.vesper = (e) => {
   return {
     obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) {
       dir = dampAngle(dir, b.dir ?? Math.PI, 10, dt);
-      head.rotation.z = dir - Math.PI;
+      const aimA = Math.atan2(ctx.lookY ?? 0, ctx.lookX ?? -1); let hz = dir - Math.PI;
+      if (b.mouth > 0.25) hz += Math.atan2(Math.sin(aimA - dir), Math.cos(aimA - dir)) * Math.min(1, (b.mouth - 0.25) * 2) * 0.6;
+      head.rotation.z = dampAngle(head.rotation.z, hz, 10, dt);
       const c = b.t % 240, shiver = c > 132 && c < 150 ? Math.sin(t * 70) * 0.06 : 0;
       mouth = damp(mouth, b.mouth, 14, dt); jt.rotation.z = mouth * 0.5 + shiver; jb.rotation.z = -mouth * 0.5 - shiver;
       head.position.y = Math.sin(t * 2.1) * 0.08;
@@ -476,7 +534,9 @@ B.keelheart = (e) => {
       muz.position.y = (b.beamY != null && w > 0) ? damp(muz.position.y, b.beamY - b.y, 12, dt) : damp(muz.position.y, 0, 4, dt);
       const pulse = 2.2 + Math.sin(t * 7) * 0.5 + (ctx.hit || 0) * 1.5;
       coreM.color.setRGB(pulse, 0.65 * pulse, 0.25 * pulse);
-      rings.forEach((r, k) => { r.rotation.x = t * (0.6 + k * 0.3); r.rotation.y = t * (0.4 - k * 0.25); });
+      const hp = b.hp / b.maxHp, guns = (b.guns || []).filter((q) => !q.dead).length;
+      rings.forEach((r, k) => { const want = (0.6 + k * 0.3) * (1 + (1 - hp) * 1.5) * (guns ? 1.3 : 0.8); r.userData.w = damp(r.userData.w ?? want, want, 0.8, dt); r.rotation.x += r.userData.w * dt; r.rotation.y += r.userData.w * (0.65 - k * 0.4) * dt; });
+      if (ctx.emit) { if ((b.t % 180) < 2) { for (const sx of [-2.8, 2.8]) ctx.emit('steam', sx * 0.7, sx); } if (ctx.blocked && Math.random() < 0.6) ctx.emit('spark', -1.6 + Math.random() * 0.4, (Math.random() - 0.5) * 3); }
       for (const { m, p } of plates) {
         const x = lx(p, a), y = ly(p, a), ang = Math.atan2(y, x);
         if (m.userData.arc) { m.position.set(0, 0, 0.2); m.rotation.set(0, 0, ang + Math.PI / 2); }
@@ -490,7 +550,7 @@ B.heart = (e) => {
   const M = materials(), g = new THREE.Group();
   const coreM = new THREE.ShaderMaterial({
     uniforms: { uTime: U.time, uOpen: { value: 0 }, uFlash: { value: 0 } }, toneMapped: false,
-    vertexShader: 'varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix*normal); vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    vertexShader: 'uniform float uTime; uniform float uOpen; varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix*normal); vP = position; vec3 p = position + normal * (sin(position.y * 5.0 + uTime * 3.1) * sin(position.x * 4.0 - uTime * 2.3) * 0.06 * (0.6 + uOpen)); gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.); }',
     fragmentShader: 'uniform float uTime; uniform float uOpen; uniform float uFlash; varying vec3 vN; varying vec3 vP; void main(){ float f = pow(1.-abs(vN.z), 2.); float b = 0.5+0.5*sin(vP.x*6.+uTime*3.)*sin(vP.y*5.-uTime*2.); vec3 c = mix(vec3(0.5,0.2,1.2), vec3(1.8,0.9,2.4), b) * (0.6+uOpen*1.6) + f*vec3(0.4,1.2,1.0) + uFlash; gl_FragColor = vec4(c,1.); }',
   });
   const core = mesh(geo('hr-c', () => new THREE.IcosahedronGeometry(1.35, 4)), coreM); g.add(core);
@@ -516,7 +576,7 @@ B.heart = (e) => {
         P.gone = p.gone ? Math.min(1, P.gone + dt * 3) : 0;
         m.visible = P.gone < 1;
         const x = lx(p, a), y = ly(p, a), out = (1 + P.gone * 0.8) * (1 + 0.05 * Math.sin(t * 2.2 - k * 0.9)) * (1 + (ctx.dying || 0) * 0.4);
-        m.position.set(x * out, y * out, 0); m.rotation.z = Math.atan2(y, x) + P.gone * 6; m.scale.setScalar(1 - P.gone);
+        m.position.set(x * out, y * out, 0); m.rotation.z = Math.atan2(y, x) + P.gone * 6 + Math.sin(t * 2.6 + k) * 0.08; const fx = 1 + Math.sin(t * 3.1 - k * 0.7) * 0.07; m.scale.set((1 - P.gone) * fx, (1 - P.gone) / fx, 1 - P.gone);
         m.material.emissive.setRGB(0.14 + P.hit * 0.86, 0.04 + P.hit * 0.96, 0.25 + P.hit * 0.75);
       });
       halo.rotation.z = -t * 0.2; halo.scale.setScalar(1 + Math.sin(t * 2) * 0.03);
@@ -532,5 +592,5 @@ export function buildEnemy(e) {
   const holder = new THREE.Group(); holder.add(r.obj);
   let flash = null;
   if (!e.boss) { flash = flashShell(e.r * 1.05); holder.add(flash); }
-  return { obj: holder, inner: r.obj, anim: r.anim, face: !!r.face, organic: !!r.organic, flash, boss: !!e.boss };
+  return { obj: holder, inner: r.obj, anim: r.anim, face: !!r.face, organic: !!r.organic, chains: r.chains || null, flash, boss: !!e.boss };
 }

@@ -3,6 +3,7 @@
 //   t: 経過秒、a: 補間（0〜1。前 tick と今 tick の間）、dt: 前フレームからの実時間、ctx: { vx, vy（描画上の速度 u/s）, hit（被弾の光 0〜1） }
 // 動きはすべて「実時間の指数減衰／ばね」で書き、72・90・120・144Hz のどれでも同じ速さ・同じ滑らかさになるようにする。
 import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { materials, colorOf, U } from './materials.js';
 import { heartbeat } from './atmosphere.js';
 
@@ -49,9 +50,33 @@ function lookAt(eye, base, ctx, r, flip = false, dt = 1 / 60) {
   eye.position.x = damp(eye.position.x, base.x + lx2 / d * r, 10, dt);
   eye.position.y = damp(eye.position.y, base.y + ly2 / d * r, 10, dt);
 }
+// 節の位置を通るなめらかな 1 本の胴（Catmull-Rom 曲線に沿って輪を並べ、毎フレーム頂点だけ書き換える）
+class SplineBody {
+  constructor(rings, radial, mat) {
+    this.R = rings; this.N = radial;
+    const pos = new Float32Array(rings * (radial + 1) * 3), idx = [];
+    for (let i = 0; i < rings - 1; i++) for (let j = 0; j < radial; j++) { const a = i * (radial + 1) + j, b = a + radial + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    this.geo = new THREE.BufferGeometry(); this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); this.geo.setIndex(idx);
+    this.mesh = new THREE.Mesh(this.geo, mat); this.mesh.frustumCulled = false;
+    this.v = new THREE.Vector3(); this.tg = new THREE.Vector3();
+  }
+  update(pts) {
+    const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, p.z || 0)), false, 'centripetal');
+    const pos = this.geo.attributes.position.array, R = this.R, N = this.N;
+    for (let i = 0; i < R; i++) {
+      const t = i / (R - 1), c = curve.getPointAt(t, this.v), tg = curve.getTangentAt(t, this.tg);
+      const fi = t * (pts.length - 1), i0 = Math.floor(fi), i1 = Math.min(pts.length - 1, i0 + 1), r = pts[i0].r + (pts[i1].r - pts[i0].r) * (fi - i0);
+      const nx = -tg.y, ny = tg.x, nl = Math.hypot(nx, ny) || 1;
+      for (let j = 0; j <= N; j++) { const a = (j / N) * Math.PI * 2, ca = Math.cos(a) * r, sa = Math.sin(a) * r, k = (i * (N + 1) + j) * 3; pos[k] = c.x + nx / nl * ca; pos[k + 1] = c.y + ny / nl * ca; pos[k + 2] = c.z + sa; }
+    }
+    this.geo.attributes.position.needsUpdate = true; this.geo.computeVertexNormals();
+  }
+}
 // 有機的な塊: 二十面体をゆがめる
 function blob(r, detail, amp, seed, sx = 1, sy = 1, sz = 1) {
-  const g = new THREE.IcosahedronGeometry(r, detail);
+  // 二十面体は面ごとに頂点が分かれていて角ばって見える → 頂点を共有させ（mergeVertices）、一段細かくして、なめらかな曲面にする
+  let g = new THREE.IcosahedronGeometry(r, Math.min(5, detail + 1));
+  g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -61,6 +86,27 @@ function blob(r, detail, amp, seed, sx = 1, sy = 1, sz = 1) {
   g.computeVertexNormals();
   return g;
 }
+// なめらかな輪郭: 点を通る曲線（Catmull-Rom）で回転体の断面を作る
+function spline2(pts, n = 40) { const c = new THREE.SplineCurve(pts.map(([x, y]) => new THREE.Vector2(x, y))); return c.getPoints(n).map((v) => [v.x, Math.max(0, v.y)]); }
+// 先細りの管（曲線に沿って、太さを taper(t) で変える）
+function taperTube(curve, segs, radial, r, taper) {
+  const g = new THREE.TubeGeometry(curve, segs, r, radial, false), pos = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) { const t = Math.floor(i / (radial + 1)) / segs; const c = curve.getPointAt(Math.min(1, t)); v.fromBufferAttribute(pos, i).sub(c).multiplyScalar(Math.max(0.02, taper(t))).add(c); pos.setXYZ(i, v.x, v.y, v.z); }
+  g.computeVertexNormals(); return g;
+}
+// 曲がった角（円錐の代わり。+y 向き・中心が原点・少し反る）
+function hornGeo(len, w, bend = 0.28) {
+  const c = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, -len / 2, 0), new THREE.Vector3(len * bend * 0.2, 0, 0), new THREE.Vector3(len * bend, len / 2, 0));
+  return taperTube(c, 12, 6, w, (t) => 1 - t * 0.94);
+}
+// 葉の形の刃（花弁・結晶）: 長さ L（+y）、幅 W、厚み D、ふちに丸み
+function bladeGeo(L, W, D) {
+  const s = new THREE.Shape(); s.moveTo(0, -L / 2);
+  s.bezierCurveTo(W * 0.62, -L * 0.3, W * 0.5, L * 0.2, 0, L / 2);
+  s.bezierCurveTo(-W * 0.5, L * 0.2, -W * 0.62, -L * 0.3, 0, -L / 2);
+  const g = new THREE.ExtrudeGeometry(s, { depth: D, bevelEnabled: true, bevelSize: D * 0.45, bevelThickness: D * 0.45, bevelSegments: 3, curveSegments: 24 });
+  g.translate(0, 0, -D / 2); g.computeVertexNormals(); return g;
+}
 // x 軸まわりの回転体（profile: [[x, 半径], ...]）
 function latheX(profile, seg = 16) {
   const g = new THREE.LatheGeometry(profile.map(([x, r]) => new THREE.Vector2(r, x)), seg);
@@ -69,7 +115,7 @@ function latheX(profile, seg = 16) {
 }
 function spikeRing(n, r, len, w, mat, axis = 'z') {
   const grp = new THREE.Group();
-  const cg = geo('spike' + len + w, () => new THREE.ConeGeometry(w, len, 5));
+  const cg = geo('horn' + len + w, () => hornGeo(len, w)); // まっすぐな円錐をやめ、反った角に
   for (let k = 0; k < n; k++) {
     const a = (k / n) * Math.PI * 2, m = mesh(cg, mat);
     if (axis === 'z') { m.position.set(Math.cos(a) * r, Math.sin(a) * r, 0); m.rotation.z = a - Math.PI / 2; }
@@ -105,32 +151,39 @@ function strut(a, b, w, mat) {
 // 発光は「翼の前縁の細い線」と「推進器の輪」だけに絞り、輪郭の美しさを光が邪魔しないようにした。
 export function buildPlayer() {
   const M = materials(), g = new THREE.Group(), body = new THREE.Group(); g.add(body);
-  const fus = mesh(geo('pl-fus', () => { const x = latheX([[-0.88, 0], [-0.85, 0.12], [-0.55, 0.21], [-0.1, 0.25], [0.35, 0.2], [0.75, 0.1], [1.02, 0.015], [1.05, 0]], 24); x.scale(1, 0.62, 1); return x; }), M.steel);
+  // 胴: 点を通る曲線で断面を作った回転体（機首へ細く長く絞る）
+  const fus = mesh(geo('pl-fus2', () => { const x = latheX(spline2([[-0.95, 0], [-0.88, 0.1], [-0.55, 0.2], [-0.05, 0.245], [0.45, 0.17], [0.88, 0.06], [1.12, 0.004]], 48), 36); x.scale(1, 0.6, 1); return x; }), M.steel);
   body.add(fus);
-  const belly = mesh(geo('pl-belly', () => { const x = latheX([[-0.7, 0.1], [-0.2, 0.2], [0.4, 0.14], [0.7, 0.04]], 16); x.scale(1, 0.45, 0.9); return x; }), M.gunmetal); belly.position.y = -0.07; body.add(belly);
-  const can = mesh(geo('pl-can', () => new THREE.SphereGeometry(1, 20, 12)), M.canopy); can.scale.set(0.36, 0.11, 0.12); can.position.set(0.32, 0.12, 0); body.add(can);
-  // 主翼（奥行き方向へ後退角つき）
-  const wingG = geo('pl-wing', () => { const e = plateGeo([[0.35, 0], [-0.5, 0.98], [-0.74, 0.98], [-0.62, 0.2], [-0.7, 0]], 0.04, 0.018); e.rotateX(Math.PI / 2); return e; });
+  const belly = mesh(geo('pl-belly2', () => { const x = latheX(spline2([[-0.75, 0.02], [-0.3, 0.19], [0.3, 0.15], [0.75, 0.02]], 30), 24); x.scale(1, 0.42, 0.9); return x; }), M.gunmetal); belly.position.y = -0.07; body.add(belly);
+  // 風防: 涙のしずく形
+  const can = mesh(geo('pl-can2', () => { const x = latheX(spline2([[-0.22, 0], [-0.05, 0.11], [0.25, 0.09], [0.5, 0]], 24), 24); x.scale(1, 0.85, 1.05); return x; }), M.canopy); can.position.set(0.12, 0.1, 0); body.add(can);
+  // 主翼: ベジェ曲線の後退翼（前縁は弧を描き、翼端は丸い）
+  const wingShape = new THREE.Shape(); wingShape.moveTo(0.42, 0);
+  wingShape.bezierCurveTo(0.12, 0.32, -0.3, 0.78, -0.6, 1.0); wingShape.quadraticCurveTo(-0.71, 1.04, -0.74, 0.93);
+  wingShape.bezierCurveTo(-0.66, 0.55, -0.6, 0.22, -0.78, 0); wingShape.closePath();
+  const wingG = geo('pl-wing2', () => { const e = new THREE.ExtrudeGeometry(wingShape, { depth: 0.035, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.018, bevelSegments: 2, curveSegments: 32 }); e.translate(0, 0, -0.0175); e.rotateX(Math.PI / 2); return e; });
   const w1 = mesh(wingG, M.darkSteel), w2 = mesh(wingG, M.darkSteel); w2.scale.z = -1; w1.position.y = w2.position.y = -0.03; body.add(w1, w2);
-  // 前縁の光（細い線）
-  for (const zs of [1, -1]) body.add(strut(new THREE.Vector3(0.33, -0.01, 0.02 * zs), new THREE.Vector3(-0.49, -0.01, 0.97 * zs), 0.018, M.trim));
-  // 前翼
-  const canG = geo('pl-canard', () => { const e = plateGeo([[0.18, 0], [-0.08, 0.34], [-0.16, 0.34], [-0.1, 0]], 0.025, 0.008); e.rotateX(Math.PI / 2); return e; });
-  const c1 = mesh(canG, M.darkSteel), c2 = mesh(canG, M.darkSteel); c2.scale.z = -1; c1.position.set(0.55, 0.0, 0); c2.position.set(0.55, 0.0, 0); body.add(c1, c2);
-  // 背びれ（二枚、外へ開く）
-  const finG = geo('pl-fin', () => plateGeo([[-0.2, 0], [-0.6, 0.4], [-0.76, 0.4], [-0.66, 0]], 0.025, 0.008));
-  for (const zs of [1, -1]) { const f = mesh(finG, M.gunmetal); f.position.set(0, 0.1, 0.12 * zs); f.rotation.x = -0.32 * zs; body.add(f); }
-  // 推進器: 胴の左右のナセル＋光の輪
-  const engG = geo('pl-eng', () => latheX([[-0.42, 0.11], [-0.36, 0.14], [0.15, 0.12], [0.32, 0.03]], 16));
-  const ringG = geo('pl-ring', () => new THREE.TorusGeometry(0.105, 0.022, 6, 20));
+  // 前縁の光も同じ曲線に沿わせる
+  const edgeG = geo('pl-edge2', () => { const c = new THREE.CubicBezierCurve3(new THREE.Vector3(0.4, 0, 0.02), new THREE.Vector3(0.12, 0, 0.32), new THREE.Vector3(-0.3, 0, 0.78), new THREE.Vector3(-0.6, 0, 0.99)); return taperTube(c, 32, 5, 0.014, (t) => 1 - t * 0.5); });
+  for (const zs of [1, -1]) { const e2 = mesh(edgeG, M.trim); e2.scale.z = zs; e2.position.y = -0.012; body.add(e2); }
+  // 前翼（曲線）と、外へ開く二枚の曲線の背びれ
+  const canS = new THREE.Shape(); canS.moveTo(0.2, 0); canS.quadraticCurveTo(0.02, 0.18, -0.14, 0.34); canS.quadraticCurveTo(-0.2, 0.3, -0.12, 0); canS.closePath();
+  const canG = geo('pl-canard2', () => { const e = new THREE.ExtrudeGeometry(canS, { depth: 0.02, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 1, curveSegments: 16 }); e.rotateX(Math.PI / 2); return e; });
+  const c1 = mesh(canG, M.darkSteel), c2 = mesh(canG, M.darkSteel); c2.scale.z = -1; c1.position.set(0.52, 0, 0); c2.position.set(0.52, 0, 0); body.add(c1, c2);
+  const finS = new THREE.Shape(); finS.moveTo(-0.15, 0); finS.bezierCurveTo(-0.32, 0.12, -0.55, 0.36, -0.8, 0.42); finS.quadraticCurveTo(-0.72, 0.2, -0.7, 0); finS.closePath();
+  const finG = geo('pl-fin2', () => { const e = new THREE.ExtrudeGeometry(finS, { depth: 0.022, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 1, curveSegments: 20 }); e.translate(0, 0, -0.011); return e; });
+  for (const zs of [1, -1]) { const f = mesh(finG, M.gunmetal); f.position.set(0, 0.08, 0.12 * zs); f.rotation.x = -0.32 * zs; body.add(f); }
+  // 推進器: 曲線の断面のナセル＋光の輪
+  const engG = geo('pl-eng2', () => latheX(spline2([[-0.44, 0.1], [-0.36, 0.135], [0.0, 0.125], [0.3, 0.05], [0.4, 0.0]], 24), 20));
+  const ringG = geo('pl-ring', () => new THREE.TorusGeometry(0.105, 0.022, 8, 28));
   const flameG = geo('pl-flame', () => { const c = new THREE.ConeGeometry(0.085, 0.8, 12, 1, true); c.rotateZ(Math.PI / 2); c.translate(-0.4, 0, 0); return c; });
   const flameM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6fe8ff).multiplyScalar(2), transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const ringM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6fe8ff).multiplyScalar(2.2), toneMapped: false });
   const flames = [];
   for (const z of [0.29, -0.29]) {
     const e = mesh(engG, M.gunmetal); e.position.set(-0.52, -0.04, z); body.add(e);
-    const r = mesh(ringG, ringM); r.rotation.y = Math.PI / 2; r.position.set(-0.94, -0.04, z); body.add(r);
-    const f = mesh(flameG, flameM); f.position.set(-0.94, -0.04, z); body.add(f); flames.push(f);
+    const r = mesh(ringG, ringM); r.rotation.y = Math.PI / 2; r.position.set(-0.96, -0.04, z); body.add(r);
+    const f = mesh(flameG, flameM); f.position.set(-0.96, -0.04, z); body.add(f); flames.push(f);
   }
   const chargeOrb = mesh(geo('pl-charge', () => new THREE.SphereGeometry(1, 20, 14)), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9ff0ff).multiplyScalar(2.5), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
   chargeOrb.position.set(1.15, 0, 0); chargeOrb.visible = false; g.add(chargeOrb);
@@ -210,7 +263,7 @@ export function buildBit() {
 const B = {};
 B.drifter = () => {
   const M = materials(), g = new THREE.Group();
-  const b = mesh(geo('dr-b', () => blob(0.42, 2, 0.16, 1.7, 1.25, 0.8, 0.8)), M.chitin); g.add(b);
+  const b = mesh(geo('dr-b2', () => { const x = latheX(spline2([[-0.52, 0], [-0.44, 0.2], [-0.15, 0.33], [0.25, 0.24], [0.6, 0.07], [0.78, 0]], 36), 24); x.scale(1, 0.85, 0.85); return x; }), M.chitin); g.add(b);
   const collar = mesh(geo('dr-c', () => new THREE.TorusGeometry(0.33, 0.045, 6, 20)), M.bone); collar.rotation.y = Math.PI / 2; collar.position.x = 0.12; g.add(collar);
   const sp = spikeRing(5, 0.3, 0.42, 0.06, M.bone, 'x'); sp.position.x = 0.38; sp.rotation.z = -Math.PI / 2; g.add(sp);
   const eye = mesh(geo('dr-e', () => new THREE.SphereGeometry(0.12, 12, 8)), M.gEye); eye.position.x = -0.42; g.add(eye);
@@ -220,7 +273,7 @@ B.drifter = () => {
 };
 B.hookjaw = () => {
   const M = materials(), g = new THREE.Group();
-  const hook = mesh(geo('hj-h', () => new THREE.TorusGeometry(0.42, 0.1, 10, 24, Math.PI * 1.25)), M.steel); hook.rotation.z = Math.PI * 0.4; g.add(hook);
+  const hook = mesh(geo('hj-h2', () => { const pts = []; for (let k = 0; k <= 16; k++) { const a = k / 16 * Math.PI * 1.3; pts.push(new THREE.Vector3(Math.cos(a) * 0.44, Math.sin(a) * 0.44 * (1 - k / 60), 0)); } return taperTube(new THREE.CatmullRomCurve3(pts), 40, 10, 0.12, (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.92 + 0.04)), 0.7)); }), M.steel); hook.rotation.z = Math.PI * 0.4; g.add(hook);
   const head = mesh(geo('hj-head', () => blob(0.26, 2, 0.12, 3.3)), M.flesh); head.position.x = -0.15; g.add(head);
   const jawG = geo('hj-j', () => { const c = new THREE.ConeGeometry(0.07, 0.42, 6); c.rotateZ(Math.PI / 2); return c; });
   const j1 = mesh(jawG, M.bone), j2 = mesh(jawG, M.bone); j1.position.set(-0.45, 0.1, 0); j2.position.set(-0.45, -0.1, 0); g.add(j1, j2);
@@ -304,7 +357,7 @@ B.puff = () => {
 };
 B.spore = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('sp-b', () => blob(0.26, 2, 0.2, 2.2, 1.3, 0.85, 0.85)), M.fleshTeal); g.add(b); const c = mesh(geo('sp-c', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gBio); c.position.x = -0.18; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { b.rotation.x = t * 6; } }; };
 B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); const wm = new THREE.MeshBasicMaterial({ color: 0x9dffd0, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }); const wingG = geo('nt-w', () => { const x = new THREE.PlaneGeometry(0.42, 0.16); x.translate(0.06, 0, 0.1); x.rotateX(Math.PI / 2); return x; }); const wings = [1, -1].map((sg) => { const w = mesh(wingG, wm); w.scale.z = sg; w.position.y = 0.08; g.add(w); return w; }); return { face: true, organic: true, obj: g, anim(e, t) { const fl = Math.sin(t * 70) * 0.9; wings[0].rotation.x = fl; wings[1].rotation.x = -fl; const w = e.windup || 0; b.rotation.x = t * (8 + w * 30); b.position.y = Math.sin(t * 90) * 0.04 * w; c.scale.setScalar(1 + w * 1.2); } }; };
-B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b', () => { const x = new THREE.ConeGeometry(0.16, 0.7, 8); x.rotateZ(Math.PI / 2); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
+B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b2', () => { const x = latheX(spline2([[-0.4, 0], [-0.25, 0.1], [0.1, 0.15], [0.3, 0.08], [0.36, 0]], 24), 16); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
 B.coilworm = (e) => {
   const M = materials(), g = new THREE.Group();
   const head = new THREE.Group(); g.add(head);
@@ -316,9 +369,11 @@ B.coilworm = (e) => {
   const segs = [], links = [];
   for (let k = 1; k < e.parts.length; k++) { const l = linkMesh(M.flesh); g.add(l); links.push(l); }
   for (let k = 1; k < e.parts.length; k++) {
-    const s = new THREE.Group(); s.add(mesh(segG, M.fleshTeal)); const band = mesh(bandG, M.steel); band.rotation.y = Math.PI / 2; s.add(band);
+    const s = new THREE.Group(); const band = mesh(bandG, M.steel); band.rotation.y = Math.PI / 2; s.add(band);
     s.scale.setScalar(e.parts[k].r / 0.6); g.add(s); segs.push(s);
   }
+  const cwBody = new SplineBody(48, 14, M.fleshTeal); g.add(cwBody.mesh);
+  for (const l of links) l.visible = false;
   return {
     obj: g, anim(e2, t, a = 1) {
       // 節は補間した位置に置き、前の節の方向へ向ける（帯が胴の流れに沿う）
@@ -332,6 +387,7 @@ B.coilworm = (e) => {
       }
       { const x1 = lx(e2.parts[1], a), y1 = ly(e2.parts[1], a); if (x1 * x1 + y1 * y1 > 1e-4) head.rotation.z = Math.atan2(-y1, -x1) - Math.PI; }
       jaw.rotation.x = Math.sin(t * 6) * 0.4;
+      cwBody.update([{ x: -0.2, y: 0, r: 0.5 }, ...segs.map((q, k) => ({ x: q.position.x, y: q.position.y, r: e2.parts[k + 1].r * 0.86 * (1 + 0.06 * Math.sin(t * 7 - k * 0.8)) }))]);
     },
   };
 };
@@ -383,8 +439,8 @@ B.thistle = () => {
 };
 B.skimmer = () => {
   const M = materials(), g = new THREE.Group();
-  g.add(mesh(geo('sk-b', () => { const c = latheX([[-0.55, 0], [-0.3, 0.14], [0.4, 0.12], [0.5, 0]], 12); c.scale(1, 0.5, 1); c.rotateY(Math.PI); return c; }), M.steel));
-  const w = mesh(geo('sk-w', () => { const e = plateGeo([[-0.3, 0], [0.25, 0.55], [0.38, 0.55], [0.3, 0]], 0.03, 0.01); e.rotateX(Math.PI / 2); return e; }), M.darkSteel);
+  g.add(mesh(geo('sk-b2', () => { const c = latheX(spline2([[-0.62, 0], [-0.4, 0.1], [0.05, 0.15], [0.42, 0.1], [0.55, 0]], 30), 20); c.scale(1, 0.5, 1); c.rotateY(Math.PI); return c; }), M.steel));
+  const w = mesh(geo('sk-w2', () => { const sh = new THREE.Shape(); sh.moveTo(-0.32, 0); sh.bezierCurveTo(-0.1, 0.15, 0.15, 0.45, 0.4, 0.58); sh.quadraticCurveTo(0.42, 0.4, 0.32, 0); sh.closePath(); const e = new THREE.ExtrudeGeometry(sh, { depth: 0.025, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.01, bevelSegments: 1, curveSegments: 20 }); e.rotateX(Math.PI / 2); return e; }), M.darkSteel);
   const w2 = mesh(w.geometry, M.darkSteel); w2.scale.z = -1; g.add(w, w2);
   const f = mesh(geo('sk-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gMagenta); f.position.x = 0.55; g.add(f);
   return { face: true, obj: g, anim() {} };
@@ -437,11 +493,11 @@ B.ossuary = (e) => {
   const M = materials(), g = new THREE.Group();
   const body = mesh(geo('os-body', () => blob(2.3, 4, 0.09, 1.9, 1.05, 1.15, 1.1)), M.fleshBig); g.add(body);
   const lobes = [2, 3].map(() => { const m = mesh(geo('os-lobe', () => blob(1.5, 3, 0.12, 4.2)), M.fleshBig); g.add(m); return m; });
-  const ribG = geo('os-rib', () => new THREE.TorusGeometry(2.4, 0.13, 10, 40, Math.PI * 0.9));
+  const ribG = geo('os-rib2', () => { const pts = []; for (let k = 0; k <= 20; k++) { const a = k / 20 * Math.PI * 0.9; pts.push(new THREE.Vector3(Math.cos(a) * 2.4, Math.sin(a) * 2.4, 0)); } return taperTube(new THREE.CatmullRomCurve3(pts), 48, 10, 0.17, (t) => 0.35 + 0.65 * Math.sin(Math.PI * t)); });
   for (let k = 0; k < 5; k++) { const r = mesh(ribG, M.bone); r.rotation.y = Math.PI / 2; r.rotation.x = -Math.PI * 0.45; r.position.set(1.2 + k * 0.55, 0, 0); r.scale.setScalar(1 - Math.abs(k - 2) * 0.12); g.add(r); }
   const coreM = new THREE.MeshBasicMaterial({ color: 0xff4fb4, toneMapped: false });
   const core = mesh(geo('os-core', () => new THREE.IcosahedronGeometry(0.95, 3)), coreM); g.add(core);
-  const petalG = geo('os-petal', () => { const c = new THREE.ConeGeometry(0.75, 2.4, 8, 1); c.scale(1, 1, 0.45); return c; });
+  const petalG = geo('os-petal2', () => bladeGeo(2.5, 1.35, 0.16));
   const petals = e.petals.map(() => { const m = mesh(petalG, M.bone); g.add(m); return m; });
   const tailG = geo('os-tail', () => blob(0.55, 2, 0.15, 6.6));
   const tail = e.tail.map((p) => { const m = mesh(tailG, M.bone); m.scale.setScalar(p.r / 0.55); g.add(m); return m; });
@@ -484,10 +540,11 @@ B.vesper = (e) => {
   const segs = [];
   for (let k = 0; k < 18; k++) {
     const s = new THREE.Group(), spin = new THREE.Group(); s.add(spin);
-    spin.add(mesh(segG, M.fleshBig)); const b = mesh(bandG, M.steel); b.rotation.y = Math.PI / 2; s.add(b);
+    const b = mesh(bandG, M.steel); b.rotation.y = Math.PI / 2; s.add(b);
     spin.add(spikeRing(3, 0.75, 0.4, 0.08, M.bone));
     s.scale.setScalar(e.parts[k + 2].r / 0.8); g.add(s); segs.push({ s, spin });
   }
+  const vsBody = new SplineBody(72, 16, M.fleshBig); g.add(vsBody.mesh);
   const flash = flashShell(0.9); head.add(flash); flash.position.x = -0.6;
   let dir = Math.PI, mouth = 0, glow = 0.5;
   return {
@@ -509,6 +566,8 @@ B.vesper = (e) => {
         segs[k].s.position.set(x - Math.sin(ang2) * wave, y + Math.cos(ang2) * wave, Math.cos(t * 2.4 - k * 0.5) * 0.25); segs[k].s.rotation.z = ang2;
         segs[k].spin.rotation.x = t * 1.5 + k * 0.4;
       }
+      // 頭から尾まで 1 本の流れる胴
+      vsBody.update([{ x: 0.6, y: head.position.y, z: 0, r: 0.72 }, ...segs.map((q, k) => ({ x: q.s.position.x, y: q.s.position.y, z: q.s.position.z, r: b.parts[k + 2].r * 0.9 }))]);
       flash.userData.set(ctx.hit || 0);
     },
   };
@@ -557,7 +616,7 @@ B.heart = (e) => {
   const shellG = geo('hr-s', () => new THREE.SphereGeometry(1.8, 32, 20, 0, Math.PI));
   const shellM = M.chitin.clone(); shellM.side = THREE.DoubleSide; shellM.onBeforeCompile = M.chitin.onBeforeCompile; shellM.customProgramCacheKey = M.chitin.customProgramCacheKey;
   const shell = mesh(shellG, shellM); shell.rotation.y = -Math.PI / 2; g.add(shell);
-  const petalG = geo('hr-p', () => { const o = new THREE.OctahedronGeometry(0.9, 0); o.scale(1.6, 0.7, 0.5); return o; });
+  const petalG = geo('hr-p2', () => { const b = bladeGeo(2.9, 1.15, 0.18); b.rotateZ(-Math.PI / 2); return b; });
   const petals = e.petals.map(() => { const m = mesh(petalG, M.crystalViolet.clone()); g.add(m); return { m, hit: 0, gone: 0 }; });
   const halo = mesh(geo('hr-h', () => new THREE.TorusGeometry(3.3, 0.04, 6, 96)), M.gViolet); g.add(halo);
   let open = 0;

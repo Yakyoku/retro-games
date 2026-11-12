@@ -14,6 +14,7 @@ const ORGANIC = new Set(['drifter', 'hookjaw', 'lantern', 'nodule', 'puff', 'spo
 const easeOutBack = (t) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
 import { SpriteBatch, Particles } from './sprites.js';
 import { Atmosphere } from './atmosphere.js';
+import { Ribbons } from './ribbons.js';
 
 const rgb = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const COL = Object.fromEntries(Object.entries(colorOf).map(([k, v]) => [k, rgb(v)]));
@@ -49,6 +50,8 @@ export class World {
     this.fog = this.vr ? new THREE.Fog(0x000000, 1.9, 9) : new THREE.Fog(0x000000, 40, 175);
     this.veinMul = { value: 1 };
     this.atmos = new Atmosphere(this);
+    // 光の帯（流線）: 機体・SEED・跳ねる光・這う光・速い敵・溜め撃ちの通った跡
+    this.ribbons = new Ribbons(this.lite ? 4000 : 8000); this.field.add(this.ribbons.mesh);
     // 触手・鞭毛（鎖の節を伸ばした球で描く。材質ごとに 1 回の描画）
     const tg = new THREE.SphereGeometry(1, 8, 6);
     this.tendrils = {};
@@ -168,6 +171,10 @@ export class World {
   }
 
   buildTerrain(st, pts, sign, pal) {
+    // 輪郭を Catmull-Rom で 3 倍に細かく補う（当たり判定の点はそのまま通るので、見た目だけが折れ線からなめらかな曲線になる）
+    { const out = []; for (let i = 0; i < pts.length - 1; i++) { const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        for (let k = 0; k < 3; k++) { const t = k / 3, t2 = t * t, t3 = t2 * t; out.push([p1[0] + (p2[0] - p1[0]) * t, 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)]); } }
+      out.push(pts[pts.length - 1]); pts = out; }
     // 断面（境界からの dy, z）: z=0 が遊ぶ面。手前は崖、奥へ盛り上がる
     const sec = [[-14, 2.4], [-1.6, 2.4], [-0.45, 1.85], [-0.05, 1.0], [0.0, 0.0], [-0.05, -1.3], [-0.55, -2.9], [-0.2, -5.0], [1.0, -7.5], [2.6, -11]];
     const R = sec.length, C = pts.length;
@@ -315,7 +322,7 @@ export class World {
       this.pod.obj.visible = true; this.pod.obj.position.set(x, y, 0); this.pod.anim(s.pod, this.t, alpha, dt, pv);
       // 速く飛んでいるときは軌跡を残す
       const sp = Math.hypot(pv.vx, pv.vy);
-      if (sp > 9) { const c = COL[s.pod.level ? s.pod.color : 'P']; this.parts.trail(x, y, 1.0, [c[0] * 0.7, c[1] * 0.7, c[2] * 0.7], 0.22); }
+      if (sp > 4) { const c = COL[s.pod.level ? s.pod.color : 'P']; this.ribbons.touch('pod', x, y, -0.1, 0.32, [c[0] * 0.9, c[1] * 0.9, c[2] * 0.9], 0.38, Math.min(1, (sp - 4) / 10)); }
     } else { this.pod.obj.visible = false; this.pod.lx = null; }
     this.bits.forEach((bo, k) => { const b = s.bits[k]; bo.obj.visible = !!b; if (b) { const [x, y] = L(b); bo.obj.position.set(x, y, 0); bo.anim(b, this.t, alpha, dt, vel(bo, x, y)); } else bo.lx = null; });
     // 敵
@@ -421,7 +428,8 @@ export class World {
     // 自機: やられた瞬間に機体が破片になって散る。入場中は噴射の軌跡
     if (this.lastAlive && !p.alive) { this.debris(px, py, 10, 0.9, 'C', true); }
     this.lastAlive = p.alive;
-    if (p.alive && p.enter > 0) this.parts.trail(px - 0.95, py, 0.7, [0.3, 1.1, 1.6], 0.3);
+    if (p.alive) { const v = Math.hypot(this.player.vx || 0, this.player.vy || 0), a = 0.35 + Math.min(0.65, v * 0.06) + (p.enter > 0 ? 0.4 : 0);
+      for (const [k, dy] of [['pe0', 0.07], ['pe1', -0.13]]) this.ribbons.touch(k, px - 0.98, py + dy, -0.2, 0.07, [0.35, 1.2, 1.7], 0.5, Math.min(1, a)); }
     // アイテム（現れるときにふくらむ・ゆっくり浮き沈み）
     const seenI = new Set();
     for (const it of s.items) {
@@ -448,6 +456,7 @@ export class World {
     if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = 0.45 + 0.45 * Math.sin(this.t * 30); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
     for (const [mx, my, k, boss] of this.muzzles) { const w = (boss ? 1.6 : 1.0) * (0.6 + k); sb.add(mx, my, 0.35, w, w, 0, 2.6 * k, 1.4 * k, 0.8 * k, k, 0); }
     this.parts.update(dt, sb);
+    this.ribbons.update(dt);
     // 煙・靄（暗くする合成）
     const ds = this.darkSB; ds.begin(); this.smoke.update(dt, ds); ds.end();
     // 背景の空気（霧・稲妻・心拍・滴・泡・霞）
@@ -469,7 +478,7 @@ export class World {
   emitAt(type, x, y, drift = 0, vx = 0, vy = 0) {
     const tox = this.pal ? new THREE.Color(this.pal.toxic ?? this.pal.accent) : new THREE.Color(0x7dff4a);
     if (type === 'steam') this.parts.spawn({ x, y, z: 0.4, vx: -drift + rnd(-0.4, 0.4) + vx, vy: rnd(0.8, 1.6) + vy, vz: 0, life: rnd(0.9, 1.4), t: 0, w: 0.6, h: 0, r: 0.22, g: 0.24, b: 0.26, sh: 3, drag: 0.98, grow: 2.6, fade: true });
-    else if (type === 'smoke') this.smoke.spawn({ x, y, z: 0.35, vx: -drift + rnd(-0.3, 0.3) + vx, vy: rnd(0.6, 1.3) + vy, vz: 0, life: rnd(1.1, 1.8), t: 0, w: rnd(0.4, 0.7), h: 0, r: 0.015, g: 0.016, b: 0.014, a: 0.7, sh: 3, drag: 0.985, grow: 3, fade: true });
+    else if (type === 'smoke') this.smoke.spawn({ x, y, z: 0.35, vx: -drift + rnd(-0.3, 0.3) + vx, vy: rnd(0.6, 1.3) + vy, vz: 0, life: rnd(1.1, 1.8), t: 0, w: rnd(0.4, 0.7), h: 0, r: 0.015, g: 0.016, b: 0.014, a: 0.7, sh: 3, drag: 0.985, grow: 3, fade: true, curl: rnd(-1.2, 1.2) });
     else if (type === 'spark') this.parts.spark(x, y, 0.5, [1.7, 1.15, 0.55]);
     else if (type === 'ichor') this.parts.spawn({ x, y, z: 0.3, vx: -drift + vx, vy, vz: 0, grav: -4.5, life: rnd(0.6, 1.0), t: 0, w: rnd(0.09, 0.16), h: 0, r: tox.r * 1.5, g: tox.g * 1.5, b: tox.b * 1.5, sh: 0, drag: 0.96 });
     else if (type === 'spore') this.parts.spawn({ x, y, z: 0.2, vx: -drift + rnd(-0.4, 0.4) + vx, vy: rnd(-0.2, 0.5) + vy, vz: 0, life: rnd(1.2, 2.0), t: 0, w: 0.12, h: 0, r: tox.r * 1.2, g: tox.g * 1.2, b: tox.b * 1.2, sh: 0, drag: 0.98, fade: true });
@@ -496,8 +505,10 @@ export class World {
   typeFx(m, e, x, y, dt, s) {
     m.emitT -= dt;
     const t = m.type, drift = e.anchored ? s.scrollSpeed : 0;
-    if (t === 'skimmer') this.parts.trail(x + Math.cos(m.head) * -0.55, y + Math.sin(m.head) * -0.55, 0.32, [0.45, 0.42, 0.55], 0.4);
-    else if (t === 'dart' && m.emitT <= 0) { m.emitT = 0.045; const bx = x - Math.cos(m.head) * 0.4, by = y - Math.sin(m.head) * 0.4; this.emitAt('smoke', bx, by, 0, 0, -0.5); this.parts.trail(bx, by, 0.22, [1.6, 0.9, 0.3], 0.15); }
+    if (t === 'skimmer') this.ribbons.touch('e' + e.id, x - Math.cos(m.head) * 0.55, y - Math.sin(m.head) * 0.55, -0.05, 0.12, [0.55, 0.5, 0.75], 0.55, 0.8);
+    else if (t === 'hookjaw' && Math.hypot(m.vx, m.vy) > 5) this.ribbons.touch('e' + e.id, x - Math.cos(m.head) * 0.45, y - Math.sin(m.head) * 0.45, -0.05, 0.1, [0.6, 0.65, 0.8], 0.4, 0.6);
+    else if (t === 'dart' && m.emitT <= 0) { m.emitT = 0.045; const bx = x - Math.cos(m.head) * 0.4, by = y - Math.sin(m.head) * 0.4; this.emitAt('smoke', bx, by, 0, 0, -0.5); }
+    if (t === 'dart') this.ribbons.touch('e' + e.id, x - Math.cos(m.head) * 0.4, y - Math.sin(m.head) * 0.4, 0, 0.1, [1.9, 1.0, 0.3], 0.3);
     else if (t === 'spore' && Math.random() < 0.5) this.parts.trail(x, y, 0.16, [0.4, 1.2, 0.8], 0.25);
     else if (t === 'puff' && m.emitT <= 0) { m.emitT = 0.28; this.emitAt('spore', x + rnd(-0.6, 0.6), y + rnd(-0.6, 0.6), drift); }
     const hp = e.hp / (e.maxHp || 1);
@@ -594,8 +605,8 @@ export class World {
           if (o.t <= 2) sb.add(x - o.vx * 0.02, y, 0.22, 0.9, 0.9, 0, c[0], c[1], c[2], 0.6 * (1 - o.t / 3), 0);
           break; }
         case 'lance': { const len = Math.max(0.2, o.len), cxl = x - o.dir * len / 2; sb.add(cxl, o.y, 0.25, len + 0.3, o.w * 1.5, 0, 0.18, 0.95, 1.5, 1, 1); sb.add(cxl, o.y, 0.2, len + 0.8, o.w * 3.4, 0, 0.03, 0.22, 0.42, 0.28, 1); if (!o.stopped) sb.add(x, o.y, 0.26, o.w * 4, o.w * 4, 0, 0.4, 1.4, 2.0, 0.8, 0); break; }
-        case 'rico': { sb.add(x, y, 0.25, 1.5, 0.36, Math.atan2(o.vy, o.vx), 2.6, 0.5, 1.6, 1, 1); if (Math.random() < 0.8) this.parts.trail(x, y, 0.5, [1.4, 0.2, 0.8], 0.18); break; }
-        case 'crawl': { sb.add(x, y, 0.25, o.r * 3, o.r * 3, 0, 2.6, 1.5, 0.4, 1, 0); this.parts.trail(x, y, o.r * 2.2, [1.5, 0.7, 0.1], 0.3); break; }
+        case 'rico': { sb.add(x, y, 0.25, 1.1, 0.3, Math.atan2(o.vy, o.vx), 2.6, 0.5, 1.6, 1, 1); this.ribbons.touch('r' + o.id, x, y, 0.2, 0.13, [2.2, 0.35, 1.3], 0.22); break; }
+        case 'crawl': { sb.add(x, y, 0.25, o.r * 3, o.r * 3, 0, 2.6, 1.5, 0.4, 1, 0); this.ribbons.touch('c' + o.id, x, y, 0.2, o.r * 0.7, [2.2, 1.1, 0.25], 0.32); break; }
       }
     }
   }
@@ -609,7 +620,7 @@ export class World {
         fragmentShader: 'uniform float uTime; uniform float uLv; varying vec3 vN; varying vec3 vP; void main(){ float f = pow(1.-abs(vN.z), 1.5); float w = 0.5+0.5*sin(vP.x*9.-uTime*30.+vP.y*4.); vec3 c = mix(vec3(0.15,0.8,1.5), vec3(0.9,0.45,1.6), w*0.7) * (0.25 + f*1.3) * (0.7+uLv*0.1); gl_FragColor = vec4(c, 0.8); }',
       });
       const g = new THREE.Group();
-      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), mat); m.scale.set(1.4, 0.9, 0.9); g.add(m);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), mat); m.scale.set(1.9, 0.78, 0.78); m.position.x = -0.35; g.add(m); // 溜め撃ちは前へ伸びた涙形
       const r = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.06, 6, 32), this.M.gCyan); r.rotation.y = Math.PI / 2; g.add(r);
       this.field.add(g); this.burstObjs.push({ g, m, r, mat });
     }
@@ -618,7 +629,8 @@ export class World {
       if (!o) return;
       const [x, y] = L(o); bo.g.position.set(x, y, 0.2); bo.g.scale.setScalar(o.r); bo.mat.uniforms.uLv.value = o.lv;
       bo.r.rotation.x = this.t * 12; bo.r.scale.setScalar(1 + 0.15 * Math.sin(this.t * 30));
-      if (Math.random() < 0.7) this.parts.trail(x - o.r, y + (Math.random() - 0.5) * o.r, o.r * 0.9, [0.3, 1.0, 1.6], 0.25);
+      for (let k = 0; k < 2; k++) { const ph = this.t * 22 + k * Math.PI; this.ribbons.touch('bs' + o.id + k, x - o.r * 0.6, y + Math.sin(ph) * o.r * 0.75, Math.cos(ph) * o.r * 0.5, o.r * 0.12, k ? [1.2, 0.6, 2.0] : [0.3, 1.3, 2.0], 0.3); }
+      this.ribbons.touch('bc' + o.id, x - o.r * 0.4, y, 0, o.r * 0.45, [0.2, 0.8, 1.4], 0.22, 0.6);
     });
   }
 

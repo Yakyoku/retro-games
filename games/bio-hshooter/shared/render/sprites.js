@@ -63,7 +63,7 @@ export class Particles {
     const n = Math.round((lite ? 8 : 14) + s * (lite ? 10 : 22));
     for (let k = 0; k < n; k++) {
       const a = Math.random() * Math.PI * 2, v = (2 + Math.random() * 9) * (0.5 + s * 0.5), z = (Math.random() - 0.5) * s * 2;
-      this.spawn({ x, y, z, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: (Math.random() - 0.5) * v * 0.6, life: 0.25 + Math.random() * 0.5, t: 0, w: 0.08 + Math.random() * 0.1, h: 0.5 + Math.random() * 0.6, r: col[0] * 2, g: col[1] * 2, b: col[2] * 2, sh: 1, drag: 0.9, streak: true });
+      this.spawn({ x, y, z, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: (Math.random() - 0.5) * v * 0.6, life: 0.25 + Math.random() * 0.5, t: 0, w: 0.08 + Math.random() * 0.1, h: 0.5 + Math.random() * 0.6, r: col[0] * 2, g: col[1] * 2, b: col[2] * 2, sh: 1, drag: 0.9, streak: true, curl: (Math.random() - 0.5) * 9 });
     }
     for (let k = 0; k < (lite ? 3 : 6) + s * 3; k++) {
       const a = Math.random() * Math.PI * 2, v = Math.random() * 2.5 * s;
@@ -73,7 +73,7 @@ export class Particles {
     this.spawn({ x, y, z: 0.05, vx: 0, vy: 0, vz: 0, life: 0.35 + s * 0.08, t: 0, w: s * 1.2, h: 0, r: col[0] * 1.5, g: col[1] * 1.5, b: col[2] * 1.5, sh: 2, drag: 1, grow: 5 });
   }
   spark(x, y, s, col) {
-    for (let k = 0; k < 5; k++) { const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 6; this.spawn({ x, y, z: 0.2, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: 0, life: 0.12 + Math.random() * 0.15, t: 0, w: 0.06, h: 0.32 * s, r: col[0] * 2, g: col[1] * 2, b: col[2] * 2, sh: 1, drag: 0.85, streak: true }); }
+    for (let k = 0; k < 5; k++) { const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 6; this.spawn({ x, y, z: 0.2, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: 0, life: 0.12 + Math.random() * 0.15, t: 0, w: 0.06, h: 0.32 * s, r: col[0] * 2, g: col[1] * 2, b: col[2] * 2, sh: 1, drag: 0.85, streak: true, curl: (Math.random() - 0.5) * 14 }); }
     this.spawn({ x, y, z: 0.2, vx: 0, vy: 0, vz: 0, life: 0.1, t: 0, w: s * 0.9, h: 0, r: col[0] * 2, g: col[1] * 2, b: col[2] * 2, sh: 0, drag: 1 });
   }
   trail(x, y, w, col, life = 0.22) { this.spawn({ x, y, z: -0.05, vx: 0, vy: 0, vz: 0, life, t: 0, w, h: 0, r: col[0], g: col[1], b: col[2], sh: 0, drag: 1, shrink: true }); }
@@ -86,7 +86,8 @@ export class Particles {
       if (o.t >= o.life) continue;
       const d = Math.pow(o.drag, dt * 60);
       o.vx *= d; o.vy *= d; o.vz *= d;
-      if (o.grav) o.vy += o.grav * dt;   // 重さ（滴・飛び散る体液）
+      if (o.grav) o.vy += o.grav * dt;
+      if (o.curl) { const c = Math.cos(o.curl * dt), sn = Math.sin(o.curl * dt), vx = o.vx; o.vx = vx * c - o.vy * sn; o.vy = vx * sn + o.vy * c; } // 進む向きが少しずつ回る → 曲線を描いて飛ぶ   // 重さ（滴・飛び散る体液）
       o.x += o.vx * dt; o.y += o.vy * dt; o.z += o.vz * dt;
       const k = o.t / o.life, a = (o.fade ? Math.sin(Math.PI * Math.min(1, k)) : (1 - k) * (1 - k)) * (o.a ?? 1); // fade: ふわっと現れて消える
       let w = o.w, h = o.h || o.w;

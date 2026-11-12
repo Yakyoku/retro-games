@@ -21,8 +21,11 @@
 </head>
 <body>
 <div id="stage">
+  <svg width="0" height="0" style="position:absolute"><defs><linearGradient id="hudGrad" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff" stop-opacity="0"/><stop offset=".25" stop-color="#4fe3ff"/><stop offset=".6" stop-color="#c06bff"/><stop offset="1" stop-color="#c06bff" stop-opacity="0"/></linearGradient><linearGradient id="swGrad" x1="0" x2="1"><stop offset="0" stop-color="#8fe6ff" stop-opacity="0"/><stop offset=".35" stop-color="#8fe6ff"/><stop offset=".7" stop-color="#ff8fd0"/><stop offset="1" stop-color="#ffcf8f" stop-opacity="0"/></linearGradient></defs></svg>
   <canvas id="gl"></canvas>
   <div id="hud" hidden>
+    <svg class="hud-curve top" viewBox="0 0 1000 40" preserveAspectRatio="none"><path d="M0 30 C 250 30, 330 6, 500 6 S 750 30, 1000 30"/></svg>
+    <svg class="hud-curve bot" viewBox="0 0 1000 40" preserveAspectRatio="none"><path d="M0 30 C 250 30, 330 6, 500 6 S 750 30, 1000 30"/></svg>
     <div class="top">
       <div><span class="lbl">1P</span> <span id="score">0</span></div>
       <div><span class="lbl">HI</span> <span id="hi">0</span></div>
@@ -40,12 +43,14 @@
 
   <div id="boot" class="screen">
     <h1 class="logo">VOIDBLOOM</h1>
+    <svg class="swoosh" viewBox="0 0 1200 90" preserveAspectRatio="none"><path d="M20 60 C 300 10, 520 90, 760 40 S 1080 20, 1180 50" stroke="url(#swGrad)" stroke-width="3"/><path d="M80 72 C 360 40, 560 96, 820 58 S 1100 44, 1160 62" stroke="url(#swGrad)" stroke-width="1.4" opacity=".7"/><path d="M140 50 C 400 26, 600 70, 860 30 S 1060 30, 1120 38" stroke="url(#swGrad)" stroke-width=".8" opacity=".5"/></svg>
     <p class="blink">クリック／いずれかのキー／ボタンで開始</p>
     <p class="small">音が鳴ります。フルスクリーンは F キー</p>
     <span class="made">MADE WITH CLAUDE</span>
   </div>
   <div id="title" class="screen" hidden>
     <h1 class="logo">VOIDBLOOM</h1>
+    <svg class="swoosh" viewBox="0 0 1200 90" preserveAspectRatio="none"><path d="M20 60 C 300 10, 520 90, 760 40 S 1080 20, 1180 50" stroke="url(#swGrad)" stroke-width="3"/><path d="M80 72 C 360 40, 560 96, 820 58 S 1100 44, 1160 62" stroke="url(#swGrad)" stroke-width="1.4" opacity=".7"/><path d="M140 50 C 400 26, 600 70, 860 30 S 1060 30, 1120 38" stroke="url(#swGrad)" stroke-width=".8" opacity=".5"/></svg>
     <p class="sub">虚空に咲いた金属の花を焼き払え</p>
     <ul class="menu" id="menu"></ul>
     <p class="help" id="help"></p>

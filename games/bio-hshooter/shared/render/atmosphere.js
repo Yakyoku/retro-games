@@ -52,7 +52,7 @@ export class Atmosphere {
         uniforms: { tN: { value: noiseTexture() }, uTime: U.time, uCol: { value: fogC.clone().multiplyScalar(0.9) }, uTox: { value: tox.clone() }, uD: { value: dens }, uZ: { value: z }, uFlash: { value: 0 }, uBeat: { value: 0 } },
         vertexShader: 'varying vec2 vW; void main(){ vec4 wp = modelMatrix*vec4(position,1.); vW = position.xy; gl_Position = projectionMatrix*viewMatrix*wp; }',
         fragmentShader: `uniform sampler2D tN; uniform float uTime, uD, uZ, uFlash, uBeat; uniform vec3 uCol, uTox; varying vec2 vW;
-          void main(){ vec2 p = vW * 0.0045;
+          void main(){ vec2 p = vW * 0.0045; p += 0.035 * vec2(sin(p.y * 9.0 + uTime * 0.05), cos(p.x * 7.0 - uTime * 0.04));
             float n = texture2D(tN, p + vec2(uTime * 0.003, uZ * 0.013), 2.0).r, m = texture2D(tN, p * 1.9 - vec2(uTime * 0.005, uTime * 0.002), 1.5).r;
             float v = n * 0.65 + m * 0.35;
             float f = smoothstep(0.38, 0.8, v);                       // 霧の濃さ（なめらかに）
@@ -64,15 +64,35 @@ export class Atmosphere {
       pl.position.set((x0 + x1) / 2, FIELD_H / 2, z); pl.renderOrder = -4; pl.frustumCulled = false;
       this.add(pl, W.scroll); this.fogMats.push(m);
     }
+    // --- 流れる光の筋（ゆるい曲線の細い帯。帯に沿って光が流れる）
+    {
+      const nF = this.vr || this.lite ? 6 : 12, pos = [], uvs = [], idx = []; let v = 0;
+      for (let f = 0; f < nF; f++) {
+        const z = rnd(-22, -70), y0 = rnd(-6, FIELD_H + 6), amp = rnd(2, 7), wl = rnd(30, 70), ph = rnd(0, 6.28), w = rnd(0.06, 0.16), seg = 260;
+        for (let i = 0; i <= seg; i++) {
+          const x = x0 + (x1 - x0) * i / seg, y = y0 + Math.sin(x / wl + ph) * amp + Math.sin(x / (wl * 0.37) + ph * 2) * amp * 0.25;
+          const dy = Math.cos(x / wl + ph) * amp / wl, nl = Math.hypot(1, dy);
+          pos.push(x + dy / nl * w, y - 1 / nl * w, z, x - dy / nl * w, y + 1 / nl * w, z); uvs.push(i / seg * 40 + f * 3.1, -1, i / seg * 40 + f * 3.1, 1);
+          if (i < seg) { idx.push(v, v + 1, v + 2, v + 1, v + 3, v + 2); } v += 2;
+        }
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); g.setIndex(idx);
+      const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, toneMapped: false, side: THREE.DoubleSide,
+        uniforms: { uTime: U.time, uCol: { value: tox.clone().lerp(glow, 0.4) } },
+        vertexShader: 'varying vec2 vU; void main(){ vU = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+        fragmentShader: 'uniform float uTime; uniform vec3 uCol; varying vec2 vU; void main(){ float e = 1.0 - abs(vU.y); float flow = pow(0.5 + 0.5 * sin(vU.x * 1.3 - uTime * 0.9), 6.0); float a = e * e * (0.06 + 0.32 * flow); gl_FragColor = vec4(uCol * a, a); }' });
+      const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = -3; this.add(mesh, W.scroll);
+    }
     // --- 巨大な花の影（はるか奥に立つ茎と触手。霧に溶けて黒い影になる）
     const silMat = new THREE.MeshBasicMaterial({ color: fogC.clone().multiplyScalar(0.35) }); // 光を受けない黒い影（霧で奥ほど霧の色に溶ける）
     const eyesPos = [], eyesPh = [];
     for (let x = x0 + 40; x < x1; x += rnd(45, 75)) {
       const z = rnd(-75, -115), h = rnd(25, 55), top = Math.random() < 0.5;
       const pts = []; const sway = rnd(-12, 12), base = top ? FIELD_H + 40 : -40;
-      for (let k = 0; k <= 6; k++) { const t = k / 6; pts.push(new THREE.Vector3(x + sway * Math.sin(t * 2.2) + t * rnd(-4, 4), base + (top ? -1 : 1) * h * t, z + Math.sin(t * 3) * 6)); }
+      const s2 = rnd(4, 9) * (Math.random() < 0.5 ? -1 : 1);
+      for (let k = 0; k <= 8; k++) { const t = k / 8; pts.push(new THREE.Vector3(x + sway * Math.sin(t * 2.2) + s2 * Math.sin(t * Math.PI * 2), base + (top ? -1 : 1) * h * t, z + Math.sin(t * 3) * 6)); }
       const curve = new THREE.CatmullRomCurve3(pts);
-      const R = rnd(3, 6.5), tub = 40, rad = 10, g = new THREE.TubeGeometry(curve, tub, R, rad, false);
+      const R = rnd(3, 6.5), tub = 80, rad = 14, g = new THREE.TubeGeometry(curve, tub, R, rad, false);
       // 先へ行くほど細く（茎・触手らしく）
       const pos = g.attributes.position, tmp = new THREE.Vector3();
       for (let i = 0; i < pos.count; i++) { const t = Math.floor(i / (rad + 1)) / tub; const c = curve.getPointAt(Math.min(1, t)); tmp.fromBufferAttribute(pos, i).sub(c).multiplyScalar(Math.max(0.08, 1 - t * 0.92)).add(c); pos.setXYZ(i, tmp.x, tmp.y, tmp.z); }

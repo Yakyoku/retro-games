@@ -17,15 +17,22 @@
     radial-gradient(900px 600px at 12% 82%, rgba(79,227,255,.10), transparent 60%),
     radial-gradient(600px 400px at 50% 50%, rgba(125,255,176,.05), transparent 70%), var(--bg); }
   canvas#stars { position:fixed; inset:0; z-index:-1; width:100%; height:100%; }
+  /* 背景の流線: ゆっくり流れ、呼吸するように明滅する */
+  svg.flow { position:fixed; inset:0; width:100%; height:100%; z-index:-1; pointer-events:none; opacity:.55; }
+  svg.flow path { fill:none; stroke:url(#fg); stroke-width:1.4; stroke-dasharray:420 900; animation: flow 18s linear infinite, pulse 7s ease-in-out infinite; }
+  svg.flow path.b { stroke-width:.8; animation-duration: 24s, 9s; opacity:.6 } svg.flow path.c { stroke-width:1; animation-duration: 21s, 8s; animation-direction: reverse, normal } svg.flow path.d { stroke-width:.6; animation-duration: 30s, 11s; opacity:.5 }
+  @keyframes flow { to { stroke-dashoffset: -2640; } } @keyframes pulse { 50% { opacity:.35 } }
   header { padding:clamp(40px,9vh,120px) clamp(20px,6vw,96px) 24px; }
   .logo { font:800 clamp(48px,9vw,148px)/0.95 ui-monospace,"Cascadia Mono",Consolas,monospace; letter-spacing:.14em; margin:0;
     background:linear-gradient(100deg,#e9f6ff 0%,#9be9ff 35%,#ff8fd0 70%,#ffcf8f 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
     filter:drop-shadow(0 0 24px rgba(79,227,255,.25)); }
   .tag { color:var(--dim); margin:18px 0 0; max-width:60ch; font-size:clamp(14px,1.3vw,19px); }
   main { flex:1; padding:12px clamp(20px,6vw,96px) 48px; display:grid; gap:clamp(16px,2vw,32px); grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); align-content:start; }
-  a.card { position:relative; display:block; text-decoration:none; color:inherit; padding:clamp(24px,2.6vw,44px); border:1px solid var(--line); border-radius:22px;
+  a.card { position:relative; display:block; text-decoration:none; color:inherit; padding:clamp(24px,2.6vw,44px); border:1px solid var(--line); border-radius:34px 34px 34px 8px;
     background:linear-gradient(160deg,rgba(18,26,36,.85),rgba(8,10,16,.9)); overflow:hidden; transition:transform .25s, border-color .25s, box-shadow .25s; min-height:260px; }
   a.card:hover, a.card:focus-visible { transform:translateY(-4px); border-color:var(--c); box-shadow:0 18px 60px -20px var(--c); outline:none; }
+  a.card::before { content:""; position:absolute; left:8%; right:8%; top:0; height:42px; border-top:1.5px solid var(--c); border-radius:50% 50% 0 0 / 100% 100% 0 0; opacity:.55; transition: opacity .25s, left .4s, right .4s; }
+  a.card:hover::before { opacity:1; left:2%; right:2%; }
   a.card::after { content:""; position:absolute; right:-80px; top:-80px; width:260px; height:260px; border-radius:50%; background:radial-gradient(circle,var(--c),transparent 70%); opacity:.18; }
   .card h2 { margin:0 0 6px; font-size:clamp(24px,2.2vw,38px); letter-spacing:.04em; }
   .card .en { font:600 13px ui-monospace,Consolas,monospace; letter-spacing:.3em; color:var(--c); }
@@ -43,6 +50,11 @@
 </head>
 <body>
 <div class="sky"></div><canvas id="stars"></canvas>
+<svg class="flow" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs><linearGradient id="fg" x1="0" x2="1"><stop offset="0" stop-color="#4fe3ff" stop-opacity="0"/><stop offset=".4" stop-color="#4fe3ff"/><stop offset=".75" stop-color="#ff4fb4"/><stop offset="1" stop-color="#ff4fb4" stop-opacity="0"/></linearGradient></defs>
+  <path d="M-50 640 C 300 520, 520 760, 860 600 S 1380 420, 1680 520"/><path d="M-50 700 C 280 600, 560 820, 900 660 S 1400 520, 1680 600" class="b"/>
+  <path d="M-50 220 C 340 320, 640 120, 980 230 S 1420 360, 1680 260" class="c"/><path d="M-50 300 C 320 380, 700 200, 1000 300 S 1440 420, 1680 340" class="d"/>
+</svg>
 <header>
   <h1 class="logo">VOIDBLOOM</h1>
   <p class="tag">虚空に咲いた金属の花を焼き払え。敵弾を防ぐ着脱ユニット「SEED」、溜め撃ち「BLOOM BURST」、色で性質の変わる 3 種のレーザー。配置を覚えて抜ける、遅く重たい横スクロールシューティング。</p>

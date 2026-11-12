@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0807">
+<title>ポンプ・パトロール 3D / VR</title>
+<script src="../../shared/error-overlay.js"></script>
+<link rel="stylesheet" href="../../shared/ui.css">
+<script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }</script>
+<style>
+  .cross { position:fixed; left:50%; top:50%; width:26px; height:26px; margin:-13px 0 0 -13px; pointer-events:none; z-index:6; }
+  .cross::before, .cross::after { content:""; position:absolute; background:#fff; box-shadow:0 0 3px #000; }
+  .cross::before { left:12px; top:2px; width:2px; height:22px; } .cross::after { top:12px; left:2px; height:2px; width:22px; }
+  .cross.dig::before, .cross.dig::after { background:#ffc93c; } .cross.pump::before, .cross.pump::after { background:#5fe0b5; }
+  #mapc { position:fixed; right:max(12px,env(safe-area-inset-right)); bottom:max(12px,env(safe-area-inset-bottom)); width:min(26vmin,260px); height:min(26vmin,260px); z-index:6; pointer-events:none; }
+  #mapc.big { width:min(80vmin,760px); height:min(80vmin,760px); right:50%; bottom:50%; transform:translate(50%,50%); }
+  .tool { position:fixed; left:50%; bottom:max(14px,env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:6; pointer-events:none; color:var(--dim); font-size:13px; }
+  .vrnote { position:fixed; left:12px; bottom:12px; z-index:6; font-size:13px; color:var(--dim); pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas class="game" id="cv"></canvas>
+<div class="hud" id="hud" hidden>
+  <div class="row">
+    <div class="box"><div class="lbl">SCORE</div><div class="val" id="h-score">0</div><div class="lives" id="h-lives"></div></div>
+    <div class="box" style="text-align:center"><div class="lbl" id="h-stage">STAGE 1</div><div class="hint" id="h-sname"></div></div>
+    <div class="box" style="text-align:right"><div class="lbl">HI-SCORE</div><div class="val hi" id="h-hi">0</div><div class="hint" id="h-diff"></div></div>
+  </div>
+  <div class="goal" id="h-goal"></div>
+  <div class="cross" id="cross"></div>
+  <canvas id="mapc" width="520" height="520"></canvas>
+</div>
+<div class="toast" id="toast"></div>
+<div class="loading" id="loading"><div>読み込み中…（3D の地層を準備しています）</div><div class="bar"><i></i></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

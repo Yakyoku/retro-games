@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>ORBITAL WINGS</title>
+<style>
+  :root { --bg:#03050c; --ink:#e8eeff; --dim:#98a4c2; --line:#1e2a4a; --blue:#5ab0ff; --gold:#ffc23a; --red:#ff5a3a;
+    --font:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI","Meiryo",system-ui,sans-serif; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.65 var(--font); }
+  body { min-height:100vh; display:flex; flex-direction:column; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  canvas#bg { position:fixed; inset:0; width:100%; height:100%; z-index:-1; }
+  header { padding:clamp(36px,8vh,110px) clamp(20px,6vw,96px) 10px; }
+  .logo { margin:0; line-height:0.9; font-weight:900; font-style:italic; letter-spacing:.05em; }
+  .logo span { display:block; }
+  .logo .a { font-size:clamp(52px,9vw,150px); background:linear-gradient(#fff,#8fc8ff 55%,#2a5aff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .logo .b { font-size:clamp(60px,10.5vw,176px); background:linear-gradient(#fff6c0,#ffb02a 50%,#d8301a); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  /* 制作注記（タイトルのすぐ下。通常表示で読める大きさ・コントラスト） */
+  .made { margin:18px 0 0; display:inline-block; padding:8px 16px; border:1px solid #6a7ac8; border-radius:10px; background:rgba(20,28,70,.75); color:#fff; font-size:clamp(15px,1.25vw,20px); font-weight:600; }
+  .unofficial { margin:10px 0 0; color:#ffd9a0; font-size:clamp(14px,1.1vw,18px); }
+  .tag { color:var(--dim); max-width:62ch; margin:14px 0 0; }
+  main { flex:1; padding:22px clamp(20px,6vw,96px) 40px; display:grid; gap:clamp(16px,2vw,32px); grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); align-content:start; }
+  a.card { position:relative; display:block; color:inherit; text-decoration:none; padding:clamp(22px,2.4vw,40px); border:2px solid var(--line); border-radius:20px; background:linear-gradient(160deg,rgba(16,24,48,.9),rgba(6,8,18,.92)); transition:transform .2s,border-color .2s,box-shadow .2s; min-height:250px; }
+  a.card:hover, a.card:focus-visible { transform:translateY(-3px); border-color:var(--c); box-shadow:0 16px 50px -18px var(--c); outline:none; }
+  .card .en { font:700 13px ui-monospace,Menlo,Consolas,monospace; letter-spacing:.3em; color:var(--c); }
+  .card h2 { margin:4px 0 0; font-size:clamp(24px,2.2vw,36px); }
+  .card p { color:var(--dim); margin:10px 0 0; }
+  .card ul { margin:12px 0 0; padding-left:1.1em; color:#b8c4de; font-size:15px; }
+  .card .go { position:absolute; right:24px; bottom:18px; font:700 14px ui-monospace,monospace; letter-spacing:.2em; color:var(--c); }
+  .badge { display:inline-block; margin-left:8px; padding:1px 10px; border-radius:99px; font-size:12px; vertical-align:middle; background:#1a2a4a; color:#9ad8ff; }
+  .badge.ok { background:var(--gold); color:#000; }
+  section.how { padding:0 clamp(20px,6vw,96px) 32px; color:var(--dim); font-size:15px; max-width:110ch; }
+  section.how h3 { color:var(--ink); font-size:17px; margin:0 0 6px; }
+  footer { padding:18px clamp(20px,6vw,96px) 26px; border-top:1px solid var(--line); color:#c8d0e8; font-size:15px; display:flex; flex-direction:column; gap:4px; background:rgba(3,5,12,.85); }
+  footer .small { color:var(--dim); font-size:13px; }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<header>
+  <h1 class="logo"><span class="a">ORBITAL</span><span class="b">WINGS</span></h1>
+  <p class="made">このゲームは、Claude Codeのクラウドセッションで制作しました。</p>
+  <p class="unofficial">初代グラディウスに着想を得た非公式作品です。コナミの公式作品ではありません。</p>
+  <p class="tag">カプセルを集めてゲージを進め、自分で装備を選ぶ横スクロールシューティング。最大 4 機のオプション、地上を走るミサイル、切り替えるダブルとレーザー、前方を守るシールド。火山から機械要塞まで全 7 ステージ。</p>
+</header>
+<main>
+  <a class="card" href="2d/" style="--c:var(--gold)">
+    <div class="en">2D · DESKTOP / iPad</div>
+    <h2>2D 版で遊ぶ</h2>
+    <p>正面から見る横スクロール。実解像度のベクター描画で、4K の大画面でもにじみません。</p>
+    <ul><li>キーボード: 矢印 / WASD 移動・Z / Space 射撃・X / Shift パワーアップ・Esc 一時停止</li>
+      <li>ゲームパッド: 左スティック / 十字・A 射撃・B パワーアップ・Start</li>
+      <li>iPad: 左半分をなぞって移動、右のボタンで射撃とパワーアップ（同時に使えます）</li></ul>
+    <span class="go">PLAY →</span>
+  </a>
+  <a class="card" href="3d/" style="--c:var(--blue)">
+    <div class="en">3D · META QUEST 3 · WEBXR</div>
+    <h2>3D 版で遊ぶ<span class="badge" id="xr">VR 対応を確認中</span></h2>
+    <p>立体の戦場を上下左右と奥・手前に飛ぶ。Quest 3 のブラウザーでは「VR で遊ぶ」から没入表示に入れます。VR 非対応の環境でも通常画面で同じ 3D 戦場を遊べます。</p>
+    <ul><li>Quest 3: 左スティック 移動・右スティック上下 奥/手前・右トリガー 射撃・右 A パワーアップ・右 B 一時停止</li>
+      <li>通常画面: 2D 版と同じ操作＋ E 奥 / Q 手前（ゲームパッドは右スティック上下）</li></ul>
+    <span class="go">PLAY →</span>
+  </a>
+</main>
+<section class="how">
+  <h3>遊び方</h3>
+  <p>指定の編隊を全滅させるか赤い運搬機を倒すとカプセルが出ます。取るたびに下のゲージの選択が SPEED → MISSILE → DOUBLE → LASER → OPTION → SHIELD と進み、パワーアップのボタンで選択中の装備を得ます。
+  難易度は EASY / NORMAL / ARCADE。練習モードは本編で到達したステージから始められ、記録は本編と分けて保存されます。</p>
+</section>
+<footer>
+  <div>このゲームは、Claude Codeのクラウドセッションで制作しました。</div>
+  <div>初代グラディウスに着想を得た非公式作品です。コナミの公式作品ではありません。</div>
+  <div class="small">ORBITAL WINGS（仮称）／ GradiusInspired_Cloud ／ 描画 three.js（MIT）・Canvas 2D・WebXR ／ 曲・効果音・機体・敵・地形はすべて新規制作 ／ <span id="ver"></span></div>
+</footer>
+<script>
+  // VR 対応の表示
+  (async () => {
+    const b = document.getElementById('xr');
+    try { const ok = navigator.xr && await navigator.xr.isSessionSupported('immersive-vr'); b.textContent = ok ? 'このブラウザで VR 可' : 'VR なし（通常画面で遊べます）'; if (ok) b.classList.add('ok'); }
+    catch { b.textContent = 'VR なし（通常画面で遊べます）'; }
+  })();
+  fetch('build-info.json').then((r) => r.ok ? r.json() : null).then((i) => { if (i) document.getElementById('ver').textContent = `build ${i.build}${i.commit ? ' · ' + i.commit : ''}`; }).catch(() => {});
+  // 背景の星
+  const c = document.getElementById('bg'), x = c.getContext('2d');
+  let W, H, st = [];
+  const rs = () => { const d = Math.min(devicePixelRatio || 1, 2); W = c.width = innerWidth * d; H = c.height = innerHeight * d; st = Array.from({ length: 260 }, () => [Math.random() * W, Math.random() * H, Math.random() * 3 + 0.5]); };
+  rs(); addEventListener('resize', rs);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (function f() { x.fillStyle = '#03050c'; x.fillRect(0, 0, W, H); for (const s of st) { s[0] -= s[2] * (reduce ? 0 : 0.5); if (s[0] < 0) s[0] = W; x.fillStyle = `rgba(200,220,255,${0.25 + s[2] / 5})`; x.fillRect(s[0], s[1], s[2], s[2]); } requestAnimationFrame(f); })();
+</script>
+</body>
+</html>

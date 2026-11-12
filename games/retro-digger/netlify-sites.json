@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "retro-digger-pump-patrol", "siteId": "142a4957-ffb6-45ed-bf0b-b5b7d60e1304", "url": "https://retro-digger-pump-patrol.netlify.app/",
+      "env": { "GAME": "retro-digger", "VARIANT": "all" }, "note": "1 サイトに入口・2D・通常 3D／VR・設定資料・サウンドテストを同居。同名系の pump-patrol-expedition / pumppatrol-unity-20261108 は別物（触らない）" }
+  ]
+}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Skyward Ruins — 制作状況</title>
+  <meta name="description" content="Unity で制作中の縦スクロール・シューティング Skyward Ruins の制作状況と素材の確認ページ">
+  <link rel="stylesheet" href="status.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>SKYWARD RUINS</h1>
+    <p class="sub">空の遺跡 — 対空と対地を撃ち分ける縦スクロール・シューティング（2D / 3D / Meta Quest 3 WebXR）</p>
+    <p class="notice">このゲームは Claude Code のクラウドセッションで制作しました。</p>
+    <div id="state" class="state">
+      <strong>Unity WebGL 版：</strong><span id="state-text">確認中…</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>このページについて</h2>
+      <p>ゲーム本体は Unity（6000.0 LTS・URP・WebXR Export）で作っています。このページは<strong>遊べるゲームではなく</strong>、Unity 版を公開するまでの制作状況です。
+        下の画像は、Unity とは別の確認用の描画（ゲーム論理の C# とドット絵・3D モデルを重ねたもの）で撮った写真で、Unity での表示そのものではありません。</p>
+      <p>Unity のビルドには Unity のライセンス（無料の Personal で可）が必要です。クラウドの作業環境で Unity Editor 6000.0.64f1 の起動までは確認しましたが、
+        ライセンスが未設定のためビルドは止まっています（「No valid Unity Editor license found」）。</p>
+    </section>
+
+    <section>
+      <h2>2D アーケード（論理画面 224×288）</h2>
+      <p class="cap">ボットが実際のエリアデータで遊んだ場面を、ドット絵で合成。地表は 16 エリアとも同じ描画規則で、森・草原・川・砂地・道路・基地・地上絵を描き分けています。</p>
+      <div class="grid g3" id="frames2d"></div>
+    </section>
+
+    <section>
+      <h2>3D（斜め見下ろし）</h2>
+      <p class="cap">同じ場面を立体モデルで再構成。照準は地上の着弾面に置き、要塞のコアが開いた瞬間が爆撃のチャンスです。</p>
+      <div class="grid g2" id="frames3d"></div>
+    </section>
+
+    <section>
+      <h2>16 エリアの地表（縮小・下が開始地点）</h2>
+      <p class="cap">赤＝地上物、黄＝隠し対象（オベリスク・旗）、紫＝大型要塞。地形・敵の組み合わせ・要塞・発見要素がエリアごとに違います。</p>
+      <img class="wide pixel" src="preview/areas-overview.png" alt="16 エリアの地表の一覧" loading="lazy">
+    </section>
+
+    <section>
+      <h2>キャラクター（独自デザイン）</h2>
+      <div class="grid g2">
+        <figure><img class="pixel" src="preview/sprites-sheet.png" alt="ドット絵の一覧" loading="lazy"><figcaption>ドット絵（4 倍表示）：自機・空中敵 7 種・地上物・要塞・コアの開閉・弾・照準・爆発</figcaption></figure>
+        <figure><img src="preview/models-gallery.png" alt="3D モデルの一覧" loading="lazy"><figcaption>3D モデル（27 点）：ドット絵と同じ輪郭・配色を立体化</figcaption></figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>音（すべて新規に合成）</h2>
+      <p class="cap">32 サンプル×4bit の波形表を読む 3 声＋ノイズの独自シンセで作った WAV です。原曲・原音は使っていません。</p>
+      <div id="sounds" class="sounds"></div>
+      <figure><img class="wide" src="preview/spec-compare.png" alt="対空発射・対地発射・曲の周波数分布" loading="lazy"><figcaption>周波数分布（上から 対空発射／対地発射／プレイ曲）：対空は短く高い成分、対地は低く長い成分で、耳でも区別できるようにしています</figcaption></figure>
+    </section>
+
+    <section>
+      <h2>検証の状況</h2>
+      <ul class="checks">
+        <li class="ok">ゲーム論理（C#・Unity 非依存）：.NET 8 で 209 項目のテストに合格（同時操作・対空/対地の分離・爆撃位置の固定・すり抜け防止・残機の単一減少・無敵・隠し対象・要塞・16 エリア→周回・難易度・決定性）</li>
+        <li class="ok">Unity 側の C#（実行時・エディタ処理・テスト）：Unity 6000.0.64f1 同梱の DLL と各パッケージのソースに対してコンパイル成功（エラー 0）</li>
+        <li class="wait">Unity でのシーン生成・WebGL ビルド・ブラウザでの実プレイ：ライセンス設定待ち</li>
+        <li class="wait">Meta Quest 3 実機：未確認（実機へのアクセスなし）</li>
+      </ul>
+    </section>
+  </main>
+  <footer><span id="build"></span></footer>
+  <script>
+    fetch('build-info.json').then(r => r.json()).then(b => {
+      document.getElementById('state-text').textContent = b.unityBuild ? '公開中（トップページで遊べます）' : '未公開（Unity のライセンス設定待ち。この下は制作状況です）';
+      document.getElementById('state').classList.add(b.unityBuild ? 'on' : 'off');
+      document.getElementById('build').textContent = 'build ' + b.commit.slice(0, 7) + ' / ' + b.builtAt;
+    }).catch(() => { document.getElementById('state-text').textContent = '不明'; });
+    const f2 = document.getElementById('frames2d');
+    ['frame-play68s', 'frame-play95s', 'frame-fortress'].forEach(n => f2.insertAdjacentHTML('beforeend', `<figure><img class="pixel" src="preview/${n}.png" alt="${n}" loading="lazy"></figure>`));
+    const f3 = document.getElementById('frames3d');
+    ['scene3d-3', 'scene3d-1'].forEach(n => f3.insertAdjacentHTML('beforeend', `<figure><img src="preview/${n}.png" alt="${n}" loading="lazy"></figure>`));
+    fetch('audio.json').then(r => r.json()).then(m => {
+      const el = document.getElementById('sounds');
+      Object.entries(m).forEach(([k, v]) => el.insertAdjacentHTML('beforeend', `<div class="snd"><div><b>${v.desc || k}</b><span>${k}.wav・${v.len}s${v.loop ? '・ループ' : ''}</span></div><audio controls preload="none" src="audio/${k}.wav"${v.loop ? ' loop' : ''}></audio></div>`));
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0807">
+<meta name="description" content="地中を掘って道を作り、ポンプで敵を膨らませ、岩を落として切り抜ける掘削アクション。2D・3D・Meta Quest 3 VR。">
+<title>地底探検：ポンプ・パトロール</title>
+<script src="shared/error-overlay.js"></script>
+<style>
+  :root { --bg:#0b0807; --ink:#f6efe6; --dim:#c2b2a2; --line:rgba(255,220,170,.18); --amber:#ffc93c; --mint:#5fe0b5; --coral:#ff7a3a; --violet:#a99bff; }
+  * { box-sizing:border-box; }
+  html { background:var(--bg); }
+  html,body { margin:0; color:var(--ink); font:16px/1.6 system-ui,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",sans-serif; }
+  body { min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; overflow-x:hidden; }
+  .strata { position:fixed; inset:0; z-index:-1; background:
+    linear-gradient(180deg,#2a4f9a 0,#6fa8e8 13%,#5fae3a 13.4%,#5fae3a 14.2%,#c98a3c 14.2%,#b06a2a 35%,#8f4f22 58%,#5a2f1a 80%,#2a160c 100%); }
+  .strata::after { content:""; position:absolute; inset:0; background:radial-gradient(120% 80% at 50% 45%,rgba(11,8,7,.25),rgba(11,8,7,.88) 70%); }
+  canvas#deco { position:fixed; inset:0; width:100%; height:100%; z-index:-1; opacity:.55; }
+  header { padding:clamp(28px,7vh,90px) clamp(18px,6vw,96px) 10px; }
+  .kicker { font:700 clamp(11px,1.1vw,15px)/1 ui-monospace,Consolas,monospace; letter-spacing:.34em; color:var(--amber); }
+  h1 { margin:10px 0 0; font-size:clamp(34px,6.4vw,104px); line-height:1.02; letter-spacing:.01em; font-weight:900;
+    text-shadow:0 4px 0 #5a2a10, 0 10px 30px rgba(0,0,0,.6); }
+  h1 .sub { display:block; font-size:.42em; color:var(--amber); letter-spacing:.08em; margin-top:.25em; text-shadow:0 3px 0 #5a2a10; }
+  .credit { display:inline-flex; align-items:center; gap:10px; margin:18px 0 0; padding:10px 18px; border-radius:14px;
+    background:rgba(12,8,6,.82); border:1px solid var(--line); color:#fff; font-size:clamp(15px,1.5vw,20px); font-weight:600; max-width:100%; }
+  .credit::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--mint); flex:none; box-shadow:0 0 12px var(--mint); }
+  .tag { color:#eadfd2; margin:16px 0 0; max-width:62ch; font-size:clamp(14px,1.35vw,19px); text-shadow:0 1px 2px #000; }
+  main { flex:1; padding:clamp(16px,2.5vh,32px) clamp(18px,6vw,96px) 32px; display:grid; gap:clamp(14px,1.8vw,28px);
+    grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); align-content:start; }
+  a.card { position:relative; display:flex; flex-direction:column; text-decoration:none; color:inherit; padding:clamp(20px,2.2vw,36px); border:2px solid var(--line); border-radius:24px;
+    background:linear-gradient(165deg,rgba(32,22,16,.92),rgba(12,8,6,.95)); overflow:hidden; transition:transform .2s, border-color .2s, box-shadow .2s; min-height:230px; }
+  a.card:hover, a.card:focus-visible { transform:translateY(-4px); border-color:var(--c); box-shadow:0 18px 60px -20px var(--c); outline:none; }
+  a.card::after { content:""; position:absolute; right:-70px; top:-70px; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle,var(--c),transparent 70%); opacity:.22; }
+  .card .en { font:700 12px ui-monospace,Consolas,monospace; letter-spacing:.3em; color:var(--c); }
+  .card h2 { margin:6px 0 4px; font-size:clamp(22px,2vw,34px); }
+  .card p { color:var(--dim); margin:8px 0 0; font-size:clamp(14px,1.1vw,17px); }
+  .card .keys { margin-top:10px; font-size:13px; color:#d6c8b8; }
+  .card .go { margin-top:auto; padding-top:16px; font:800 15px ui-monospace,monospace; color:var(--c); letter-spacing:.2em; }
+  .card .badge { display:inline-block; margin-left:8px; padding:2px 10px; border-radius:99px; font-size:12px; background:var(--c); color:#000; vertical-align:middle; font-weight:700; }
+  .card.off { opacity:.45; pointer-events:none; }
+  .sub { padding:0 clamp(18px,6vw,96px) 28px; display:flex; flex-wrap:wrap; gap:12px; }
+  .sub a { color:var(--ink); text-decoration:none; padding:10px 18px; border:1px solid var(--line); border-radius:99px; background:rgba(12,8,6,.8); font-size:15px; }
+  .sub a:hover, .sub a:focus-visible { border-color:var(--amber); outline:none; }
+  footer { padding:16px clamp(18px,6vw,96px) max(16px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); color:var(--dim); font-size:13px; background:rgba(11,8,7,.9); }
+  @media (max-height:560px) and (orientation:landscape) { header { padding-top:18px; } h1 { font-size:clamp(28px,5vw,60px); } a.card { min-height:180px; } }
+</style>
+</head>
+<body>
+<div class="strata"></div><canvas id="deco" aria-hidden="true"></canvas>
+<header>
+  <div class="kicker">PUMP PATROL · UNDERGROUND ARCADE</div>
+  <h1>地底探検<span class="sub">ポンプ・パトロール</span></h1>
+  <p class="credit" id="credit">このゲームはClaude Codeのクラウドセッションで制作しました。</p>
+  <p class="tag">土を掘って道を作り、敵を誘い込む。ポンプで膨らませて止め、岩の支えを掘ってまとめて落とす。2D の断面図と、一人称の 3D 坑道（Meta Quest 3 では VR）で遊べます。</p>
+</header>
+<main>
+  <a class="card" id="card-2d" href="experiments/01-arcade-2d/" style="--c:var(--amber)">
+    <div class="en">ARCADE 2D</div>
+    <h2>2D で遊ぶ</h2>
+    <p>地下の断面を正面から見て、上下左右に掘り進む。パソコン・iPad（横向き）向け。</p>
+    <div class="keys">矢印／WASD 移動・Space ポンプ・Esc 一時停止／ゲームパッド／タッチ</div>
+    <span class="go">PLAY 2D →</span>
+  </a>
+  <a class="card" id="card-3d" href="experiments/02-underground-3d/" style="--c:var(--mint)">
+    <div class="en">FIRST PERSON 3D</div>
+    <h2>3D 坑道で遊ぶ</h2>
+    <p>一人称で坑道を歩き、目の前の壁を掘る。パソコンのブラウザ向け（マウス・キーボード、ゲームパッド）。</p>
+    <div class="keys">WASD 移動・マウス 視点・左クリック 掘る／ポンプ・M マップ</div>
+    <span class="go">PLAY 3D →</span>
+  </a>
+  <a class="card" id="card-vr" href="experiments/02-underground-3d/?vr=1" style="--c:var(--violet)">
+    <div class="en">META QUEST 3 · WEBXR</div>
+    <h2>VR で遊ぶ<span class="badge" id="xr-badge" hidden>このブラウザで VR 可</span></h2>
+    <p>Quest 3 のブラウザから、そのまま没入型 VR へ。アプリのインストールは不要。座っても立っても遊べます。</p>
+    <div class="keys">利き手トリガー 掘る／ポンプ・反対スティック 移動・利き手スティック 向きを変える</div>
+    <span class="go">ENTER VR →</span>
+  </a>
+</main>
+<nav class="sub">
+  <a href="sound-test.html">サウンドテスト</a>
+  <a href="gallery.html">キャラクター設定資料</a>
+</nav>
+<footer>
+  <div>『地底探検：ポンプ・パトロール』は、1982 年のアーケードゲーム『ディグダグ』の遊びの仕組み（掘る・膨らませる・岩を落とす）に影響を受けたオリジナル作品です。キャラクター・曲・効果音・ステージはこの作品のために作りました。公式製品や公式提携・監修の作品ではありません。</div>
+  <div id="ver" style="margin-top:6px;opacity:.75"></div>
+</footer>
+<script type="module">
+  import { drawHero, drawChaser, drawFire } from './shared/sprites2d.js';
+  const c = document.getElementById('deco'), g = c.getContext('2d');
+  let W, H, dpr;
+  function rs() { dpr = Math.min(devicePixelRatio || 1, 2); W = c.width = innerWidth * dpr; H = c.height = innerHeight * dpr; }
+  rs(); addEventListener('resize', rs);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function f(now) {
+    const t = now / 1000;
+    g.clearRect(0, 0, W, H);
+    const S = Math.min(W, H) * 0.09, y = H * 0.82;
+    const x = ((t * 0.06) % 1.4 - 0.2) * W;
+    g.fillStyle = 'rgba(20,12,8,.7)'; g.fillRect(0, y - S * 0.55, W, S * 1.1);
+    drawHero(g, x, y, S, { face: 'right', moving: true, walk: t, pumping: -1 }, t);
+    drawChaser(g, x + S * 2.2, y, S, { state: 'walk', anim: t, face: 'left', amt: 0.25 + 0.2 * Math.sin(t * 2), look: [-1, 0] }, t);
+    drawFire(g, x + S * 4.4, y, S, { state: 'walk', anim: t, face: 'left', amt: 0, look: [-1, 0], t: 0 }, t);
+    if (!reduce) requestAnimationFrame(f);
+  }
+  requestAnimationFrame(f);
+  fetch('build-info.json').then((r) => (r.ok ? r.json() : null)).then((i) => {
+    if (!i) return;
+    if (!i.has.arcade2d) document.getElementById('card-2d').classList.add('off');
+    if (!i.has.underground3d) { document.getElementById('card-3d').classList.add('off'); document.getElementById('card-vr').classList.add('off'); }
+    document.getElementById('ver').textContent = 'build ' + (i.commit || i.built.slice(0, 16)) + ' · three r' + i.three;
+  }).catch(() => {});
+  if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
+    if (ok) { document.getElementById('xr-badge').hidden = false; const m = document.querySelector('main'); m.insertBefore(document.getElementById('card-vr'), m.firstChild); }
+  }).catch(() => {});
+</script>
+</body>
+</html>

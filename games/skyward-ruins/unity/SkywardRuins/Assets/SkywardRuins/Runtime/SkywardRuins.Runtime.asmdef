@@ -1,0 +1,21 @@
+{
+    "name": "SkywardRuins.Runtime",
+    "rootNamespace": "SkywardRuins",
+    "references": [
+        "SkywardRuins.Core",
+        "Unity.InputSystem",
+        "UnityEngine.UI",
+        "WebXR"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        { "name": "com.de-panther.webxr", "expression": "0.22.0", "define": "SKYWARD_WEBXR" }
+    ],
+    "noEngineReferences": false
+}

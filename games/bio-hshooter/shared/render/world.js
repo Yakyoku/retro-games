@@ -7,9 +7,13 @@ import { FIELD_W, FIELD_H, lineAt } from '../game-core.js';
 import { materials, colorOf, U, makeEnvironment } from './materials.js';
 import { buildPlayer, buildPod, buildBit, buildEnemy, damp, dampAngle } from './models.js';
 import { ENEMY } from '../enemies.js';
+const rnd = (a, b) => a + Math.random() * (b - a);
 const ENEMY_COLOR = Object.fromEntries(Object.entries(ENEMY).map(([k, v]) => [k, v.color || 'w']));
+// 生き物（体液が飛ぶ）と機械（火花と煙）
+const ORGANIC = new Set(['drifter', 'hookjaw', 'lantern', 'nodule', 'puff', 'spore', 'coilworm', 'hatcher', 'nit', 'ossuary', 'vesper', 'heart']);
 const easeOutBack = (t) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
 import { SpriteBatch, Particles } from './sprites.js';
+import { Atmosphere } from './atmosphere.js';
 
 const rgb = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const COL = Object.fromEntries(Object.entries(colorOf).map(([k, v]) => [k, rgb(v)]));
@@ -28,14 +32,28 @@ export class World {
     this.env = makeEnvironment(renderer);
     for (const m of Object.values(this.M)) if (m.isMeshStandardMaterial) { m.envMap = this.env; if (m.envMapIntensity === 1) m.envMapIntensity = 1.0; }
     // 光: 冷たい上からの主光、紫の逆光、暗い環境光
-    this.key = new THREE.DirectionalLight(0xcfe6ff, 2.8); this.key.position.set(-6, 14, 12);
+    this.key = new THREE.DirectionalLight(0xb8c8d8, 1.7); this.key.position.set(-6, 14, 12);
+    this.under = new THREE.DirectionalLight(0x7dff4a, 1.4); this.under.position.set(4, -14, 8); // 下からの毒の照り返し
     this.rim = new THREE.DirectionalLight(0xff60c0, 1.1); this.rim.position.set(8, -4, -10);
     this.hemi = new THREE.HemisphereLight(0x3a5878, 0x120814, 0.9);
-    this.root.add(this.key, this.rim, this.hemi, this.key.target);
+    this.root.add(this.key, this.rim, this.hemi, this.under, this.key.target, this.under.target);
+    this.under.target.position.set(FIELD_W / 2, FIELD_H / 2, 0);
     this.key.target.position.set(FIELD_W / 2, FIELD_H / 2, 0);
     // 弾・火花
     this.sprites = new SpriteBatch(4096); this.sprites.mesh.renderOrder = 10; this.field.add(this.sprites.mesh);
     this.parts = new Particles(this.lite ? 1500 : 3500);
+    // 煙・靄・湯気（暗くする合成）。光の板より先に描く
+    this.darkSB = new SpriteBatch(this.lite ? 700 : 1400, 'dark'); this.darkSB.mesh.renderOrder = 9; this.field.add(this.darkSB.mesh);
+    this.smoke = new Particles(this.lite ? 600 : 1300);
+    // 奥ほど毒の色の闇に沈む霧（app が scene.fog に入れる）。VR は 1u=5.5cm なので m で指定
+    this.fog = this.vr ? new THREE.Fog(0x000000, 1.9, 9) : new THREE.Fog(0x000000, 40, 175);
+    this.veinMul = { value: 1 };
+    this.atmos = new Atmosphere(this);
+    // 触手・鞭毛（鎖の節を伸ばした球で描く。材質ごとに 1 回の描画）
+    const tg = new THREE.SphereGeometry(1, 8, 6);
+    this.tendrils = {};
+    for (const [k, mat] of [['flesh', this.M.flesh], ['teal', this.M.fleshTeal], ['bone', this.M.bone]]) { const im = new THREE.InstancedMesh(tg, mat, 600); im.count = 0; im.frustumCulled = false; this.field.add(im); this.tendrils[k] = im; }
+    this._m4 = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._s = new THREE.Vector3(); this._d = new THREE.Vector3(); this._X = new THREE.Vector3(1, 0, 0);
     // 自機など
     this.player = buildPlayer(); this.field.add(this.player.obj);
     this.pod = buildPod(); this.field.add(this.pod.obj);
@@ -67,13 +85,16 @@ export class World {
     for (const o of this.stageObjs) { o.parent && o.parent.remove(o); o.traverse((x) => { if (x.geometry && !x.geometry.userData.shared) x.geometry.dispose(); }); }
     this.stageObjs = []; this.blockObjs = [];
     const pal = st.palette;
-    this.key.color.set(0xcfe6ff); this.rim.color.set(pal.glow).lerp(new THREE.Color(0xffffff), 0.3);
-    this.hemi.color.set(pal.fog).multiplyScalar(4); this.hemi.groundColor.set(pal.flesh).multiplyScalar(0.4);
+    this.key.color.set(0xb8c8d8); this.rim.color.set(pal.glow).lerp(new THREE.Color(0xffffff), 0.15);
+    this.under.color.set(pal.toxic ?? pal.accent);
+    this.hemi.color.set(pal.fog).multiplyScalar(3); this.hemi.groundColor.set(pal.toxic ?? pal.flesh).multiplyScalar(0.12);
+    this.pal = pal; this.baseHemi = 0.55; this.hemi.intensity = this.baseHemi;
     this.buildSky(pal);
     this.buildStars(st, pal);
     if (st.bottom.length) this.buildTerrain(st, st.bottom, -1, pal);
     if (st.top.length) this.buildTerrain(st, st.top, 1, pal);
     this.buildBlocks(st, pal);
+    this.atmos.build(st, pal); // 空と星のあとで（星の画面倍率を共有するため）
   }
 
   add(o, parent = this.scroll) { parent.add(o); this.stageObjs.push(o); return o; }
@@ -94,9 +115,15 @@ export class World {
           float fbm(vec3 p){ float a=0.5, s=0.; for(int k=0;k<6;k++){ s+=a*n(p); p*=2.03; a*=0.5; } return s; }
           void main(){ float phi = vUv.x * 6.2831853, th = (1.0 - vUv.y) * 3.1415927;
             vec3 d = vec3(-cos(phi)*sin(th), cos(th), sin(phi)*sin(th));
-            float a = fbm(d*2.2+vec3(3.1)); float b = fbm(d*3.7-vec3(1.7));
-            float band = exp(-pow(d.y*2.2 - 0.25*sin(d.x*3.), 2.));
-            vec3 col = sky + c1 * smoothstep(0.5, 0.95, a) * 0.55 * (0.35+band) + c2 * smoothstep(0.55, 0.97, b) * 0.5;
+            // ドメインワープ: ノイズで座標をねじって、渦を巻く毒の雲にする
+            vec3 q = vec3(fbm(d*1.6+vec3(1.7)), fbm(d*1.6+vec3(9.2)), fbm(d*1.6+vec3(4.4)));
+            float a = fbm(d*2.4 + q*2.2 + vec3(3.1)); float b = fbm(d*3.9 - q*1.6 - vec3(1.7));
+            float band = exp(-pow(d.y*2.4 - 0.3*sin(d.x*3.), 2.));
+            vec3 col = sky + c1 * pow(smoothstep(0.48, 0.92, a), 1.8) * 0.5 * (0.3+band) + c2 * pow(smoothstep(0.52, 0.95, b), 2.0) * 0.4;
+            // 細い毒の筋（雲のふちだけ明るく）
+            float edge = smoothstep(0.015, 0.0, abs(a - 0.62)) * 0.3; col += c1 * edge * 1.2;
+            // 光を呑む暗黒の穴
+            float hole = smoothstep(0.42, 0.62, fbm(d*1.2 + q - vec3(5.0))); col *= mix(1.0, 0.06, hole);
             gl_FragColor = vec4(col, 1.); }`,
       });
       this.bakeScene = new THREE.Scene();
@@ -109,15 +136,15 @@ export class World {
     r.setRenderTarget(this.skyRT); r.render(this.bakeScene, this.bakeCam);
     r.setRenderTarget(prevRT); r.xr.enabled = xr; r.toneMapping = tm;
     const geo = new THREE.SphereGeometry(this.vr ? 900 : 1500, 64, 32); geo.userData.shared = false;
-    const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.skyRT.texture, side: THREE.BackSide, depthWrite: false, toneMapped: false }));
+    const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: this.skyRT.texture, side: THREE.BackSide, depthWrite: false, toneMapped: false, fog: false }));
     sky.position.set(FIELD_W / 2, FIELD_H / 2, 0); sky.renderOrder = -10; sky.frustumCulled = false;
     this.add(sky, this.skyG);
   }
 
   buildStars(st, pal) {
-    const N = this.lite ? 2600 : 5200, pos = new Float32Array(N * 3), sz = new Float32Array(N), col = new Float32Array(N * 3);
+    const N = this.lite ? 1500 : 3000, pos = new Float32Array(N * 3), sz = new Float32Array(N), col = new Float32Array(N * 3);
     const x0 = -150, x1 = (st.bossStop || 300) + 220;
-    const tint = [new THREE.Color(0xcfe6ff), new THREE.Color(0xffe2c0), new THREE.Color(pal.glow), new THREE.Color(0xffffff)];
+    const tint = [new THREE.Color(0x8fa0b0), new THREE.Color(0x9a8f80), new THREE.Color(pal.toxic ?? pal.glow).multiplyScalar(0.8), new THREE.Color(0x707a84)];
     for (let i = 0; i < N; i++) {
       const z = -12 - Math.pow(Math.random(), 0.6) * 190;
       const spread = (33 - z) * 0.32;
@@ -134,7 +161,7 @@ export class World {
         void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); gl_Position = projectionMatrix*mv;
           float px = aSize * 0.05 * projectionMatrix[1][1] * uVH * 0.5 / -mv.z; float tw = 0.75 + 0.25*sin(uTime*2.3 + position.x*12.7);
           gl_PointSize = max(1.5 * uDpr, px + uDpr * aSize * 0.9); vA = tw * clamp(px*3., 0.35, 1.); vC = aCol; }`,
-      fragmentShader: 'varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord*2.-1.; float a = smoothstep(1.,0.,length(d)); a*=a; gl_FragColor = vec4(vC*a*vA*1.6, a*vA); }',
+      fragmentShader: 'varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord*2.-1.; float a = smoothstep(1.,0.,length(d)); a*=a; gl_FragColor = vec4(vC*a*vA*1.0, a*vA); }',
     });
     const pts = new THREE.Points(g, this.starMat); pts.frustumCulled = false; pts.renderOrder = -5;
     this.add(pts);
@@ -156,7 +183,7 @@ export class World {
         pos[k] = x + (r > 5 ? (vnoise(x * 0.2, r) - 0.5) * 1.5 : 0); pos[k + 1] = y - sign * dy + sign * nz; pos[k + 2] = z;
         const mw = smooth(Math.min(1, Math.max(0, (vnoise(x * 0.09 + 7, r * 0.6 + sign * 3) - 0.38) * 3.2)));
         metal[i * R + r] = mw;
-        tmp.copy(cf).lerp(cm, mw).multiplyScalar(0.85 + vnoise(x * 1.3, r * 3.1) * 0.3);
+        tmp.copy(cf).lerp(cm, mw).multiplyScalar((0.85 + vnoise(x * 1.3, r * 3.1) * 0.3) * 0.62);
         col[k] = tmp.r; col[k + 1] = tmp.g; col[k + 2] = tmp.b;
       }
     }
@@ -169,19 +196,22 @@ export class World {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aMetal', new THREE.BufferAttribute(metal, 1)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setIndex(idx); g.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.42, envMap: this.env, clippingPlanes: this.clipPlanes });
-    const vein = new THREE.Color(pal.glow).multiplyScalar(1.2);
+    const vein = new THREE.Color(pal.toxic ?? pal.glow).multiplyScalar(1.15), ooze = new THREE.Color(pal.glow).multiplyScalar(0.9);
     mat.onBeforeCompile = (sh) => {
-      sh.uniforms.uTime = U.time; sh.uniforms.uVein = { value: vein };
+      sh.uniforms.uTime = U.time; sh.uniforms.uVein = { value: vein }; sh.uniforms.uOoze = { value: ooze }; sh.uniforms.uVeinMul = this.veinMul;
       sh.vertexShader = 'attribute float aMetal; varying float vMetal; varying vec3 vWP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vMetal = aMetal; vWP = position;');
-      sh.fragmentShader = 'uniform float uTime; uniform vec3 uVein; varying float vMetal; varying vec3 vWP;\n' + sh.fragmentShader
+      sh.fragmentShader = 'uniform float uTime; uniform vec3 uVein; uniform vec3 uOoze; uniform float uVeinMul; varying float vMetal; varying vec3 vWP;\n' + sh.fragmentShader
         .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n metalnessFactor = mix(0.05, 0.95, vMetal);')
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.55, 0.24, vMetal);')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.22, 0.5, vMetal);')   // 肉は濡れて光り、金属は錆びて鈍い
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float mask = smoothstep(0.55, 0.8, sin(vWP.x * 0.13 + vWP.z * 0.4) * 0.5 + 0.5 + sin(vWP.x * 0.31 - vWP.y * 0.2) * 0.25);
           float vv = abs(sin(vWP.x * 2.3 + sin(vWP.z * 1.1 + vWP.y * 1.3 + vWP.x * 0.37) * 2.4 + uTime * 0.35));
           vv = smoothstep(0.985, 1.0, vv) * (1.0 - vMetal) * mask * (0.5 + 0.5 * sin(uTime * 2.0 + vWP.x * 0.5)) * 0.4;
-          float seam = 0.0;
-          totalEmissiveRadiance += uVein * (vv + seam);`);
+          // 流れる膿: 地形に沿って筋がゆっくり流れ下る
+          float flow = smoothstep(0.993, 1.0, sin(vWP.x * 1.9 - uTime * 1.1 + sin(vWP.z * 1.3 + vWP.y * 0.9) * 2.5)) * (1.0 - vMetal) * mask * 0.35;
+          // 金属の腐食の継ぎ目にかすかな毒の光
+          float rust = smoothstep(0.92, 1.0, abs(sin(vWP.x * 1.9 + vWP.y * 0.7))) * vMetal * 0.06;
+          totalEmissiveRadiance += (uVein * (vv * 1.6 + rust) + uOoze * flow) * uVeinMul;`);
     };
     const m = new THREE.Mesh(g, mat); m.frustumCulled = false;
     this.add(m);
@@ -237,7 +267,7 @@ export class World {
         if (b.kind === 'hull' || b.kind === 'bow') {
           o.position.z = -depth / 2 + 1.4;
           // 灯火の帯
-          const strip = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.96, 0.06, 0.06), M.gAmber);
+          const strip = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.96, 0.06, 0.06), M.gHull);
           strip.position.set(0, (b.y > 9 ? -1 : 1) * (b.h / 2 - 0.25), depth / 2 + 0.02); o.add(strip);
         }
         if (b.kind === 'plate') { const e = new THREE.Mesh(new THREE.BoxGeometry(b.w * 1.02, 0.08, 1.7), M.gAmber); e.position.y = b.h / 2 - 0.05; o.add(e); }
@@ -258,6 +288,7 @@ export class World {
     this.t += dt; U.time.value = this.t;
     if (s.stage !== this.stage) this.setStage(s.stage);
     const scroll = lerp(s.pscroll ?? s.scrollX, s.scrollX, alpha);
+    this.scrollSpeed = s.scrollSpeed || 0;
     this.scroll.position.x = -scroll;
     this.updateClip();
     // 補間。復帰点への巻き戻しなどで 3u 以上跳んだものは補間せずに置く（画面を横切る残像を出さない）
@@ -290,6 +321,7 @@ export class World {
     // 敵
     const seen = new Set();
     this.muzzles.length = 0;
+    for (const im of Object.values(this.tendrils)) im.count = 0;
     const dying = s.mode === 'bossdown' ? Math.min(1, s.timer / 130) : 0;
     for (const e of s.enemies) {
       seen.add(e.id);
@@ -303,6 +335,8 @@ export class World {
         m.phase = ((e.id * 0.6180339) % 1) * 20;   // 個体ごとに動きの位相をずらす（群れが一斉に同じ動きをしない）
         m.popIn = !e.boss && x > 0.5 && x < FIELD_W - 0.5;
         m.r = e.r; m.color = e.boss ? 'w' : (ENEMY_COLOR[e.type] || 'w');
+        m.type = e.type; m.org = ORGANIC.has(e.type); m.jig = { x: 0, v: 0 }; m.emitT = 0; m.dmgT = 0; m.lastAccN = 0;
+        m.emit = (type, lx2, ly2) => this.emitLocal(m, type, lx2, ly2);
       }
       m.age += dt;
       vel(m, x, y);
@@ -312,6 +346,16 @@ export class World {
       // 被弾: 光と弾みはすぐ立ち上がって減衰。弾が来た向き（ほぼ右向き）へ押されて、ばねで戻る
       const newHit = e.flash > m.lastFlash;
       if (newHit || (e.flashSolid > 0 && e.flashSolid >= 2)) { m.hit = newHit ? 1 : Math.max(m.hit, 0.35); m.kv += (m.boss ? 1.2 : 7) * (newHit ? 1 : 0.4); }
+      const blocked = e.flashSolid > 0;
+      if (newHit && !m.boss) this.hitFx(m, x, y);
+      if (m.org) {
+        // 柔らかい体: ばね（減衰が弱い）で、撃たれたり急に曲がったりするとぶるんと揺れて収まる
+        if (newHit) m.jig.v += 10;
+        const accN = m.acc; if (accN - m.lastAccN > 25) m.jig.v += Math.min(4, (accN - m.lastAccN) * 0.03); m.lastAccN = accN;
+        const K = 420, Cd = 7, h = 1 / 240; for (let t2 = 0; t2 < dt - 1e-6; t2 += h) { m.jig.v += (-K * m.jig.x - Cd * m.jig.v) * h; m.jig.x += m.jig.v * h; }
+        const j = Math.max(-0.6, Math.min(0.6, m.jig.x)) * (m.boss ? 0.25 : 1);
+        m.inner.scale.set(1 + j * 0.13, 1 - j * 0.11, 1 + j * 0.07);
+      }
       m.lastFlash = e.flash; if (e.flashSolid > 0) e.flashSolid--;
       m.hit = damp(m.hit, 0, 11, dt);
       { const K = 260, C = 22, h = Math.min(dt, 1 / 60); for (let t2 = 0; t2 < dt - 1e-6; t2 += h) { m.kv += (-K * m.kx - C * m.kv) * h; m.kx += m.kv * h; } }
@@ -344,7 +388,10 @@ export class World {
       m.obj.position.set(x + jx + m.kx * (m.boss ? 0.05 : 0.08) - Math.cos(m.fireAng || 0) * rc, y + jy - Math.sin(m.fireAng || 0) * rc, e.boss ? -0.4 : 0);
       if (m.flash) m.flash.userData.set(m.hit);
       m.anim(e, this.t + m.phase, alpha, dt, { vx: m.vx, vy: m.vy, vxRel: m.vx + (e.anchored ? s.scrollSpeed : 0), hit: m.hit, recoil: m.recoil,
-        lookX: p.alive ? p.x - x : -1, lookY: p.alive ? p.y - y : 0, tick: s.tick, alpha, dying });
+        lookX: p.alive ? p.x - x : -1, lookY: p.alive ? p.y - y : 0, tick: s.tick, alpha, dying, x, y, emit: m.emit, blocked });
+      m.cx = m.obj.position.x; m.cy = m.obj.position.y; m.anchored = !!e.anchored; m.flip = !!e.flip;
+      if (m.chains) this.updateChains(m, e, dt);
+      this.typeFx(m, e, x, y, dt, s);
     }
     // 消えた敵: 画面内なら、撃たれた向きへ弾かれて回りながら縮み、破片が飛ぶ
     for (const [id, m] of this.enemyObjs) if (!seen.has(id)) {
@@ -354,6 +401,7 @@ export class World {
         this.ghosts.push({ m, t: 0, life: m.boss ? 0.6 : 0.34, s0: m.obj.scale.clone(), spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6),
           vx: m.vx * 0.4 + (m.boss ? 0 : 5), vy: m.vy * 0.4 + (Math.random() - 0.5) * 3 });
         if (m.r >= 0.4) this.debris(x, y, Math.round(3 + m.r * 5), m.r, m.color);
+        this.deathFx(m, x, y);
       } else this.field.remove(m.obj);
     }
     for (let i = this.ghosts.length - 1; i >= 0; i--) {
@@ -369,6 +417,7 @@ export class World {
       if (g.m.flash) g.m.flash.userData.set(1 - k);
     }
     this.updateDebris(dt, s);
+    for (const im of Object.values(this.tendrils)) { im.instanceMatrix.needsUpdate = true; }
     // 自機: やられた瞬間に機体が破片になって散る。入場中は噴射の軌跡
     if (this.lastAlive && !p.alive) { this.debris(px, py, 10, 0.9, 'C', true); }
     this.lastAlive = p.alive;
@@ -399,8 +448,97 @@ export class World {
     if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = 0.45 + 0.45 * Math.sin(this.t * 30); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
     for (const [mx, my, k, boss] of this.muzzles) { const w = (boss ? 1.6 : 1.0) * (0.6 + k); sb.add(mx, my, 0.35, w, w, 0, 2.6 * k, 1.4 * k, 0.8 * k, k, 0); }
     this.parts.update(dt, sb);
+    // 煙・靄（暗くする合成）
+    const ds = this.darkSB; ds.begin(); this.smoke.update(dt, ds); ds.end();
+    // 背景の空気（霧・稲妻・心拍・滴・泡・霞）
+    this.atmos.update(dt, s, scroll);
+    // 船体の灯火のちらつき（壊れかけた電気）
+    { const f = Math.sin(this.t * 13) * Math.sin(this.t * 7.3 + 1) > 0.82 ? 0.25 : 1; this.M.gHull.color.setRGB(2 * f, 1.25 * f, 0.5 * f); }
     sb.end();
     this.drawBursts(s, L);
+  }
+
+  // 模型のローカル座標 → 盤面座標（入れ物の位置・向き・鏡、天井の敵の上下反転を考える）
+  toField(m, lx2, ly2) {
+    if (m.flip) { lx2 = -lx2; ly2 = -ly2; }
+    const o = m.obj, sx = Math.sign(o.scale.x) || 1, sy = Math.sign(o.scale.y) || 1, c = Math.cos(o.rotation.z), sn = Math.sin(o.rotation.z);
+    const px = lx2 * sx, py = ly2 * sy; return [o.position.x + px * c - py * sn, o.position.y + px * sn + py * c];
+  }
+  emitLocal(m, type, lx2, ly2) { const [x, y] = this.toField(m, lx2, ly2); this.emitAt(type, x, y, m.anchored ? (this.scrollSpeed || 0) : 0); }
+  // 噴出: 蒸気（明るい）・煙（暗い）・火花・体液（毒の色、重さあり）・胞子
+  emitAt(type, x, y, drift = 0, vx = 0, vy = 0) {
+    const tox = this.pal ? new THREE.Color(this.pal.toxic ?? this.pal.accent) : new THREE.Color(0x7dff4a);
+    if (type === 'steam') this.parts.spawn({ x, y, z: 0.4, vx: -drift + rnd(-0.4, 0.4) + vx, vy: rnd(0.8, 1.6) + vy, vz: 0, life: rnd(0.9, 1.4), t: 0, w: 0.6, h: 0, r: 0.22, g: 0.24, b: 0.26, sh: 3, drag: 0.98, grow: 2.6, fade: true });
+    else if (type === 'smoke') this.smoke.spawn({ x, y, z: 0.35, vx: -drift + rnd(-0.3, 0.3) + vx, vy: rnd(0.6, 1.3) + vy, vz: 0, life: rnd(1.1, 1.8), t: 0, w: rnd(0.4, 0.7), h: 0, r: 0.015, g: 0.016, b: 0.014, a: 0.7, sh: 3, drag: 0.985, grow: 3, fade: true });
+    else if (type === 'spark') this.parts.spark(x, y, 0.5, [1.7, 1.15, 0.55]);
+    else if (type === 'ichor') this.parts.spawn({ x, y, z: 0.3, vx: -drift + vx, vy, vz: 0, grav: -4.5, life: rnd(0.6, 1.0), t: 0, w: rnd(0.09, 0.16), h: 0, r: tox.r * 1.5, g: tox.g * 1.5, b: tox.b * 1.5, sh: 0, drag: 0.96 });
+    else if (type === 'spore') this.parts.spawn({ x, y, z: 0.2, vx: -drift + rnd(-0.4, 0.4) + vx, vy: rnd(-0.2, 0.5) + vy, vz: 0, life: rnd(1.2, 2.0), t: 0, w: 0.12, h: 0, r: tox.r * 1.2, g: tox.g * 1.2, b: tox.b * 1.2, sh: 0, drag: 0.98, fade: true });
+  }
+  // 素材ごとの被弾: 生き物は傷口から毒の体液が撃った側へ飛び、機械は火花
+  hitFx(m, x, y) {
+    if (m.org) for (let k = 0; k < 3; k++) this.emitAt('ichor', x - m.r * 0.6, y + rnd(-0.3, 0.3) * m.r, 0, -rnd(2.5, 6), rnd(-2.5, 2.5));
+    else { this.parts.spark(x - m.r * 0.6, y + rnd(-0.4, 0.4) * m.r, 0.55, [1.8, 1.2, 0.6]); }
+  }
+  // 素材ごとの撃破: 生き物は毒の体液が四方へはじけて霞が残り、機械は火花と立ちのぼる黒煙
+  deathFx(m, x, y) {
+    const tox = this.pal ? new THREE.Color(this.pal.toxic ?? this.pal.accent) : new THREE.Color(0x7dff4a);
+    if (m.org) {
+      const n = Math.round(10 + m.r * 14) * (this.lite ? 0.6 : 1);
+      for (let k = 0; k < n; k++) { const a2 = Math.random() * Math.PI * 2, v = rnd(2.5, 8) * (0.6 + m.r * 0.4); this.emitAt('ichor', x, y, 0, Math.cos(a2) * v, Math.sin(a2) * v); }
+      this.parts.spawn({ x, y, z: 0.1, vx: -0.5, vy: 0.2, vz: 0, life: 1.6, t: 0, w: m.r * 2.4, h: 0, r: tox.r * 0.35, g: tox.g * 0.35, b: tox.b * 0.35, sh: 3, drag: 1, grow: 1.6, fade: true });
+      for (let k = 0; k < 2; k++) this.emitAt('smoke', x + rnd(-0.3, 0.3), y + rnd(-0.3, 0.3));
+    } else {
+      for (let k = 0; k < 3; k++) this.parts.spark(x + rnd(-0.4, 0.4) * m.r, y + rnd(-0.4, 0.4) * m.r, 0.8, [1.9, 1.2, 0.5]);
+      for (let k = 0; k < 4; k++) this.emitAt('smoke', x + rnd(-0.4, 0.4) * m.r, y + k * 0.25 * m.r, 0, 0, k * 0.3);
+    }
+  }
+  // 種類ごとの常時の噴出と、損傷した見た目（体力が半分を切ると煙・火花・体液がしたたる）
+  typeFx(m, e, x, y, dt, s) {
+    m.emitT -= dt;
+    const t = m.type, drift = e.anchored ? s.scrollSpeed : 0;
+    if (t === 'skimmer') this.parts.trail(x + Math.cos(m.head) * -0.55, y + Math.sin(m.head) * -0.55, 0.32, [0.45, 0.42, 0.55], 0.4);
+    else if (t === 'dart' && m.emitT <= 0) { m.emitT = 0.045; const bx = x - Math.cos(m.head) * 0.4, by = y - Math.sin(m.head) * 0.4; this.emitAt('smoke', bx, by, 0, 0, -0.5); this.parts.trail(bx, by, 0.22, [1.6, 0.9, 0.3], 0.15); }
+    else if (t === 'spore' && Math.random() < 0.5) this.parts.trail(x, y, 0.16, [0.4, 1.2, 0.8], 0.25);
+    else if (t === 'puff' && m.emitT <= 0) { m.emitT = 0.28; this.emitAt('spore', x + rnd(-0.6, 0.6), y + rnd(-0.6, 0.6), drift); }
+    const hp = e.hp / (e.maxHp || 1);
+    m.dmgT -= dt;
+    if (!e.boss && (e.maxHp || 0) >= 4 && hp < 0.5 && m.dmgT <= 0) {
+      if (m.org) { m.dmgT = 0.25; this.emitAt('ichor', x + rnd(-0.3, 0.3) * m.r, y - m.r * 0.5, drift, rnd(-0.3, 0.3), -0.5); }
+      else { m.dmgT = 0.12; this.emitAt('smoke', x + rnd(-0.3, 0.3) * m.r, y + m.r * 0.3, drift); if (Math.random() < 0.18) this.parts.spark(x + rnd(-0.5, 0.5) * m.r, y + rnd(-0.5, 0.5) * m.r, 0.4, [1.8, 1.2, 0.6]); }
+    }
+    if (e.boss && hp < 0.4 && m.dmgT <= 0 && e.parts) {
+      m.dmgT = 0.14; const q = e.parts[Math.floor(Math.random() * e.parts.length)];
+      this.emitAt(m.org ? 'ichor' : 'smoke', x + q.ox, y + q.oy, drift, rnd(-1, 1), m.org ? -1 : 0.5);
+      if (!m.org && Math.random() < 0.3) this.parts.spark(x + q.ox, y + q.oy, 0.6, [1.8, 1.2, 0.6]);
+    }
+  }
+  // 触手（ベルレ積分の鎖）: 根元は模型に付き、先は慣性と抵抗で遅れて付いてくる
+  updateChains(m, e, dt) {
+    if (!m.cs) m.cs = m.chains.map((c) => { const [x, y] = this.toField(m, c.ax, c.ay); return { c, n: Array.from({ length: c.n }, (_, i) => ({ x: x + i * c.seg * 0.5, y, px: x + i * c.seg * 0.5, py: y })) }; });
+    const h = 1 / 120, steps = Math.max(1, Math.min(4, Math.round(dt / h)));
+    const scrollV = m.anchored ? -(this.scrollSpeed || 0) : 0;
+    for (const ch of m.cs) {
+      const c = ch.c, nodes = ch.n, [ax, ay] = this.toField(m, c.ax, c.ay);
+      let bx = c.bx || 0, by = c.by || 0; if (m.flip) { bx = -bx; by = -by; }
+      for (let st = 0; st < steps; st++) {
+        nodes[0].x = ax; nodes[0].y = ay;
+        for (let i = 1; i < nodes.length; i++) {
+          const nd = nodes[i], vx = (nd.x - nd.px) * 0.9, vy = (nd.y - nd.py) * 0.9;
+          nd.px = nd.x; nd.py = nd.y; nd.x += vx + (bx + Math.sin(this.t * 3 + i + m.phase) * 0.8) * h * h * 60 + scrollV * h; nd.y += vy + by * h * h * 60 + Math.cos(this.t * 2.3 + i * 1.7 + m.phase) * 0.0015;
+        }
+        for (let it = 0; it < 2; it++) for (let i = 1; i < nodes.length; i++) {
+          const a2 = nodes[i - 1], b2 = nodes[i], dx = b2.x - a2.x, dy = b2.y - a2.y, d = Math.hypot(dx, dy) || 1e-4, k = (d - c.seg) / d;
+          b2.x -= dx * k; b2.y -= dy * k;
+        }
+      }
+      const im = this.tendrils[c.mat] || this.tendrils.flesh;
+      for (let i = 1; i < nodes.length && im.count < 600; i++) {
+        const a2 = nodes[i - 1], b2 = nodes[i], dx = b2.x - a2.x, dy = b2.y - a2.y, len = Math.hypot(dx, dy) || 1e-4;
+        const r = c.r * (1 - (i - 1) / nodes.length * 0.7);
+        this._v.set((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, 0.05); this._d.set(dx / len, dy / len, 0); this._q.setFromUnitVectors(this._X, this._d); this._s.set(len * 0.6 + r, r, r);
+        this._m4.compose(this._v, this._q, this._s); im.setMatrixAt(im.count++, this._m4);
+      }
+    }
   }
 
   // 破片: 小さな金属・殻のかけら。回りながら散り、縮んで消える（数は上限つきで使い回す）

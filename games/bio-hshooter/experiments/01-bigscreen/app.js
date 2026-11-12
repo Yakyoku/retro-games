@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { createGame, step, DT, FIELD_W, FIELD_H, continueGame, nextLoop, startStage, killEnemy } from '../../shared/game-core.js';
 import { STAGES } from '../../shared/stages.js';
 import { BOSS } from '../../shared/bosses.js';
@@ -39,8 +40,9 @@ const CAM_Z = (FIELD_H / 2) / Math.tan(THREE.MathUtils.degToRad(15));
 camera.position.set(FIELD_W / 2, FIELD_H / 2, CAM_Z);
 const world = new World(renderer, { vr: false, lite: Q.has('lite') || TOUCH }); // スマートフォンは粒子などを控えめに
 scene.add(world.root);
+scene.fog = world.fog; // 奥ほど毒の色の闇に沈む
 
-let composer, bloomPass, rt;
+let composer, bloomPass, rt, gradePass;
 let scale = opts.scale === 'auto' ? 1 : +opts.scale, baseDpr = window.devicePixelRatio || 1;
 function setupComposer() {
   const w = canvas.clientWidth, h = canvas.clientHeight, pr = Math.min(baseDpr * scale, 2.5);
@@ -50,10 +52,27 @@ function setupComposer() {
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(pr); composer.setSize(w, h);
   composer.addPass(new RenderPass(scene, camera));
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.7, 0.45, 0.86);
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.8, 0.55, 0.8); // 暗い場面で毒の光だけがにじむ
   bloomPass.enabled = opts.bloom;
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
+  // 仕上げ: 周辺を暗く落とし（周辺減光）、黒をつぶし、明るい毒の色だけ彩度を残す。うっすら粒子（フィルムの粒）と、画面の端の色ずれ
+  gradePass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uVig: { value: 0.62 }, uGrain: { value: 0.035 }, uCA: { value: 0.0035 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uVig, uGrain, uCA; varying vec2 vUv;
+      void main(){ vec2 c = vUv - 0.5; float r = dot(c, c);
+        vec2 off = c * uCA * r * 4.0;
+        vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+        float l = dot(col, vec3(0.299, 0.587, 0.114));
+        vec3 g = mix(vec3(l), col, 0.78 + 0.35 * smoothstep(0.25, 0.85, l));
+        g = max(g - 0.012, 0.0) * 1.03; g = pow(g, vec3(1.1));
+        g *= 1.0 - uVig * smoothstep(0.08, 0.62, r * 1.7);
+        float n = fract(sin(dot(gl_FragCoord.xy + fract(uTime) * 917.0, vec2(12.9898, 78.233))) * 43758.5453);
+        g += (n - 0.5) * uGrain * (0.4 + 0.6 * (1.0 - l));
+        gl_FragColor = vec4(g, 1.0); }`,
+  });
+  composer.addPass(gradePass);
   world.setViewportHeight(h * pr, pr);
 }
 function resize() {
@@ -260,6 +279,7 @@ function frame(now) {
   camera.position.set(FIELD_W / 2 + shx, camY + shy, CAM_Z);
   camera.lookAt(FIELD_W / 2 + shx * 0.3, FIELD_H / 2 + (camY - FIELD_H / 2) * 0.6, 0);
   renderer.toneMappingExposure = 1.05 + (s.flash || 0) * 0.04;
+  if (gradePass) gradePass.uniforms.uTime.value = performance.now() / 1000;
   if (opts.bloom) composer.render(); else { renderer.setRenderTarget(null); renderer.render(scene, camera); }
   touch.update(screen === 'play', game ? game.player.charge : 0);
   document.body.classList.toggle('touching', touch.visible);

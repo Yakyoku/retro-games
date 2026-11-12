@@ -1,0 +1,22 @@
+Unity Editor version:    6000.0.64f1 (5360b7cd7953)
+[Licensing::Module] Trying to connect to existing licensing client channel...
+[Licensing::IpcConnector] Channel LicenseClient-root doesn't exist
+[Licensing::Module] Successfully launched the LicensingClient (PId: 530)
+Player connection [140260985607488]  * "[IP] 192.0.2.2 [Port] 55504 [Flags] 2 [Guid] 1539200026 [EditorId] 1539200026 [Version] 1048832 [Id] LinuxEditor(16,192.0.2.2) [Debug] 1 [PackageName] LinuxEditor [ProjectName] Editor" 
+[Physics::Module] SDK Version: 4.1.2
+[Physics::Module] Integration Version: 1.0.0
+    Version:  NULL 1.0 [1.0]
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-root" at "2026-11-12T07:05:31.213143Z"
+[Licensing::Client] Handshaking with LicensingClient:
+  Version:                 1.17.4+4293ba1
+[Licensing::Module] Successfully connected to LicensingClient on channel: "LicenseClient-root" (connect: 0.57s, validation: 0.07s, handshake: 0.00s)
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-root-notifications" at "2026-11-12T07:05:31.286214Z"
+[Licensing::Module] Connected to LicensingClient (PId: 530, launch time: 0.00, total connection time: 0.64s)
+[Licensing::Module] Error: Access token is unavailable; failed to update
+[Licensing::Client] Error: Code 404 while processing request (status: Found 0 entitlement groups and 0 free entitlements matching requested entitlement ids)
+[Licensing::Client] Successfully updated license, isAsync: False, time: 0.03
+[Licensing::Client] Error: Code 404 while processing request (status: Found 0 entitlement groups and 0 free entitlements matching requested entitlement ids)
+[Licensing::Module] Error: 'com.unity.editor.headless' was not found.
+[Licensing::Module] Licensing Background thread has ended after 0.68s
+[Licensing::Client] Error: Code 404 while processing request (status: Found 0 entitlement groups and 0 free entitlements matching requested entitlement ids)
+No valid Unity Editor license found. Please activate your license.

@@ -41,6 +41,7 @@ const world = new World(renderer, { vr: true, lite: !Q.has('full'), clip: !Q.has
 world.root.scale.setScalar(S);
 world.root.position.set(-FIELD_W / 2 * S, -FIELD_H / 2 * S, 0);
 anchor.add(world.root);
+scene.fog = world.fog; // 奥ほど毒の色の闇に沈む（m 単位）
 // 盤面の縁（宇宙を覗く窓の枠。ごく薄く）
 const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(FIELD_W * S, FIELD_H * S)), new THREE.LineBasicMaterial({ color: 0x2a4a5a, transparent: true, opacity: 0.5 }));
 anchor.add(frame);

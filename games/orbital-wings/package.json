@@ -1,0 +1,12 @@
+{
+  "name": "orbital-wings",
+  "private": true,
+  "type": "module",
+  "description": "ORBITAL WINGS（GradiusInspired_Cloud）— 2D Web 版と Quest 3 WebXR 版の横スクロールシューティング（Claude Code で制作）",
+  "scripts": {
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tests/*.test.js",
+    "render-audio": "node tools/render-audio.js"
+  }
+}

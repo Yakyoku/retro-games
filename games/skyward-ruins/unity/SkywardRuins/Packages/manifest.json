@@ -1,0 +1,26 @@
+{
+  "scopedRegistries": [
+    {
+      "name": "OpenUPM",
+      "url": "https://package.openupm.com",
+      "scopes": [ "com.de-panther" ]
+    }
+  ],
+  "dependencies": {
+    "com.de-panther.webxr": "0.25.0",
+    "com.unity.inputsystem": "1.17.0",
+    "com.unity.render-pipelines.universal": "17.0.4",
+    "com.unity.test-framework": "1.6.0",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.xr.management": "4.5.3",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.ui": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.vr": "1.0.0",
+    "com.unity.modules.xr": "1.0.0",
+    "com.unity.modules.subsystems": "1.0.0"
+  }
+}

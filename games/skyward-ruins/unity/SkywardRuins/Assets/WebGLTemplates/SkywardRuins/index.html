@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <!-- 拡大操作・ダブルタップ拡大を止め、ノッチ・ホームバーの安全領域まで描く -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f16">
+  <title>Skyward Ruins</title>
+  <meta name="description" content="対空と対地を撃ち分ける縦スクロール・シューティング（2D / 3D / Meta Quest 3 WebXR）">
+  <link rel="stylesheet" href="TemplateData/style.css">
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+  </div>
+
+  <!-- トップページ（ロード中から常時表示。Unity のタイトル画面にも同じ注記がある） -->
+  <div id="top" role="dialog" aria-label="Skyward Ruins">
+    <div class="card">
+      <h1>SKYWARD RUINS</h1>
+      <p class="sub">空の遺跡 — 対空と対地を撃ち分ける縦スクロール・シューティング</p>
+      <p class="notice">このゲームは Claude Code のクラウドセッションで制作しました。</p>
+      <div id="progress" aria-hidden="true"><div id="bar"></div></div>
+      <p id="status">読み込みの準備をしています…</p>
+      <div id="actions">
+        <button id="start" hidden>はじめる</button>
+        <button id="retry" hidden>もう一度読み込む</button>
+      </div>
+      <p class="modes">2D アーケード / 3D・VR はタイトル画面で選べます。VR は Meta Quest のブラウザ等で「VR を開始」を押してください。</p>
+    </div>
+  </div>
+  <button id="entervr" hidden>VR を開始</button>
+
+  <script>
+  (function () {
+    // 重い Unity インスタンスを二重に起動しない
+    if (window.__skywardBooted) return; window.__skywardBooted = true;
+
+    var top = document.getElementById('top'), bar = document.getElementById('bar'), statusEl = document.getElementById('status');
+    var startBtn = document.getElementById('start'), retryBtn = document.getElementById('retry'), vrBtn = document.getElementById('entervr');
+    var canvas = document.getElementById('unity-canvas');
+    function setStatus(t) { statusEl.textContent = t; }
+    function fail(msg) { setStatus(msg); retryBtn.hidden = false; document.getElementById('progress').classList.add('error'); }
+    retryBtn.onclick = function () { location.reload(); };
+
+    // 拡大・スクロールの誤動作を防ぐ（ゲーム画面上の複数タッチは Unity に渡す）
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (n) { document.addEventListener(n, function (e) { e.preventDefault(); }, { passive: false }); });
+    document.addEventListener('touchmove', function (e) { if (e.target === canvas) e.preventDefault(); }, { passive: false });
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('contextmenu', function (e) { if (e.target === canvas) e.preventDefault(); });
+
+    // WebGL2 が使えない環境は先に案内する
+    var probe = document.createElement('canvas');
+    if (!(probe.getContext && probe.getContext('webgl2'))) { fail('このブラウザは WebGL2 に対応していないため遊べません。最新の Chrome / Safari / Edge / Meta Quest Browser でお試しください。'); return; }
+
+    var buildUrl = "Build";
+    var config = {
+      dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+      frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+      codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+#if MEMORY_FILENAME
+      memoryUrl: buildUrl + "/{{{ MEMORY_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+      symbolsUrl: buildUrl + "/{{{ SYMBOLS_FILENAME }}}",
+#endif
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "{{{ COMPANY_NAME }}}",
+      productName: "{{{ PRODUCT_NAME }}}",
+      productVersion: "{{{ PRODUCT_VERSION }}}",
+      // 高解像度端末で重くなりすぎないよう、描画倍率を 2 までに抑える
+      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      showBanner: function (msg, type) { if (type === 'error') fail('エラーが発生しました：' + msg); else console.warn(msg); }
+    };
+
+    var unityInstance = null;
+    var script = document.createElement('script');
+    script.src = buildUrl + "/{{{ LOADER_FILENAME }}}";
+    script.onerror = function () { fail('ゲーム本体（ローダー）を取得できませんでした。通信状況を確認して、もう一度読み込んでください。'); };
+    script.onload = function () {
+      setStatus('ゲーム本体を読み込んでいます… 0%');
+      createUnityInstance(canvas, config, function (p) {
+        bar.style.width = (100 * p).toFixed(0) + '%';
+        setStatus('ゲーム本体を読み込んでいます… ' + (100 * p).toFixed(0) + '%');
+      }).then(function (inst) {
+        unityInstance = inst; window.skywardUnity = inst;
+        setStatus('読み込み完了。');
+        startBtn.hidden = false; startBtn.focus();
+      }).catch(function (msg) { fail('読み込みに失敗しました：' + msg); });
+    };
+    document.body.appendChild(script);
+
+    // 「はじめる」の操作で音声を有効にしてからタイトルへ（Safari・Quest Browser の自動再生制限への対応）
+    startBtn.onclick = function () {
+      try {
+        var ctx = window.WEBAudio && window.WEBAudio.audioContext;
+        if (ctx && ctx.state !== 'running') ctx.resume();
+      } catch (e) { }
+      top.classList.add('hide');
+      canvas.focus();
+    };
+
+    // WebXR：対応を検出したら VR ボタンを出す（タイトル画面の「VR を開始」と同じ）
+    document.addEventListener('onVRSupportedCheck', function (e) { vrBtn.hidden = !(e.detail && e.detail.supported); }, false);
+    vrBtn.onclick = function () {
+      if (!unityInstance) return;
+      try { unityInstance.Module.WebXR.toggleVR(); } catch (e) { alert('VR を開始できませんでした：' + e); }
+    };
+  })();
+  </script>
+</body>
+</html>

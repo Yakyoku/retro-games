@@ -24,7 +24,8 @@ const sp = (x, type, o = {}) => ({ x, type, ...o });
 const s1 = {
   id: 1, name: 'GLASS REEF', ja: '硝子の礁', music: 'stage1', speed: 2.2, bossStop: 236, checkpoints: [0, 84, 150, 226],
   recover: ['C', 'S'],
-  palette: { sky: 0x05080f, fog: 0x0a1624, metal: 0x5d6f82, flesh: 0x2a3a4a, glow: 0x4fe3ff, accent: 0x7dffb0, nebula: [0x0d3b5a, 0x2a0d44] },
+  // 毒々しい暗黒: ほぼ黒の空に、胆汁の緑と打ち身の紫
+  palette: { sky: 0x010203, fog: 0x030b08, metal: 0x34404a, flesh: 0x101a16, glow: 0x52ff8a, accent: 0x9dff3a, toxic: 0x7dff4a, nebula: [0x0b3a1c, 0x1c0630], quake: 0 },
   bottom: profile([[-12, -7], [30, -7], [36, 1.4], [110, 1.6], [122, 4.6], [138, 4.6], [150, 1.6], [200, 1.2], [420, 1.0]],
     [[-12, 0], [32, 0], [36, 1], [196, 1], [206, 0.35], [420, 0.35]], 1.3),
   top: profile([[-12, 25], [58, 25], [64, 15.6], [110, 15.4], [122, 12.6], [138, 12.6], [150, 15.8], [200, 16.8], [420, 17.0]],
@@ -77,7 +78,8 @@ function tunnel(sign, seed) {
 const s2 = {
   id: 2, name: 'VEIN CATHEDRAL', ja: '脈の聖堂', music: 'stage2', speed: 2.0, bossStop: 250, checkpoints: [0, 86, 168, 238],
   recover: ['A', 'S'],
-  palette: { sky: 0x0b0408, fog: 0x1a0710, metal: 0x6a5560, flesh: 0x4a1424, glow: 0xff4fb4, accent: 0xffb347, nebula: [0x3a0820, 0x1a0a30] },
+  // 腐った血と膿の緑
+  palette: { sky: 0x030001, fog: 0x0e0206, metal: 0x3c2c34, flesh: 0x260610, glow: 0xff2456, accent: 0xb4ff2a, toxic: 0xc8ff3a, nebula: [0x380312, 0x1e2a06], quake: 0 },
   bottom: tunnel(-1, 2.2), top: tunnel(1, 5.7),
   blocks: [
     { x: 72, y: c2(72) - 1.2, w: 1.6, h: 2.4, hp: 10, kind: 'cyst', score: 300 },
@@ -119,7 +121,8 @@ const plate = (x, y, w, h) => ({ x, y, w, h, kind: 'plate', hp: 12, score: 500 }
 const s3 = {
   id: 3, name: 'GRAVEN ARK', ja: '墓標の方舟', music: 'stage3', speed: 2.6, bossStop: 300, checkpoints: [0, 104, 188, 286],
   recover: ['C', 'S'],
-  palette: { sky: 0x03050a, fog: 0x0b0d14, metal: 0x7b8794, flesh: 0x30262a, glow: 0xffb347, accent: 0x4fe3ff, nebula: [0x10203a, 0x2a1a08] },
+  // 錆と放射能の光
+  palette: { sky: 0x010101, fog: 0x080604, metal: 0x4c4a46, flesh: 0x1c1410, glow: 0xff9a28, accent: 0x8cff3c, toxic: 0x9cff40, nebula: [0x2a1704, 0x072418], quake: 0 },
   bottom: [], top: [],
   blocks: [
     // 艦尾（エンジン区画）
@@ -167,7 +170,8 @@ const shard = (x, y, w, h) => ({ x, y, w, h, kind: 'crystal' });
 const s4 = {
   id: 4, name: 'HEART OF THE BLOOM', ja: '花芯', music: 'stage4', speed: 2.2, bossStop: 244, checkpoints: [0, 82, 164, 232],
   recover: ['M', 'S'],
-  palette: { sky: 0x07030c, fog: 0x140820, metal: 0x8a7fa0, flesh: 0x3a1a4a, glow: 0xc9a0ff, accent: 0x7dffb0, nebula: [0x2a0a4a, 0x08303a] },
+  // 花芯: 毒の紫と死の緑、全体が心臓のように脈打つ
+  palette: { sky: 0x020004, fog: 0x0b0314, metal: 0x4a3c62, flesh: 0x1a0826, glow: 0xc23cff, accent: 0x5cff8e, toxic: 0xd04cff, nebula: [0x22053a, 0x053626], quake: 1 },
   bottom: profile([[-12, -7], [20, -7], [27, 1.8], [80, 2.4], [90, 5], [110, 5], [120, 2], [160, 2.2], [232, 0.8], [420, 0.8]],
     [[-12, 0], [22, 0], [27, 1.15], [222, 1.15], [234, 0.35], [420, 0.35]], 7.7),
   top: profile([[-12, 25], [20, 25], [27, 16], [80, 15.6], [90, 13], [110, 13], [120, 16], [160, 15.8], [232, 17.2], [420, 17.2]],

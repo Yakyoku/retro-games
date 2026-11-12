@@ -30,7 +30,9 @@ export class SpriteBatch {
           else { a = smoothstep(1.0, 0.0, d); a = a * a * 0.6; }
           if (a < 0.003) discard; gl_FragColor = vec4(c * a * vCol.a, a * vCol.a); }`,
     });
-    if (blending === THREE.AdditiveBlending) this.mat.blending = THREE.CustomBlending, this.mat.blendSrc = THREE.OneFactor, this.mat.blendDst = THREE.OneFactor;
+    this.mat.blending = THREE.CustomBlending; this.mat.blendSrc = THREE.OneFactor;
+    // 加算（光）か、暗くする合成（煙・靄。前乗算アルファの普通の重ね）
+    this.mat.blendDst = blending === 'dark' ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor;
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.frustumCulled = false;
     this.geo = g;
@@ -84,8 +86,9 @@ export class Particles {
       if (o.t >= o.life) continue;
       const d = Math.pow(o.drag, dt * 60);
       o.vx *= d; o.vy *= d; o.vz *= d;
+      if (o.grav) o.vy += o.grav * dt;   // 重さ（滴・飛び散る体液）
       o.x += o.vx * dt; o.y += o.vy * dt; o.z += o.vz * dt;
-      const k = o.t / o.life, a = (1 - k) * (1 - k);
+      const k = o.t / o.life, a = (o.fade ? Math.sin(Math.PI * Math.min(1, k)) : (1 - k) * (1 - k)) * (o.a ?? 1); // fade: ふわっと現れて消える
       let w = o.w, h = o.h || o.w;
       if (o.grow) { w *= 1 + k * o.grow; h = w; }
       if (o.shrink) { w *= 1 - k; h = w; }

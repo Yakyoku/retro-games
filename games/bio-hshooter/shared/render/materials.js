@@ -22,7 +22,8 @@ function patch(mat, opt = {}) {
   mat.customProgramCacheKey = () => 'vb' + (flesh ? 'f' : 'm') + rim.getHexString() + (opt.vein ?? 0) + '_' + (opt.freq ?? 1);
   return mat;
 }
-const fleshPatch = (mat, opt = {}) => patch(mat, { ...opt, flesh: true, rim: opt.rim ?? 0xff7aa8, rimGain: opt.rimGain ?? 0.35 });
+// 肉: 濡れて光り（粗さ低め）、輪郭が皮膚の下から透けるように暖色に光る（簡易な表面下散乱）
+const fleshPatch = (mat, opt = {}) => { mat.roughness = Math.min(mat.roughness, 0.32); return patch(mat, { ...opt, flesh: true, rim: opt.rim ?? 0xff5a7a, rimGain: opt.rimGain ?? 0.55 }); };
 
 // 環境マップ: 暗い宇宙に冷たい青と紫の光の帯だけがある部屋（金属の映り込み用）
 export function makeEnvironment(renderer) {
@@ -69,7 +70,8 @@ export function materials() {
     steel: patch(new THREE.MeshStandardMaterial({ color: 0xa8b4c2, metalness: 0.9, roughness: 0.28 }), { rimGain: 0.35 }),
     darkSteel: patch(new THREE.MeshStandardMaterial({ color: 0x3a434e, metalness: 0.85, roughness: 0.4 }), { rimGain: 0.45 }),
     gunmetal: patch(new THREE.MeshStandardMaterial({ color: 0x5c6672, metalness: 0.88, roughness: 0.34 }), { rimGain: 0.45 }),
-    hull: new THREE.MeshStandardMaterial({ color: 0xb8c0ca, metalness: 0.75, roughness: 0.5, map: panel, roughnessMap: panel }),
+    hull: new THREE.MeshStandardMaterial({ color: 0x6e6c66, metalness: 0.7, roughness: 0.62, map: panel, roughnessMap: panel }),  // 腐食して煤けた船体
+    gHull: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa040).multiplyScalar(2), toneMapped: false }),  // 船体の灯火（ちらつく）
     chitin: patch(new THREE.MeshStandardMaterial({ color: 0x34404c, metalness: 0.5, roughness: 0.2 }), { rim: 0x8fd0ff, rimGain: 0.75 }),
     bone: patch(new THREE.MeshStandardMaterial({ color: 0xcfc6b4, metalness: 0.15, roughness: 0.55 }), { rim: 0xffe8c8, rimGain: 0.25 }),
     flesh: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x4a1c2a, metalness: 0.08, roughness: 0.5, emissive: 0x12030a }), { vein: 0xff3a7a }),
@@ -78,8 +80,9 @@ export function materials() {
     trim: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4fe3ff).multiplyScalar(1.6), toneMapped: false }),
     fleshTeal: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x163a3a, metalness: 0.1, roughness: 0.45, emissive: 0x021010 }), { vein: 0x40ffd0 }),
     fleshViolet: fleshPatch(new THREE.MeshStandardMaterial({ color: 0x2c1640, metalness: 0.2, roughness: 0.4, emissive: 0x080210 }), { vein: 0xc080ff }),
-    crystal: new THREE.MeshStandardMaterial({ color: 0x8fd8ff, metalness: 0.2, roughness: 0.16, transparent: true, opacity: 0.72, emissive: 0x0a3050, envMapIntensity: 0.6 }),
-    crystalViolet: new THREE.MeshStandardMaterial({ color: 0xd0a8ff, metalness: 0.3, roughness: 0.16, transparent: true, opacity: 0.78, emissive: 0x240a40 }),
+    // 黒曜石のような毒の結晶（暗い本体の奥で毒の色がくすぶる）
+    crystal: new THREE.MeshStandardMaterial({ color: 0x0e1a16, metalness: 0.4, roughness: 0.1, transparent: true, opacity: 0.88, emissive: 0x0b3a16, envMapIntensity: 0.9 }),
+    crystalViolet: new THREE.MeshStandardMaterial({ color: 0x1a0e26, metalness: 0.4, roughness: 0.1, transparent: true, opacity: 0.9, emissive: 0x2a0844, envMapIntensity: 0.9 }),
     canopy: new THREE.MeshStandardMaterial({ color: 0x0a2030, metalness: 0.9, roughness: 0.05, emissive: 0x0a4a6a }),
     gCyan: glow(0x4fe3ff), gMagenta: glow(0xff4fb4), gAmber: glow(0xffb347), gBio: glow(0x7dffb0), gRed: glow(0xff3048, 2.6), gWhite: glow(0xffffff, 1.6), gViolet: glow(0xc9a0ff),
     gEye: glow(0xff2a50, 3.2),

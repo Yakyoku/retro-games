@@ -1,0 +1,9 @@
+{
+  "sites": [
+    { "name": "twin-garden-2d", "siteId": "aa205250-1c49-4b55-92c6-fa9461228e34", "url": "https://twin-garden-2d.netlify.app/",
+      "env": { "GAME": "twin-garden", "VARIANT": "2d" }, "note": "2D 版（PC・タブレット）。three は含まない" },
+    { "name": "twin-garden-vr", "siteId": "7afaf38a-e64a-4cd5-8c61-e78e83200b85", "url": "https://twin-garden-vr.netlify.app/",
+      "env": { "GAME": "twin-garden", "VARIANT": "vr" }, "note": "3D／WebXR 版（Meta Quest 3 のブラウザー・PC の通常 3D）" }
+  ],
+  "notOurs": ["twin-garden-unity-2d", "twin-garden-unity-vr", "twin-garden-arcade", "twin-garden-spatial（ほかのセッションのサイト。上書きしない）"]
+}

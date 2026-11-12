@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<title>ポンプ・パトロール — サウンドテスト</title>
+<script src="shared/error-overlay.js"></script>
+<style>
+  :root { --bg: #0b0907; --panel: #15110d; --line: #2a221a; --text: #efe4d6; --dim: #9c8b78; --accent: #ffb547; --accent2: #6ee0c4; --warn: #ff6b5a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif; }
+  header { padding: 28px clamp(16px, 4vw, 48px) 8px; }
+  h1 { margin: 0; font: 800 clamp(24px, 3.6vw, 40px)/1.2 ui-monospace, Consolas, monospace; letter-spacing: .08em; color: var(--accent); }
+  header p { margin: 6px 0 0; color: var(--dim); max-width: 80ch; }
+  .status { font: 12px ui-monospace, monospace; color: var(--dim); margin-top: 6px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; padding: 16px clamp(16px, 4vw, 48px) 32px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .25em; color: var(--accent2); }
+  button { font: inherit; color: var(--text); background: #1d1813; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; text-align: left; touch-action: manipulation; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: #3a2a12; border-color: var(--accent); }
+  .list { display: grid; gap: 6px; }
+  .list button { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+  .grid button b, .list button b { font: 600 13px ui-monospace, monospace; }
+  small { color: var(--dim); font-size: 12px; }
+  .tag { font-size: 11px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .tag.o { color: var(--accent); border-color: #6b4a1c; }
+  #walk { width: 100%; padding: 18px; font-size: 20px; text-align: center; margin-top: 8px; user-select: none; -webkit-user-select: none; }
+  #walk.on { background: #12362d; border-color: var(--accent2); }
+  .bar { height: 8px; background: #241d16; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent2); }
+  label { display: grid; grid-template-columns: 7em 1fr 3em; align-items: center; gap: 8px; margin: 6px 0; color: var(--dim); font-size: 13px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  td code { color: var(--accent); }
+  #gate { position: fixed; inset: 0; background: rgba(5, 4, 3, .86); display: grid; place-items: center; z-index: 10; }
+  #gate button { font-size: 20px; padding: 18px 28px; text-align: center; }
+  footer { padding: 0 clamp(16px, 4vw, 48px) 28px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="gate"><button id="unlock">タップして音を出す</button></div>
+<header>
+  <h1>PUMP PATROL — サウンドテスト</h1>
+  <p>「地底探検：ポンプ・パトロール」の曲・ジングル・効果音・環境音をすべて鳴らせます。面の曲はプレイヤーが<strong>歩いている間だけ進み</strong>、止まると同じ位置で止まります（下の「歩く」ボタンを押している間・スペースキーを押している間だけ歩きます）。</p>
+  <div class="status" id="status">音: 未起動</div>
+</header>
+<main>
+  <section>
+    <h2>曲</h2>
+    <div class="list" id="tracks"></div>
+    <button id="walk">止まっている（押している間 歩く）</button>
+    <div class="row"><button id="walkLatch">歩き続ける（切り替え）</button><button id="musicStop">曲を止める</button></div>
+    <div class="bar"><i id="pos"></i></div>
+    <small id="posText">位置: -</small>
+  </section>
+  <section>
+    <h2>ジングル</h2>
+    <div class="list" id="jingles"></div>
+    <h2 style="margin-top:18px">環境音（別の系統）</h2>
+    <div class="row" id="ambs"></div>
+  </section>
+  <section>
+    <h2>音量</h2>
+    <div id="vols"></div>
+    <div class="row">
+      <button id="mute">ミュート</button><button id="pause">一時停止（suspend）</button><button id="stopAll">全部止める</button>
+    </div>
+    <h2 style="margin-top:18px">効果音のオプション</h2>
+    <label>段階 stage<input type="range" id="stage" min="1" max="5" value="1"><span id="stageV">1</span></label>
+    <label>定位 pan<input type="range" id="pan" min="-1" max="1" step="0.1" value="0"><span id="panV">0</span></label>
+    <label>大きさ gain<input type="range" id="gain" min="0" max="1" step="0.05" value="1"><span id="gainV">1</span></label>
+    <small>pump-air は stage 1〜5 で高さが上がり、rock-crush は stage がつぶした数になります。</small>
+  </section>
+  <section class="wide">
+    <h2>効果音</h2>
+    <div class="grid" id="sfx"></div>
+  </section>
+  <section class="wide">
+    <h2>音の一覧</h2>
+    <table><thead><tr><th>名前</th><th>種類</th><th>内容</th><th>鳴るとき</th><th>区分</th></tr></thead><tbody id="table"></tbody></table>
+  </section>
+</main>
+<footer>音はすべて今回の書き下ろし・自作の合成音です（既存のゲームの旋律や録音は使っていません）。Claude Code で制作。</footer>
+<script type="module" src="sound-test.js"></script>
+</body>
+</html>

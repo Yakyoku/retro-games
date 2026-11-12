@@ -78,6 +78,25 @@ export function createRenderer2D(canvas, app) {
     islandDetail.set(isl, d); return d;
   }
 
+  // 地面の細かい素材（粒・まだら・ひび・小石）。テーマごと・倍率ごとに 1 回だけ作る
+  const grains = new Map();
+  function grain(th) {
+    const key = th.land + K.toFixed(3);
+    let p = grains.get(key); if (p) return p;
+    const size = Math.min(2048, Math.max(64, Math.round(128 * K)));
+    const cv = document.createElement('canvas'); cv.width = cv.height = size; const c = cv.getContext('2d');
+    const r = rng(th.land.charCodeAt(1) * 131 + 7), u = size / 128; // u = 1 単位の画素数
+    const wrap = (fn) => { for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) { c.save(); c.translate(ox, oy); fn(); c.restore(); } };
+    for (let i = 0; i < 70; i++) { const x = r() * size, y = r() * size, rad = (6 + r() * 26) * u, dark = r() < 0.5; wrap(() => { c.fillStyle = rg(c, x, y, 0, rad, [[0, dark ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.07)'], [1, 'rgba(0,0,0,0)']]); c.beginPath(); c.arc(x, y, rad, 0, TAU); c.fill(); }); }
+    const nSpeck = Math.round(size * size / 90);
+    for (let i = 0; i < nSpeck; i++) { const x = r() * size, y = r() * size, q = r(); c.fillStyle = q < 0.5 ? `rgba(0,0,0,${0.06 + r() * 0.12})` : `rgba(255,255,255,${0.04 + r() * 0.08})`; const d = Math.max(1, u * (0.25 + r() * 0.35)); c.fillRect(x, y, d, d); }
+    for (let i = 0; i < 60; i++) { const x = r() * size, y = r() * size, rad = (0.6 + r() * 1.6) * u, a = r() * TAU; wrap(() => { c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.ellipse(x + 0.3 * u, y + 0.4 * u, rad, rad * 0.7, a, 0, TAU); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(x, y, rad, rad * 0.7, a, 0, TAU); c.fill(); }); }
+    c.lineCap = 'round';
+    for (let i = 0; i < 26; i++) { let x = r() * size, y = r() * size, a = r() * TAU; const pts = [[x, y]]; for (let k = 0; k < 6; k++) { a += (r() - 0.5) * 1.2; x += Math.cos(a) * (2 + r() * 4) * u; y += Math.sin(a) * (2 + r() * 4) * u; pts.push([x, y]); } wrap(() => { c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 0.35 * u; c.beginPath(); pts.forEach(([px, py], k) => (k ? c.lineTo(px, py) : c.moveTo(px, py))); c.stroke(); c.strokeStyle = 'rgba(255,255,255,.07)'; c.translate(0.3 * u, 0.3 * u); c.stroke(); }); }
+    p = c.createPattern(cv, 'repeat'); p.size = size; grains.set(key, p); if (grains.size > 24) grains.clear();
+    return p;
+  }
+
   function islandPath(c, isl, sc) {
     c.beginPath();
     for (let i = 0; i < isl.left.length; i++) { const wy = isl.wy0 + i * isl.step; const y = sc - wy; i ? c.lineTo(isl.left[i], y) : c.moveTo(isl.left[i], y); }
@@ -95,6 +114,13 @@ export function createRenderer2D(canvas, app) {
       const y0 = sc - isl.wy1, y1 = sc - isl.wy0;
       c.fillStyle = lg(c, isl.cx - isl.hw, y0, isl.cx + isl.hw, y1, [[0, th.landHi], [0.35, th.land], [1, th.side]]); c.fill();
       c.save(); c.clip();
+      // 地面の模様（表示倍率ちょうどの解像度で焼いた 128 単位の繰り返し）。スクロールに合わせて動かす
+      const pat = grain(th);
+      pat.setTransform(new DOMMatrix().translate(0, sc % 128).scale(128 / pat.size));
+      c.fillStyle = pat; c.fillRect(-40, -40, FIELD.W + 80, FIELD.H + 80);
+      // 縁の内側の陰（台地の厚みの手がかり）
+      c.lineWidth = 9; c.strokeStyle = 'rgba(0,0,0,.16)'; islandPath(c, isl, sc); c.stroke();
+      c.lineWidth = 3.5; c.strokeStyle = 'rgba(0,0,0,.14)'; islandPath(c, isl, sc); c.stroke();
       for (const d of detailFor(isl, g.area)) {
         const y = sc - d.wy; if (y < -10 || y > FIELD.H + 10) continue;
         if (d.t === 'crater') { c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.arc(d.x, y, d.s, 0, TAU); c.fill(); c.fillStyle = 'rgba(255,255,255,.08)'; c.beginPath(); c.arc(d.x - d.s * 0.25, y - d.s * 0.25, d.s * 0.7, 0, TAU); c.fill(); }

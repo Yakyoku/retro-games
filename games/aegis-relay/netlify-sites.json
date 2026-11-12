@@ -1,0 +1,6 @@
+{
+  "sites": [
+    { "name": "aegis-relay-2d", "siteId": "086677e5-fc59-4c16-a426-e3676066c7ee", "url": "https://aegis-relay-2d.netlify.app/", "env": { "GAME": "aegis-relay", "VARIANT": "2d" }, "note": "2D 版（PC・タブレット）" },
+    { "name": "aegis-relay-vr", "siteId": "042004da-9f9b-48f0-8eb1-96ff2c796f59", "url": "https://aegis-relay-vr.netlify.app/", "env": { "GAME": "aegis-relay", "VARIANT": "vr" }, "note": "3D 版（通常画面）＋ Meta Quest 3 WebXR" }
+  ]
+}

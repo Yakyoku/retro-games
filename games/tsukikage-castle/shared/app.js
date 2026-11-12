@@ -153,6 +153,12 @@ export class GameApp {
     for (const e of evs) {
       if (e.type === 'stageStart') { this.renderer.setStage(g); this.audio.ambient(g.def.theme); if (g.stageIndex > this.save.reached[this.diff]) { this.save.reached[this.diff] = g.stageIndex; this.persist(); } }
       if (e.type === 'armorBreak') this.input.rumble(140, 0.7);
+      const WN = { lance: '槍', dagger: '短剣', axe: '斧', torch: '火炎' };
+      if (e.type === 'weaponGet') this.notice = { msg: `${WN[e.weapon]}を手に入れた`, t: 2.2 };
+      if (e.type === 'armorGet') this.notice = { msg: '鎧をまとった', t: 2.2, col: '#bcd8ff' };
+      if (e.type === 'treasure') this.notice = { msg: '宝を見つけた　200 点', t: 2.0 };
+      if (e.type === 'checkpoint') this.notice = { msg: '中間地点', t: 1.6, col: '#d8d0ff' };
+      if (e.type === 'armorBreak') this.notice = { msg: '鎧が砕けた！', t: 1.6, col: '#ff8a6a' };
       if (e.type === 'death') this.input.rumble(260, 1);
       if (e.type === 'bossDie') this.input.rumble(400, 0.8);
       if (e.type === 'gameOver') { this.recordHi(); this.openGameOver(); }
@@ -182,6 +188,7 @@ export class GameApp {
     this.t += dt;
     this.input.pollPad();
     if (this.toast) { this.toast.t -= dt; if (this.toast.t <= 0) this.toast = null; }
+    if (this.notice && this.screen === 'play') { this.notice.t -= dt; if (this.notice.t <= 0) this.notice = null; }
     if (this.ignoreOk > 0) this.ignoreOk -= dt;
     const m = this.input.menu(dt);
     if ((m.ok || m.pause || m.back) && !this.started) this.unlock();

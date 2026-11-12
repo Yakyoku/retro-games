@@ -145,7 +145,11 @@ export class Renderer2D {
         }
       });
     });
-    return { far, mid, W, H };
+    // 近景の層: 中景を 1.4 倍にして、霧の色で暗く塗り直す（大気の遠近: 近いほど濃く暗い）
+    const near = document.createElement('canvas'); near.width = W; near.height = H;
+    { const x = near.getContext('2d'); x.save(); x.translate(0, H); x.scale(1.4, 1.4); x.translate(0, -H); x.drawImage(mid, 0, 0); x.drawImage(mid, -W / 1.4 * 0.6, 0); x.restore();
+      x.globalCompositeOperation = 'source-in'; x.fillStyle = 'rgba(4,4,12,0.96)'; x.fillRect(0, 0, W, H); }
+    return { far, mid, near, W, H };
   }
 
   // ---------------------------------------------------------------- 毎フレーム
@@ -201,6 +205,7 @@ export class Renderer2D {
     this.fogImg = o;
     const v = document.createElement('canvas'); v.width = F.w; v.height = F.h; const y2 = v.getContext('2d');
     y2.fillStyle = th.tint; y2.fillRect(0, 0, F.w, F.h);
+    { const cg = y2.createLinearGradient(0, 0, 0, F.h); cg.addColorStop(0, 'rgba(40,70,160,0.10)'); cg.addColorStop(0.55, 'rgba(0,0,0,0)'); cg.addColorStop(1, 'rgba(120,60,30,0.08)'); y2.fillStyle = cg; y2.fillRect(0, 0, F.w, F.h); }
     const vg = y2.createRadialGradient(F.w / 2, F.h / 2, F.h * 0.45, F.w / 2, F.h / 2, F.w * 0.65); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,10,0.5)');
     y2.fillStyle = vg; y2.fillRect(0, 0, F.w, F.h);
     this.tintImg = v;
@@ -218,7 +223,21 @@ export class Renderer2D {
       const yy = F.y + F.h - bg.H + (vert ? ((cy * T * ky) % (bg.H * 0.375)) : (cy - this.viewH / 2) * T * ky) + bg.H * 0.32;
       for (let x = F.x + off - bg.W; x < F.x + F.w; x += bg.W) ctx.drawImage(img, Math.round(x), Math.round(yy));
     };
-    par(bg.far, 0.12, 0.05); par(bg.mid, 0.35, vert ? 0.35 : 0.15);
+    // 月の光の筋（ゆっくり回る）と、月の前を流れる雲
+    if (th.moon) {
+      const [mx, my, ms] = th.moon, R = F.h * 0.09 * ms, x = F.x + F.w * mx, y = F.y + F.h * my;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 9; i++) { const a = this.time * 0.02 + i * 0.7, w = 0.05 + (i % 3) * 0.025, L = F.h * (0.9 + (i % 2) * 0.4);
+        ctx.fillStyle = `rgba(190,210,255,${0.025 + (i % 3) * 0.01})`; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a - w) * L, y + Math.sin(a - w) * L); ctx.lineTo(x + Math.cos(a + w) * L, y + Math.sin(a + w) * L); ctx.closePath(); ctx.fill(); }
+      ctx.restore();
+      for (let i = 0; i < 3; i++) { const cw = R * (3 + i), cx2 = x + ((((this.time * (6 + i * 3) + i * 400) % (F.w + cw * 2)) + F.w + cw * 2) % (F.w + cw * 2)) - F.w / 2 - cw, cy2 = y + R * (0.3 - i * 0.45);
+        const gr = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, cw); gr.addColorStop(0, `rgba(10,12,30,${0.55 - i * 0.12})`); gr.addColorStop(1, 'rgba(10,12,30,0)');
+        ctx.fillStyle = gr; ctx.save(); ctx.translate(cx2, cy2); ctx.scale(1, 0.22); ctx.translate(-cx2, -cy2); ctx.beginPath(); ctx.arc(cx2, cy2, cw, 0, TAU); ctx.fill(); ctx.restore(); }
+    }
+    par(bg.far, 0.12, 0.05);
+    { const hz = ctx.createLinearGradient(0, F.y + F.h * 0.45, 0, F.y + F.h * 0.85); hz.addColorStop(0, 'rgba(0,0,0,0)'); hz.addColorStop(0.6, th.fog.replace(/[\d.]+\)$/, '0.22)')); hz.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = hz; ctx.fillRect(F.x, F.y + F.h * 0.45, F.w, F.h * 0.4); }
+    par(bg.mid, 0.35, vert ? 0.35 : 0.15);
+    if (bg.near && ['graveyard', 'cave', 'fortress'].includes(this.def.theme)) { ctx.globalAlpha = 0.72; par(bg.near, 0.58, vert ? 0.55 : 0.25); ctx.globalAlpha = 1; } // 壁で埋まる中景（塔・魔城・村）には使わない
     ctx.drawImage(this.fogImg, F.x, F.y);
   }
   // ワールド座標（u）→ 画面の変換を設定。face で左右反転
@@ -260,7 +279,11 @@ export class Renderer2D {
     {
       const [x, y] = lerpP(p);
       const fx = this.knightFX(g, p, x, y);
-      if (!(p.inv > 0 && g.mode === 'play' && Math.floor(time * 20) % 2 === 0)) { this.at(ctx, x, y, p.face); drawKnight(ctx, p, time, { weapon: g.weapon, ...fx }); }
+      if (!(p.inv > 0 && g.mode === 'play' && Math.floor(time * 20) % 2 === 0)) {
+        const up = p.state === 'jump' ? Math.min(1, p.vy / 9) : 0, land = p.landT > 0 ? p.landT / 0.12 : 0;
+        const sy = 1 + up * 0.07 - land * 0.08, sx = 1 / Math.sqrt(sy);
+        this.at(ctx, x, y, p.face); ctx.scale(sx, sy); drawKnight(ctx, p, time, { weapon: g.weapon, ...fx });
+      }
     }
     // 弾
     for (const s of g.shots) {
@@ -284,31 +307,136 @@ export class Renderer2D {
     ctx.drawImage(this.tintImg, F.x, F.y);
     if (g.mode === 'dying' && g.player.deadT > 0.5) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (g.player.deadT - 0.5) * 1.2)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
   }
+  // ---------------------------------------------------------------- 地形（6×6 タイルの区画ごとに「描いた地面」を焼いて使い回す）
   drawTiles(ctx, g) {
-    const v = this.view, def = g.def, W = def.W, Tp = v.T, tl = this.tiles;
-    const x0 = Math.max(0, Math.floor(v.x0)), x1 = Math.min(W - 1, Math.ceil(v.x1)), y0 = Math.max(0, Math.floor(v.y0)), y1 = Math.min(def.H - 1, Math.ceil(v.y1));
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const sz = Math.ceil(Tp) + 1;
-    const grassTiles = [], tops = [];
-    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-      const t = g.tiles[ty * W + tx];
-      if (!t || this.skip.has(ty * W + tx)) continue;
-      const sx = Math.floor(v.ox + tx * Tp), sy = Math.floor(v.oy - (ty + 1) * Tp);
-      if (t === TT.SOLID) {
-        const above = ty + 1 < def.H ? g.tiles[(ty + 1) * W + tx] : 0;
-        const vi = (tx * 7 + ty * 13) % 3;
-        ctx.drawImage(above === TT.SOLID ? tl.mid[vi] : tl.top[vi], sx, sy, sz, sz);
-        if (above !== TT.SOLID && this.grassy) grassTiles.push(tx);
-        if (above !== TT.SOLID) tops.push([sx, sy]);
-        // 横の縁（空いている側を暗く）
-        if (tx > 0 && g.tiles[ty * W + tx - 1] !== TT.SOLID) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(sx, sy, Tp * 0.08, sz); }
-        if (tx < W - 1 && g.tiles[ty * W + tx + 1] !== TT.SOLID) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(sx + Tp * 0.92, sy, Tp * 0.08 + 1, sz); }
-      } else if (t === TT.PLAT) ctx.drawImage(tl.plat, sx, sy, sz, sz);
-      else if (t === TT.LADDER) ctx.drawImage(tl.ladder, sx, sy, sz, sz);
-      if (grassTiles.length && grassTiles[grassTiles.length - 1] === tx && tops.length) { const [gx, gy] = tops[tops.length - 1]; this.grass(ctx, gx, gy, Tp, tx, ty); grassTiles.length = 0; }
+    const v = this.view, C = 6, def = g.def;
+    if (this.chunkTiles !== g.tiles || this.chunkT !== v.T || this.chunkLock !== g.lockCam) { this.chunks = new Map(); this.chunkTiles = g.tiles; this.chunkT = v.T; this.chunkLock = g.lockCam; }
+    const cx0 = Math.floor(Math.max(0, v.x0) / C), cx1 = Math.floor(Math.min(def.W - 1, v.x1) / C), cy0 = Math.floor(Math.max(0, v.y0) / C), cy1 = Math.floor(Math.min(def.H - 1, v.y1) / C);
+    const m = 0.5;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const key = cx + ',' + cy;
+      let c = this.chunks.get(key);
+      if (!c) { c = this.paintChunk(g, cx, cy, C, m, v.T); this.chunks.set(key, c); if (this.chunks.size > 80) this.chunks.delete(this.chunks.keys().next().value); }
+      else { this.chunks.delete(key); this.chunks.set(key, c); }
+      if (c) ctx.drawImage(c, Math.round(v.ox + (cx * C - m) * v.T), Math.round(v.oy - ((cy + 1) * C + m) * v.T));
     }
-    // 上面の縁の月光（面取りの光）
-    ctx.fillStyle = 'rgba(200,220,255,0.16)'; for (const [x, y] of tops) ctx.fillRect(x, y + Tp * 0.035, sz, Tp * 0.03);
+    ctx.restore();
+    // 揺れる草（上面の縁）
+    if (this.grassy) {
+      const x0 = Math.max(0, Math.floor(v.x0)), x1 = Math.min(def.W - 1, Math.ceil(v.x1)), y0 = Math.max(0, Math.floor(v.y0)), y1 = Math.min(def.H - 2, Math.ceil(v.y1));
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) if (g.tiles[ty * def.W + tx] === TT.SOLID && g.tiles[(ty + 1) * def.W + tx] !== TT.SOLID && !this.skip.has(ty * def.W + tx)) this.grass(ctx, v.ox + tx * v.T, v.oy - (ty + 1) * v.T, v.T, tx, ty);
+      ctx.restore();
+    }
+  }
+  paintChunk(g, cx, cy, C, m, T) {
+    const def = g.def, W = def.W, H = def.H, th = this.th, theme = def.theme;
+    const x0 = cx * C, y0 = cy * C, x1 = x0 + C, y1 = y0 + C;
+    const tileAt = (x, y) => (x < 0 || x >= W ? TT.SOLID : y < 0 ? TT.SOLID : y >= H ? 0 : g.tiles[y * W + x]);
+    const solid = (x, y) => tileAt(x, y) === TT.SOLID && !this.skip.has(y * W + x);
+    let any = false;
+    for (let y = y0 - 1; y <= y1 && !any; y++) for (let x = x0 - 1; x <= x1; x++) if (x >= 0 && x < W && y >= 0 && y < H && g.tiles[y * W + x]) { any = true; break; }
+    if (!any) return null;
+    const cv = document.createElement('canvas'); cv.width = Math.ceil((C + 2 * m) * T); cv.height = cv.width;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(T, 0, 0, -T, (m - x0) * T, (y1 + m) * T);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 - m, y0 - m, C + 2 * m, C + 2 * m); ctx.clip();
+    const brick = theme === 'tower' || theme === 'fortress' || theme === 'citadel' || theme === 'village';
+    const R = (x, y, s = 0) => { let h = (x * 374761393 + y * 668265263 + s * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+    const deep = th.rock[2], mid = th.rock[0];
+    // ① 固い地面: 列ごとに「上面からの深さ」で暗くなる縦のグラデーション（継ぎ目なし）
+    for (let x = x0 - 1; x <= x1; x++) {
+      let y = y1;
+      while (y >= y0 - 1) {
+        if (!solid(x, y)) { y--; continue; }
+        let top = y; while (solid(x, top + 1) && top + 1 <= y1 + 6) top++;
+        let bot = y; while (bot - 1 >= y0 - 1 && solid(x, bot - 1)) bot--;
+        const surf = top + 1;
+        const gr = ctx.createLinearGradient(0, surf, 0, surf - 4.5);
+        gr.addColorStop(0, mid); gr.addColorStop(0.35, th.rock[1]); gr.addColorStop(1, deep);
+        ctx.fillStyle = gr; ctx.fillRect(x - 0.01, bot, 1.02, y - bot + 1);
+        y = bot - 1;
+      }
+    }
+    // ② 質感: 煉瓦（城のテーマ）または埋まった石・根・骨
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      if (!solid(x, y)) continue;
+      if (brick) {
+        for (let row = 0; row < 2; row++) {
+          const by = y + row * 0.5, off = ((y * 2 + row) % 2) * 0.5;
+          for (let k = -1; k < 2; k++) {
+            const bx = x + off + k * 1.0 - 0.5; if (bx + 1 < x || bx > x + 1) continue;
+            const r = R(Math.floor(bx * 2), y * 2 + row, 3), c0 = Math.max(x, bx + 0.02), c1 = Math.min(x + 1, bx + 0.98);
+            if (c1 <= c0) continue;
+            ctx.fillStyle = `rgba(${r < 0.5 ? '255,240,220' : '0,0,10'},${0.04 + r * 0.06})`; ctx.fillRect(c0, by + 0.03, c1 - c0, 0.44);
+            ctx.fillStyle = 'rgba(255,240,230,0.10)'; ctx.fillRect(c0, by + 0.43, c1 - c0, 0.035);
+          }
+          ctx.fillStyle = 'rgba(0,0,8,0.45)'; ctx.fillRect(x, by, 1, 0.035);
+        }
+        ctx.fillStyle = 'rgba(0,0,8,0.4)'; for (let row = 0; row < 2; row++) { const off = ((y * 2 + row) % 2) * 0.5; for (const bx of [x + off, x + off - 1 + 1]) if (bx > x && bx < x + 1) ctx.fillRect(bx - 0.018, y + row * 0.5, 0.036, 0.5); }
+        if (theme === 'citadel' && R(x, y, 9) < 0.15) { ctx.fillStyle = 'rgba(216,178,90,0.35)'; ctx.fillRect(x, y + 0.48, 1, 0.04); }
+        if (theme === 'fortress' && R(x, y, 7) < 0.12) { ctx.strokeStyle = 'rgba(255,110,40,0.35)'; ctx.lineWidth = 0.025; ctx.beginPath(); ctx.moveTo(x + 0.2, y + 0.8); ctx.lineTo(x + 0.45, y + 0.5); ctx.lineTo(x + 0.4, y + 0.2); ctx.stroke(); }
+      } else {
+        const n = 2 + Math.floor(R(x, y) * 3);
+        for (let i = 0; i < n; i++) {
+          const sx = x + R(x, y, i * 3 + 1), sy = y + R(x, y, i * 3 + 2), rx = 0.08 + R(x, y, i * 3 + 3) * 0.16, ry = rx * (0.55 + R(x, y, i) * 0.3);
+          const gr = ctx.createLinearGradient(sx, sy + ry, sx, sy - ry); gr.addColorStop(0, 'rgba(255,255,255,0.16)'); gr.addColorStop(1, 'rgba(0,0,10,0.28)');
+          ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rx, ry, R(x, y, i + 9) * 3, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,10,0.35)'; ctx.lineWidth = 0.015; ctx.stroke();
+        }
+        if (R(x, y, 5) < 0.12) { ctx.strokeStyle = theme === 'graveyard' ? 'rgba(90,60,40,0.7)' : 'rgba(30,40,50,0.6)'; ctx.lineWidth = 0.03; ctx.beginPath(); ctx.moveTo(x + 0.1, y + 0.9); ctx.quadraticCurveTo(x + 0.5, y + 0.6, x + 0.85, y + 0.75); ctx.stroke(); }
+        if (theme === 'graveyard' && R(x, y, 11) < 0.05) { ctx.fillStyle = 'rgba(230,220,195,0.55)'; ctx.beginPath(); ctx.ellipse(x + 0.5, y + 0.4, 0.14, 0.03, 0.4, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(x + 0.36, y + 0.34, 0.04, 0, Math.PI * 2); ctx.arc(x + 0.64, y + 0.46, 0.04, 0, Math.PI * 2); ctx.fill(); }
+        if (theme === 'cave' && R(x, y, 13) < 0.06) { ctx.fillStyle = 'rgba(110,220,255,0.6)'; ctx.beginPath(); ctx.moveTo(x + 0.4, y + 0.3); ctx.lineTo(x + 0.47, y + 0.55); ctx.lineTo(x + 0.54, y + 0.3); ctx.closePath(); ctx.fill(); }
+      }
+    }
+    // ③ 縁: 空いている横は内側に影、空いている下は暗い庇と垂れる根、上面は張り出す縁（草・苔・石の笠木）と月光
+    const lipC = { graveyard: ['#4c7a5c', '#22402e'], village: ['#8a7a62', '#4a3e30'], cave: ['#5f8a8a', '#2a4248'], tower: ['#9a94ac', '#5a566a'], fortress: ['#9a6a54', '#5a3426'], citadel: ['#7a6a98', '#3a2e50'] }[theme];
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      if (!solid(x, y)) continue;
+      if (!solid(x - 1, y)) { const gr = ctx.createLinearGradient(x, 0, x + 0.25, 0); gr.addColorStop(0, 'rgba(0,0,8,0.55)'); gr.addColorStop(1, 'rgba(0,0,8,0)'); ctx.fillStyle = gr; ctx.fillRect(x, y, 0.25, 1); ctx.fillStyle = 'rgba(160,190,240,0.18)'; ctx.fillRect(x, y, 0.03, 1); }
+      if (!solid(x + 1, y)) { const gr = ctx.createLinearGradient(x + 1, 0, x + 0.75, 0); gr.addColorStop(0, 'rgba(0,0,8,0.6)'); gr.addColorStop(1, 'rgba(0,0,8,0)'); ctx.fillStyle = gr; ctx.fillRect(x + 0.75, y, 0.25, 1); }
+      if (!solid(x, y - 1) && y > 0) {
+        ctx.fillStyle = 'rgba(0,0,8,0.55)'; ctx.fillRect(x, y, 1, 0.12);
+        if (!brick && R(x, y, 21) < 0.5) { ctx.strokeStyle = 'rgba(40,30,25,0.8)'; ctx.lineWidth = 0.025; ctx.beginPath(); const rx = x + R(x, y, 22); ctx.moveTo(rx, y); ctx.quadraticCurveTo(rx + 0.05, y - 0.2, rx - 0.04, y - 0.35 * R(x, y, 23) - 0.1); ctx.stroke(); }
+      }
+      if (!solid(x, y + 1) && tileAt(x, y + 1) !== TT.SOLID) {
+        const s = y + 1;
+        // 張り出した縁（波打つ下端）
+        ctx.beginPath(); ctx.moveTo(x - 0.04, s + 0.06);
+        for (let i = 0; i <= 6; i++) { const px = x - 0.04 + i * (1.08 / 6); ctx.lineTo(px, s - 0.16 - R(x, y, 30 + i) * (brick ? 0.03 : 0.12)); }
+        ctx.lineTo(x + 1.04, s + 0.06); ctx.closePath();
+        const gr = ctx.createLinearGradient(0, s + 0.06, 0, s - 0.28); gr.addColorStop(0, lipC[0]); gr.addColorStop(1, lipC[1]);
+        ctx.fillStyle = gr; ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,8,0.35)'; ctx.fillRect(x, s - 0.3, 1, 0.1); // 縁の下の影
+        ctx.fillStyle = 'rgba(200,225,255,0.45)'; ctx.fillRect(x - 0.02, s + 0.02, 1.04, 0.035); // 月光
+        if (!solid(x - 1, y) && tileAt(x - 1, y + 1) !== TT.SOLID) { ctx.beginPath(); ctx.arc(x, s - 0.08, 0.13, Math.PI / 2, Math.PI * 1.5); ctx.fillStyle = lipC[0]; ctx.fill(); }
+        if (!solid(x + 1, y) && tileAt(x + 1, y + 1) !== TT.SOLID) { ctx.beginPath(); ctx.arc(x + 1, s - 0.08, 0.13, -Math.PI / 2, Math.PI / 2); ctx.fillStyle = lipC[0]; ctx.fill(); }
+      }
+    }
+    // ④ 片側足場（板・梁）とはしご
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      const t = tileAt(x, y);
+      if (t === TT.PLAT && y >= 0) {
+        const top = y + 1, base = th.plat[0];
+        const gr = ctx.createLinearGradient(0, top, 0, top - 0.32); gr.addColorStop(0, base); gr.addColorStop(1, th.plat[1]);
+        ctx.fillStyle = gr; ctx.fillRect(x - 0.005, top - 0.3, 1.01, 0.3);
+        ctx.fillStyle = 'rgba(255,235,210,0.3)'; ctx.fillRect(x, top - 0.03, 1, 0.03);
+        ctx.strokeStyle = 'rgba(40,20,10,0.5)'; ctx.lineWidth = 0.012; for (const yy of [top - 0.1, top - 0.2]) { ctx.beginPath(); ctx.moveTo(x, yy + (R(x, y, 40) - 0.5) * 0.03); ctx.quadraticCurveTo(x + 0.5, yy + (R(x, y, 41) - 0.5) * 0.05, x + 1, yy); ctx.stroke(); }
+        if (R(x, y, 42) < 0.5) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 0.98, top - 0.3, 0.025, 0.3); }
+        ctx.fillStyle = '#c8c8d0'; ctx.beginPath(); ctx.arc(x + 0.15, top - 0.15, 0.025, 0, Math.PI * 2); ctx.arc(x + 0.85, top - 0.15, 0.025, 0, Math.PI * 2); ctx.fill();
+        if (tileAt(x - 1, y) !== TT.PLAT || tileAt(x + 1, y) !== TT.PLAT) { ctx.strokeStyle = th.plat[1]; ctx.lineWidth = 0.06; const ex = tileAt(x - 1, y) !== TT.PLAT ? x + 0.2 : x + 0.8; ctx.beginPath(); ctx.moveTo(ex, top - 0.3); ctx.lineTo(ex + (tileAt(x - 1, y) !== TT.PLAT ? 0.3 : -0.3), top - 0.75); ctx.stroke(); }
+        ctx.fillStyle = 'rgba(0,0,8,0.35)'; ctx.fillRect(x, top - 0.36, 1, 0.06);
+      } else if (t === TT.LADDER && y >= 0) {
+        for (const rx of [x + 0.18, x + 0.78]) { const gr = ctx.createLinearGradient(rx, 0, rx + 0.07, 0); gr.addColorStop(0, '#a07a48'); gr.addColorStop(1, '#4a3018'); ctx.fillStyle = gr; ctx.fillRect(rx, y - 0.005, 0.07, 1.01); }
+        for (const ry of [y + 0.22, y + 0.72]) {
+          const gr = ctx.createLinearGradient(0, ry + 0.07, 0, ry); gr.addColorStop(0, '#b08a58'); gr.addColorStop(1, '#5a3a20'); ctx.fillStyle = gr; ctx.fillRect(x + 0.2, ry, 0.62, 0.07);
+          ctx.strokeStyle = 'rgba(210,190,140,0.8)'; ctx.lineWidth = 0.018; for (const rx of [x + 0.215, x + 0.815]) { ctx.beginPath(); ctx.moveTo(rx - 0.04, ry + 0.09); ctx.lineTo(rx + 0.04, ry - 0.02); ctx.moveTo(rx - 0.04, ry - 0.02); ctx.lineTo(rx + 0.04, ry + 0.09); ctx.stroke(); }
+        }
+      }
+    }
+    ctx.restore();
+    return cv;
   }
   drawLiquids(ctx, g) {
     const v = this.view, time = this.time;
@@ -367,7 +495,9 @@ export class Renderer2D {
       const s = d.s || 1;
       deadTreeU(ctx, 0, 0, 4 * s, rng(d.x * 31 + 5));
     } else if (d.type === 'fence') {
-      ctx.fillStyle = '#16121a'; for (let x = 0; x < d.w; x += 0.5) { ctx.fillRect(x, 0, 0.08, 1.1); ctx.beginPath(); ctx.moveTo(x - 0.06, 1.1); ctx.lineTo(x + 0.04, 1.3); ctx.lineTo(x + 0.14, 1.1); ctx.fill(); } ctx.fillRect(0, 0.75, d.w, 0.07); ctx.fillRect(0, 0.3, d.w, 0.07);
+      const gr = ctx.createLinearGradient(0, 1.3, 0, 0); gr.addColorStop(0, '#5a4a52'); gr.addColorStop(1, '#14101a'); ctx.fillStyle = gr;
+      for (let x = 0; x < d.w; x += 0.5) { ctx.fillRect(x, 0, 0.07, 1.1); ctx.beginPath(); ctx.moveTo(x - 0.05, 1.1); ctx.lineTo(x + 0.035, 1.32); ctx.lineTo(x + 0.12, 1.1); ctx.fill(); ctx.fillStyle = 'rgba(150,80,40,0.5)'; ctx.fillRect(x + 0.01, 0.3 + ((x * 7) % 3) * 0.2, 0.05, 0.12); ctx.fillStyle = gr; }
+      ctx.fillRect(0, 0.75, d.w, 0.06); ctx.fillRect(0, 0.3, d.w, 0.06); ctx.fillStyle = 'rgba(190,215,255,0.35)'; ctx.fillRect(0, 0.8, d.w, 0.015);
     } else if (d.type === 'well') {
       ctx.fillStyle = '#4a4040'; ctx.fillRect(-0.3, 0, 0.3, 1); ctx.fillRect(d.w, 0, 0.3, 1); ctx.fillStyle = '#2a2020'; ctx.fillRect(-0.1, 1, 0.12, 1.6); ctx.fillRect(d.w, 1, 0.12, 1.6); ctx.fillRect(-0.4, 2.6, d.w + 0.8, 0.2);
     }
@@ -375,15 +505,23 @@ export class Renderer2D {
   decoFront(ctx, d, g) {
     this.at(ctx, d.x, d.y);
     if (d.type === 'grave') {
-      const h = d.h || 1, v = d.v;
-      ctx.fillStyle = lin(ctx, 0, h, 0, 0, ['#a8a4b4', '#5a5666']);
+      // 風化した墓石: 形 3 種・苔・ひび・刻んだ十字・台座・月光の縁
+      const h = d.h || 1, v = d.v, r = (k) => ((d.x * 9301 + k * 49297) % 233280) / 233280;
+      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.rect(-0.02, 0, 1.04, 0.14); ctx.fillStyle = '#4a4656'; ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = 0.03; ctx.stroke();
       ctx.beginPath();
-      if (v === 0) { ctx.moveTo(0.08, 0); ctx.lineTo(0.08, h * 0.75); ctx.arc(0.5, h * 0.75, 0.42, Math.PI, 0, true); ctx.lineTo(0.92, 0); }
-      else if (v === 1) { ctx.rect(0.4, 0, 0.2, h + 0.35); ctx.rect(0.15, h * 0.75, 0.7, 0.18); }
-      else { ctx.moveTo(0.05, 0); ctx.lineTo(0.1, h); ctx.lineTo(0.9, h + 0.1); ctx.lineTo(0.95, 0); }
-      ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = 0.04; ctx.stroke();
-      ctx.fillStyle = 'rgba(210,225,255,0.3)'; ctx.fillRect(0.12, h * 0.2, 0.05, h * 0.5);
-      ctx.fillStyle = 'rgba(40,60,40,0.7)'; ctx.fillRect(0.1, 0, 0.8, 0.08);
+      if (v === 0) { ctx.moveTo(0.1, 0.12); ctx.lineTo(0.1, h * 0.7); ctx.bezierCurveTo(0.1, h + 0.25, 0.9, h + 0.25, 0.9, h * 0.7); ctx.lineTo(0.9, 0.12); }
+      else if (v === 1) { ctx.moveTo(0.4, 0.12); ctx.lineTo(0.4, h * 0.62); ctx.lineTo(0.14, h * 0.62); ctx.lineTo(0.14, h * 0.86); ctx.lineTo(0.4, h * 0.86); ctx.lineTo(0.4, h + 0.32); ctx.lineTo(0.6, h + 0.32); ctx.lineTo(0.6, h * 0.86); ctx.lineTo(0.86, h * 0.86); ctx.lineTo(0.86, h * 0.62); ctx.lineTo(0.6, h * 0.62); ctx.lineTo(0.6, 0.12); }
+      else { ctx.moveTo(0.06, 0.12); ctx.lineTo(0.12, h + 0.02); ctx.lineTo(0.5, h + 0.14); ctx.lineTo(0.9, h + 0.04); ctx.lineTo(0.95, 0.12); }
+      ctx.closePath();
+      const gr = ctx.createLinearGradient(0.9, h + 0.3, 0.1, 0); gr.addColorStop(0, '#c4c0d0'); gr.addColorStop(0.4, '#8a8698'); gr.addColorStop(1, '#3e3a4a');
+      ctx.fillStyle = gr; ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = 0.04; ctx.stroke();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = 'rgba(70,110,70,0.6)'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(0.15 + r(i) * 0.7, 0.15 + r(i + 5) * 0.35, 0.12 + r(i + 2) * 0.1, 0.06, 0, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = 'rgba(20,18,30,0.65)'; ctx.lineWidth = 0.02; ctx.beginPath(); ctx.moveTo(0.3 + r(7) * 0.4, h); ctx.lineTo(0.4 + r(8) * 0.2, h * 0.6); ctx.lineTo(0.35 + r(9) * 0.3, h * 0.35); ctx.stroke();
+      if (v !== 1) { ctx.strokeStyle = 'rgba(20,18,30,0.55)'; ctx.lineWidth = 0.035; ctx.beginPath(); ctx.moveTo(0.5, h * 0.82); ctx.lineTo(0.5, h * 0.42); ctx.moveTo(0.36, h * 0.7); ctx.lineTo(0.64, h * 0.7); ctx.stroke(); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.012; ctx.beginPath(); ctx.moveTo(0.52, h * 0.82); ctx.lineTo(0.52, h * 0.42); ctx.stroke(); }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(190,215,255,0.55)'; ctx.lineWidth = 0.035; ctx.beginPath(); if (v === 0) { ctx.moveTo(0.1, h * 0.7); ctx.bezierCurveTo(0.1, h + 0.2, 0.6, h + 0.2, 0.75, h + 0.12); } else { ctx.moveTo(0.12, h * 0.4); ctx.lineTo(0.12, h); } ctx.stroke();
     } else if (d.type === 'gate') {
       const closed = g.lockCam ? 1 : 0;
       this.gateK = (this.gateK ?? 0) + (closed - (this.gateK ?? 0)) * 0.12;
@@ -426,6 +564,20 @@ export class Renderer2D {
     this.titleSky = [this.skyImg, this.fogImg, this.tintImg, this.skyTheme]; [this.skyImg, this.fogImg, this.tintImg, this.skyTheme] = skyKeep;
     this.bg = bgKeep; this.field = this.fieldBackup; this.def = keep;
     ctx.fillStyle = 'rgba(0,0,10,0.25)'; ctx.fillRect(0, 0, this.W, this.H);
+    // 丘と、その上で月を見上げる騎士（マントと羽根は風で揺れる）
+    const W = this.W, H = this.H, U = H / 13.5, hx = W * 0.8, hy = H * 0.86;
+    ctx.save(); ctx.fillStyle = '#05060f'; ctx.beginPath(); ctx.moveTo(W * 0.52, H); ctx.quadraticCurveTo(W * 0.66, hy - U * 0.1, hx, hy); ctx.quadraticCurveTo(W * 0.95, hy + U * 0.2, W * 1.02, hy + U * 0.6); ctx.lineTo(W * 1.02, H); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(170,205,255,0.35)'; ctx.lineWidth = U * 0.04; ctx.beginPath(); ctx.moveTo(W * 0.62, hy + U * 0.6); ctx.quadraticCurveTo(W * 0.7, hy, hx, hy); ctx.stroke(); ctx.restore();
+    const tp = { state: 'idle', st: 0, walkPhase: 0, climbPhase: 0, throwT: 0, landT: 0, turnT: 0, armor: true, deadT: 0, face: -1, vx: -2.5 * (1 + Math.sin(this.time * 0.7)), vy: 0, x: 0, y: 0 };
+    ctx.save(); ctx.setTransform(-U * 1.6, 0, 0, -U * 1.6, hx, hy);
+    const fakeG = null; void fakeG;
+    const P = knightPose(tp, this.time), J = knightJoints(P, 1);
+    this.titleCape = this.titleCape || Array.from({ length: 7 }, (_, i) => [J.sh[0] - 0.12 - i * 0.06, J.sh[1] - i * 0.12]);
+    const C = this.titleCape; for (let i = 1; i < C.length; i++) { const wv = Math.sin(this.time * 2.2 - i * 0.6) * 0.05 * i; C[i] = [J.sh[0] - 0.12 - i * (0.07 + Math.sin(this.time * 0.7) * 0.02) - 0.02 * i * i, J.sh[1] - i * 0.115 + wv]; }
+    drawKnight(ctx, tp, this.time, { pose: P, cape: C, plume: 0.35 + Math.sin(this.time * 2.5) * 0.12 });
+    ctx.restore();
+    // 流れる霧の帯
+    for (let i = 0; i < 3; i++) { const yy = H * (0.78 + i * 0.07), off = ((this.time * (20 + i * 12)) % W); const gr = ctx.createLinearGradient(0, yy - U, 0, yy + U); gr.addColorStop(0, 'rgba(150,170,220,0)'); gr.addColorStop(0.5, `rgba(150,170,220,${0.08 + i * 0.03})`); gr.addColorStop(1, 'rgba(150,170,220,0)'); ctx.fillStyle = gr; for (const dx of [-W, 0]) { ctx.beginPath(); ctx.ellipse(off + dx + W * 0.3, yy, W * 0.45, U * 0.8, 0, 0, TAU); ctx.ellipse(off + dx + W * 0.85, yy + U * 0.2, W * 0.35, U * 0.6, 0, 0, TAU); ctx.fill(); } }
     ctx.restore();
   }
   // ボスは別のキャンバスに描き、月光色の影絵を左上へずらして後ろに置く（縁が光って見える）
@@ -560,7 +712,7 @@ export class Renderer2D {
   // ---------------------------------------------------------------- 粒子（出来事から作る）
   onEvents(evs, g) {
     for (const e of evs) {
-      if (e.type === 'enemyDie') this.burst(e.x, e.y, e.strong ? 26 : 16, ['#d8d0e0', '#8a7a9a', '#ffe9a0'], 5, 'puff');
+      if (e.type === 'enemyDie') { this.burst(e.x, e.y, e.strong ? 18 : 10, ['#d8d0e0', '#8a7a9a', '#ffe9a0'], 5, 'puff'); for (let i = 0; i < (e.strong ? 7 : 4); i++) this.parts.push({ kind: 'soul', x: e.x + (Math.random() - 0.5) * 0.8, y: e.y + (Math.random() - 0.3) * 0.6, vx: (Math.random() - 0.5) * 0.4, vy: 1.2 + Math.random() * 1.2, t: -i * 0.05, life: 0.9 + Math.random() * 0.4, s: 0.18 + Math.random() * 0.12, c: '#b8a0ff', rot: Math.random() * 6, vr: 0 }); }
       else if (e.type === 'enemyHit' || e.type === 'bossHit') this.burst(e.x ?? g.boss.x, e.y ?? g.boss.y + 1, 6, ['#fff6d0', '#ffcf6a'], 6, 'spark');
       else if (e.type === 'armorBreak') { this.burst(e.x, e.y, 14, ['#eef4ff', '#9fb2c8', '#5a6a80'], 8, 'shard'); this.shake = 0.2; }
       else if (e.type === 'bossDie') { for (let i = 0; i < 6; i++) setTimeout(() => this.burst(e.x + (Math.random() - 0.5) * 3, e.y + (Math.random() - 0.5) * 3, 24, ['#fff6d0', '#ff9a40', '#ff4020'], 9, 'puff'), i * 280); this.shake = 1.2; }
@@ -585,13 +737,14 @@ export class Renderer2D {
     const dt = 1 / 60;
     for (const q of this.parts) {
       q.t += dt * (this.app.screen === 'play' ? 1 : 0);
-      const grav = q.kind === 'puff' || q.kind === 'ring' ? -1 : q.kind === 'spark' ? 6 : 18;
+      const grav = q.kind === 'soul' ? -0.5 : q.kind === 'puff' || q.kind === 'ring' ? -1 : q.kind === 'spark' ? 6 : 18;
       q.vy -= grav * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.vr * dt;
       if (q.kind === 'puff') { q.vx *= 0.94; q.vy *= 0.94; }
       const k = 1 - q.t / q.life;
       this.at(ctx, q.x, q.y);
       ctx.globalAlpha = Math.max(0, k);
-      if (q.kind === 'ring') { ctx.strokeStyle = q.c; ctx.lineWidth = 0.06 * k; ctx.beginPath(); ctx.arc(0, 0, q.s * (1 - k * 0.8), 0, TAU); ctx.stroke(); for (let i = 0; i < 6; i++) { const a = i * 1.047 + 0.3, r0 = q.s * (1 - k), r1 = r0 + 0.25 * k; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke(); } }
+      if (q.kind === 'soul') { if (q.t < 0) { ctx.globalAlpha = 1; continue; } ctx.globalCompositeOperation = 'lighter'; const w = Math.sin(this.time * 9 + q.rot) * 0.06, r = q.s * (0.6 + k * 0.6); ctx.beginPath(); ctx.moveTo(-r, 0); ctx.quadraticCurveTo(-r, r * 1.3, w, r * 2.6); ctx.quadraticCurveTo(r, r * 1.3, r, 0); ctx.arc(0, 0, r, 0, Math.PI, true); const gr = ctx.createLinearGradient(0, -r, 0, r * 2.6); gr.addColorStop(0, `rgba(230,220,255,${k})`); gr.addColorStop(0.5, `rgba(150,110,255,${k * 0.7})`); gr.addColorStop(1, 'rgba(90,60,200,0)'); ctx.fillStyle = gr; ctx.fill(); ctx.globalCompositeOperation = 'source-over'; }
+      else if (q.kind === 'ring') { ctx.strokeStyle = q.c; ctx.lineWidth = 0.06 * k; ctx.beginPath(); ctx.arc(0, 0, q.s * (1 - k * 0.8), 0, TAU); ctx.stroke(); for (let i = 0; i < 6; i++) { const a = i * 1.047 + 0.3, r0 = q.s * (1 - k), r1 = r0 + 0.25 * k; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke(); } }
       else if (q.kind === 'puff') { ctx.fillStyle = q.c; ctx.beginPath(); ctx.arc(0, 0, q.s * (1.5 - k), 0, TAU); ctx.fill(); }
       else if (q.kind === 'shard') { ctx.rotate(q.rot); ctx.fillStyle = q.c; ctx.beginPath(); ctx.moveTo(-q.s, -q.s * 0.5); ctx.lineTo(q.s, -q.s * 0.3); ctx.lineTo(0, q.s); ctx.fill(); }
       else { ctx.fillStyle = q.c; ctx.fillRect(-q.s / 2, -q.s / 2, q.s, q.s); }

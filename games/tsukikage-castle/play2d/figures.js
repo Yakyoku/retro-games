@@ -256,6 +256,7 @@ export function drawEnemy(ctx, e, time) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (A.dead > 0) { ctx.globalAlpha = 1 - A.dead; ctx.translate(0, A.dead * 0.3); ctx.rotate(A.dead * 0.6 * (e.kick || 1)); ctx.scale(1 + A.dead * 0.3, 1 - A.dead * 0.5); }
   ctx.translate(A.shake, 0);
+  if (A.flash > 0 && !e.dead) { const h = Math.min(e.h || 1, 1.5) * 0.5; ctx.translate(0, h); ctx.rotate(-0.22 * A.flash); ctx.translate(-0.08 * A.flash, -h); } // 当たった瞬間にのけぞる
   const fn = ENEMY[e.type];
   fn && fn(ctx, e, A, time);
   if (A.flash > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = `rgba(255,255,255,${A.flash * 0.85})`; ctx.fillRect(-3, -2, 6, 6); ctx.globalCompositeOperation = 'source-over'; }

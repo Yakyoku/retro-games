@@ -31,13 +31,32 @@ export class UI {
     if (shadow) { ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(str, x + size * 0.06, y + size * 0.07); }
     ctx.fillStyle = color; ctx.fillText(str, x, y);
   }
+  // ゴシック調の飾り枠（半透明の地・金の細線・角の菱形）
+  panel(ctx, x, y, w, h, s) {
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 10 * s);
+    const gr = ctx.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, 'rgba(12,12,30,0.72)'); gr.addColorStop(1, 'rgba(4,4,14,0.6)'); ctx.fillStyle = gr; ctx.fill();
+    ctx.strokeStyle = 'rgba(243,200,106,0.55)'; ctx.lineWidth = 1.5 * s; ctx.stroke();
+    roundRect(ctx, x + 4 * s, y + 4 * s, w - 8 * s, h - 8 * s, 7 * s); ctx.strokeStyle = 'rgba(243,200,106,0.18)'; ctx.lineWidth = 1 * s; ctx.stroke();
+    ctx.fillStyle = '#f3c86a';
+    for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) { ctx.beginPath(); ctx.moveTo(cx, cy - 6 * s); ctx.lineTo(cx + 6 * s, cy); ctx.lineTo(cx, cy + 6 * s); ctx.lineTo(cx - 6 * s, cy); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+  }
   hud(ctx, app, rect, s, opt) {
     const g = app.g, p = g.player, pad = (opt.safe ? opt.safe.l : 0) + 34 * s, top = (opt.safe ? opt.safe.t : 0) + 40 * s;
     const W = rect.w;
     // 上の帯（読みやすさのための薄い影）
-    const grd = ctx.createLinearGradient(0, 0, 0, 120 * s); grd.addColorStop(0, 'rgba(0,0,8,0.55)'); grd.addColorStop(1, 'rgba(0,0,8,0)');
+    const grd = ctx.createLinearGradient(0, 0, 0, 120 * s); grd.addColorStop(0, 'rgba(0,0,8,0.45)'); grd.addColorStop(1, 'rgba(0,0,8,0)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, 120 * s);
-    this.text(ctx, 'SCORE', pad, top, 22 * s, C.dim); this.text(ctx, String(g.score).padStart(7, '0'), pad + 92 * s, top, 34 * s, C.ink, 'left', 'ui-monospace,Consolas,monospace', 700);
+    // 得点は数え上がる（大きく増えたときも 0.5 秒ほどで追いつく）
+    if (this.dsG !== g) { this.dsG = g; this.ds = g.score; }
+    this.ds += (g.score - this.ds) * 0.18; if (Math.abs(g.score - this.ds) < 1) this.ds = g.score;
+    const shown = Math.round(this.ds), rising = shown !== g.score;
+    this.panel(ctx, pad - 16 * s, top - 26 * s, 270 * s, 82 * s, s);
+    const rr = rect.w - (opt.safe ? opt.safe.r : 0) - 34 * s - (opt.reserveRight || 0);
+    this.panel(ctx, rr - 250 * s, top - 26 * s, 266 * s, 82 * s, s);
+    this.panel(ctx, W / 2 - 150 * s, top - 30 * s, 300 * s, 86 * s, s);
+    this.text(ctx, 'SCORE', pad, top, 22 * s, C.dim); this.text(ctx, String(shown).padStart(7, '0'), pad + 92 * s, top, 34 * s, rising ? '#fff3c0' : C.ink, 'left', 'ui-monospace,Consolas,monospace', 700);
     this.text(ctx, 'HI', pad, top + 38 * s, 20 * s, C.dim); this.text(ctx, String(Math.max(g.hi, g.score)).padStart(7, '0'), pad + 92 * s, top + 38 * s, 26 * s, C.gold, 'left', 'ui-monospace,Consolas,monospace', 700);
     // 中央: ステージと時間
     const tm = Math.max(0, Math.ceil(g.time)), mm = Math.floor(tm / 60), ss = String(tm % 60).padStart(2, '0');
@@ -64,6 +83,10 @@ export class UI {
       const hg = ctx.createLinearGradient(bx, 0, bx + bw, 0); hg.addColorStop(0, '#ff5a3c'); hg.addColorStop(1, '#ffb347');
       ctx.fillStyle = hg; ctx.fillRect(bx, by, bw * k, 14 * s);
       ctx.strokeStyle = C.line; ctx.lineWidth = 2 * s; ctx.strokeRect(bx, by, bw, 14 * s);
+      // 両端の飾り（角と菱形）
+      ctx.fillStyle = '#f3c86a';
+      for (const [ex, d] of [[bx, -1], [bx + bw, 1]]) { ctx.beginPath(); ctx.moveTo(ex, by - 6 * s); ctx.lineTo(ex + d * 16 * s, by + 7 * s); ctx.lineTo(ex, by + 20 * s); ctx.lineTo(ex + d * 5 * s, by + 7 * s); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(bx, by + 1 * s, bw * k, 3 * s);
       const weak = ['stun', 'landed', 'onLand', 'perch', 'recover', 'tired'].includes(b.st);
       if (weak) this.text(ctx, '隙あり', bx + bw, by - 16 * s, 22 * s, C.gold, 'right');
     }
@@ -95,6 +118,14 @@ export class UI {
   }
   banners(ctx, app, rect, s) {
     const g = app.g, W = rect.w, H = rect.h;
+    if (app.notice && app.notice.t > 0) {
+      const n = app.notice, a = Math.min(1, n.t * 3, (2.2 - n.t) * 5);
+      ctx.save(); ctx.globalAlpha = Math.max(0, a);
+      ctx.font = `700 ${30 * s}px ${FONT}`; const w = ctx.measureText(n.msg).width + 90 * s, y = 150 * s;
+      this.panel(ctx, W / 2 - w / 2, y - 26 * s, w, 52 * s, s);
+      this.text(ctx, n.msg, W / 2, y, 30 * s, n.col || C.gold, 'center', FONT, 700);
+      ctx.restore();
+    }
     const card = (l1, l2, a = 1) => {
       ctx.save(); ctx.globalAlpha = a;
       ctx.fillStyle = 'rgba(4,6,16,0.72)'; ctx.fillRect(0, H / 2 - 90 * s, W, 180 * s);
@@ -117,8 +148,17 @@ export class UI {
     ctx.save();
     ctx.shadowColor = 'rgba(150,190,255,0.55)'; ctx.shadowBlur = 40 * s;
     const gr = ctx.createLinearGradient(0, y0 - 80 * s, 0, y0 + 80 * s); gr.addColorStop(0, '#f6f0ff'); gr.addColorStop(0.55, '#b9c9ef'); gr.addColorStop(1, '#6f7fb0');
-    ctx.font = `700 ${150 * s}px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = gr; ctx.fillText(TITLE, W / 2, y0);
+    ctx.font = `700 ${150 * s}px ${FONT}`; ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+    // 彫り込んだ金属の題字: 暗い彫り → 鋼のグラデーション → 上の縁の光 → 下の金の飾り線
+    ctx.strokeStyle = '#05060f'; ctx.lineWidth = 14 * s; ctx.strokeText(TITLE, W / 2, y0 + 4 * s);
+    ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(243,200,106,0.7)'; ctx.lineWidth = 4 * s; ctx.strokeText(TITLE, W / 2, y0);
+    ctx.fillStyle = gr; ctx.fillText(TITLE, W / 2, y0);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y0 - 80 * s, W, 50 * s); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillText(TITLE, W / 2, y0); ctx.restore();
     ctx.restore();
+    const lw = 560 * s, ly = y0 + 70 * s;
+    const lg = ctx.createLinearGradient(W / 2 - lw / 2, 0, W / 2 + lw / 2, 0); lg.addColorStop(0, 'rgba(243,200,106,0)'); lg.addColorStop(0.5, 'rgba(243,200,106,0.9)'); lg.addColorStop(1, 'rgba(243,200,106,0)');
+    ctx.fillStyle = lg; ctx.fillRect(W / 2 - lw / 2, ly, lw, 2 * s);
+    ctx.fillStyle = '#f3c86a'; ctx.beginPath(); ctx.moveTo(W / 2, ly - 8 * s); ctx.lineTo(W / 2 + 8 * s, ly + 1 * s); ctx.lineTo(W / 2, ly + 10 * s); ctx.lineTo(W / 2 - 8 * s, ly + 1 * s); ctx.closePath(); ctx.fill();
     this.text(ctx, app.variant === '2d' ? '2D 版　横スクロール・アクション' : '3D / VR 版　ジオラマ・アクション', W / 2, y0 + 108 * s, 30 * s, C.gold, 'center', FONT, 600);
     // 制作注記（開始前に見える位置。小さすぎず、操作ボタンに重ならない）
     const fy = H - 92 * s - (opt.reserveBottom || 0);
@@ -148,6 +188,7 @@ export class UI {
     ctx.fillStyle = C.panel; ctx.strokeStyle = C.line; ctx.lineWidth = 2 * s;
     const ph = Math.min(hTotal, isTitle ? H * 0.47 - 60 * s - (opt.reserveBottom || 0) : H - 60 * s);
     if (!isTitle) { roundRect(ctx, x, y, pw, ph, 18 * s); ctx.fill(); ctx.stroke(); this.text(ctx, mn.title, W / 2, y + 46 * s, 40 * s, C.gold, 'center', FONT, 700); y += 96 * s; }
+    else this.panel(ctx, x + 6 * s, y - 14 * s, pw - 12 * s, Math.min(hTotal - 110 * s, ph) + 28 * s, s); // タイトルの項目にも飾り枠（背景の木と重なっても読める）
     void maxH;
     // 選択中の項目が見えるようにずらす
     let off = 0; let acc = 0;

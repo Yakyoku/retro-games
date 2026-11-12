@@ -30,67 +30,23 @@ export function drawWeaponHeld(ctx, w) {
 }
 
 // ================================================================ プレイヤーの武器（飛んでいる）
-export function drawShot(ctx, s, time) {
-  if (s.kind === 'lance') {
-    seg(ctx, [-0.62, 0], [0.32, 0], 0.075 + OL, PAL.outline); seg(ctx, [-0.62, 0], [0.32, 0], 0.075, '#9a7a46');
-    poly(ctx, [[0.62, 0], [0.28, -0.1], [0.32, 0], [0.28, 0.1]], lin(ctx, 0, 0.1, 0, -0.1, ['#ffffff', '#9fb6cc']), PAL.outline, 0.025);
-    ctx.globalAlpha = 0.35; seg(ctx, [-1.1, 0], [-0.62, 0], 0.04, '#cfe6ff'); ctx.globalAlpha = 1;
-  } else if (s.kind === 'dagger') {
-    poly(ctx, [[0.38, 0], [0.0, -0.07], [0.0, 0.07]], lin(ctx, 0, 0.07, 0, -0.07, ['#ffffff', '#aebfd2']), PAL.outline, 0.025);
-    seg(ctx, [-0.02, -0.11], [-0.02, 0.11], 0.05, PAL.gold); seg(ctx, [-0.25, 0], [-0.02, 0], 0.05, '#5a3a22');
-    ctx.globalAlpha = 0.3; seg(ctx, [-0.9, 0], [-0.3, 0], 0.03, '#ffffff'); ctx.globalAlpha = 1;
-  } else if (s.kind === 'axe') {
-    ctx.save(); ctx.rotate(-s.t * 14);
-    seg(ctx, [0, -0.32], [0, 0.32], 0.07, '#7a4e26');
-    poly(ctx, [[0, 0.28], [0.3, 0.38], [0.32, 0.02], [0, 0.12]], lin(ctx, 0, 0.4, 0.3, 0, ['#ffffff', '#8fa2b8']), PAL.outline, 0.03);
-    ctx.restore();
-  } else if (s.kind === 'torch') {
-    ctx.save(); ctx.rotate(-s.t * 10); seg(ctx, [0, -0.2], [0, 0.18], 0.08, '#6b4320'); ctx.restore();
-    fireBlob(ctx, 0, 0.05, 0.22, time);
-  }
-}
+import { drawShotNew, drawBurnNew, drawItemNew, drawEShotNew, drawHeld } from './fx.js';
+export function drawShot(ctx, s, time) { return drawShotNew(ctx, s, time); }
+
 export function fireBlob(ctx, x, y, r, time, k = 1) {
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2); g.addColorStop(0, `rgba(255,240,170,${0.9 * k})`); g.addColorStop(0.35, `rgba(255,140,40,${0.7 * k})`); g.addColorStop(1, 'rgba(255,40,10,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, TAU); ctx.fill();
   ctx.restore();
 }
-export function drawBurn(ctx, f, time) {
-  const k = Math.min(1, f.t / 0.3, (f.life - f.t) / 0.15 + 0.2);
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 6; i++) {
-    const ph = time * 9 + i * 1.7, x = (i - 2.5) * 0.26 + Math.sin(ph) * 0.05, h = (0.6 + 0.4 * Math.sin(ph * 1.3)) * f.h * k;
-    ctx.beginPath(); ctx.moveTo(x - 0.16, 0); ctx.quadraticCurveTo(x - 0.12, h * 0.6, x + Math.sin(ph) * 0.08, h); ctx.quadraticCurveTo(x + 0.12, h * 0.5, x + 0.16, 0); ctx.closePath();
-    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, 'rgba(255,245,190,0.95)'); g.addColorStop(0.4, 'rgba(255,150,40,0.85)'); g.addColorStop(1, 'rgba(200,30,10,0)');
-    ctx.fillStyle = g; ctx.fill();
-  }
-  ctx.restore();
-}
+export function drawBurn(ctx, f, time) { return drawBurnNew(ctx, f, time); }
+
 
 export function drawBoneShape(ctx) { boneShape(ctx); }
 
 // ================================================================ 敵の弾
-export function drawEShot(ctx, s, time) {
-  const k = s.kind;
-  if (k === 'bone') { ctx.rotate(s.t * 12); drawBoneShape(ctx); }
-  else if (k === 'orb' || k === 'feather' && false) { glow(ctx, 0, 0, s.r * 1.1, [255, 200, 255], [160, 60, 230], time); }
-  else if (k === 'fireball' || k === 'clod' && false) { glow(ctx, 0, 0, s.r * 1.1, [255, 240, 170], [255, 90, 20], time); }
-  else if (k === 'water') { ell(ctx, 0, 0, s.r, s.r * 1.2, 'rgba(120,200,255,0.9)'); ell(ctx, -s.r * 0.3, s.r * 0.4, s.r * 0.3, s.r * 0.3, '#e8f8ff'); }
-  else if (k === 'feather') { ctx.rotate(Math.atan2(s.vy, s.vx)); poly(ctx, [[0.32, 0], [0, 0.09], [-0.3, 0.03], [-0.3, -0.03], [0, -0.09]], lin(ctx, 0, 0.1, 0, -0.1, ['#f0c060', '#8a5a20']), PAL.outline, 0.02); }
-  else if (k === 'clod') { ctx.rotate(s.t * 5); poly(ctx, [[-0.4, -0.2], [-0.1, -0.42], [0.35, -0.3], [0.42, 0.1], [0.1, 0.4], [-0.35, 0.25]], lin(ctx, 0, 0.4, 0, -0.4, ['#8a6a4a', '#4a3424']), PAL.outline, OL); }
-  else if (k === 'wave') {
-    const h = s.box.h, w = s.box.w;
-    if (s.fire) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; for (let i = 0; i < 4; i++) { const ph = time * 14 + i; const hh = h * (0.7 + 0.3 * Math.sin(ph)); ctx.beginPath(); ctx.moveTo(-w / 2 + i * w / 4, 0); ctx.quadraticCurveTo(-w / 2 + i * w / 4 + 0.1, hh, -w / 2 + (i + 0.5) * w / 4, hh * 1.1); ctx.quadraticCurveTo(-w / 2 + (i + 1) * w / 4, hh * 0.4, -w / 2 + (i + 1) * w / 4, 0); ctx.fillStyle = 'rgba(255,140,40,0.85)'; ctx.fill(); } ctx.restore(); }
-    else { for (let i = 0; i < 5; i++) poly(ctx, [[-w / 2 + i * w / 5, 0], [-w / 2 + (i + 0.5) * w / 5, h * (0.6 + 0.4 * ((i * 7) % 3) / 2)], [-w / 2 + (i + 1) * w / 5, 0]], i % 2 ? '#7a5a3a' : '#a8845a', PAL.outline, 0.02); }
-  }
-  else if (k === 'mark') { const a = 0.5 + 0.5 * Math.sin(time * 20); ctx.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * a})`; ctx.lineWidth = 0.05; ctx.beginPath(); ctx.ellipse(0, 0.03, 0.55, 0.12, 0, 0, TAU); ctx.stroke(); seg(ctx, [0, 0.2], [0, 1.0], 0.04, `rgba(255,90,60,${0.4 * a})`); }
-  else if (k === 'pillar') {
-    if (!s.active) { const a = 0.3 + 0.3 * Math.sin(time * 25); ctx.fillStyle = `rgba(190,150,255,${a * 0.5})`; ctx.fillRect(-0.5, 0, 1, 12); ctx.strokeStyle = `rgba(230,200,255,${a + 0.2})`; ctx.lineWidth = 0.04; ctx.strokeRect(-0.5, 0, 1, 12); }
-    else { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createLinearGradient(-0.6, 0, 0.6, 0); g.addColorStop(0, 'rgba(160,100,255,0)'); g.addColorStop(0.5, 'rgba(250,240,255,1)'); g.addColorStop(1, 'rgba(160,100,255,0)'); ctx.fillStyle = g; ctx.fillRect(-0.6, 0, 1.2, 12); ctx.restore(); }
-  }
-  else if (k === 'beam') { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createLinearGradient(0, 0, 0, s.box.h); g.addColorStop(0, 'rgba(255,60,40,0.2)'); g.addColorStop(0.5, 'rgba(255,240,220,1)'); g.addColorStop(1, 'rgba(255,60,40,0.2)'); ctx.fillStyle = g; ctx.fillRect(-s.box.w / 2, 0, s.box.w, s.box.h); ctx.restore(); }
-  else glow(ctx, 0, 0, s.r || 0.25, [255, 220, 200], [255, 80, 60], time);
-}
+export function drawEShot(ctx, s, time) { return drawEShotNew(ctx, s, time); }
+
 function glow(ctx, x, y, r, c0, c1, time) {
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   const rr = r * (1 + 0.12 * Math.sin(time * 30));
@@ -99,168 +55,10 @@ function glow(ctx, x, y, r, c0, c1, time) {
 }
 
 // ================================================================ アイテム
-export function drawItem(ctx, it, time) {
-  const bob = Math.sin(time * 3 + (it.id || 0)) * 0.06 + 0.12;
-  ctx.translate(0, bob);
-  if (it.kind === 'weapon') {
-    // 光る壺の上に武器
-    glow(ctx, 0, 0.45, 0.25, [255, 250, 220], [255, 200, 90], time);
-    ctx.save(); ctx.translate(0, 0.45); ctx.rotate(Math.PI / 2 - 0.5); drawWeaponHeld(ctx, it.weapon); ctx.restore();
-  } else if (it.kind === 'treasure') {
-    poly(ctx, [[-0.32, 0], [0.32, 0], [0.32, 0.36], [-0.32, 0.36]], lin(ctx, 0, 0.4, 0, 0, ['#c88a3a', '#6a4018']), PAL.outline, OL);
-    poly(ctx, [[-0.34, 0.36], [0.34, 0.36], [0.28, 0.55], [-0.28, 0.55]], lin(ctx, 0, 0.55, 0, 0.36, ['#e0a84a', '#8a5a22']), PAL.outline, OL);
-    ctx.fillStyle = PAL.gold; ctx.fillRect(-0.05, 0.25, 0.1, 0.18);
-    const tw = 0.5 + 0.5 * Math.sin(time * 6); ell(ctx, 0.18, 0.6, 0.04 * tw, 0.12 * tw, '#fff6c0'); ell(ctx, 0.18, 0.6, 0.12 * tw, 0.04 * tw, '#fff6c0');
-  } else if (it.kind === 'armor') {
-    glow(ctx, 0, 0.45, 0.3, [220, 240, 255], [120, 170, 255], time);
-    poly(ctx, [[-0.3, 0.75], [0.3, 0.75], [0.26, 0.25], [0, 0.12], [-0.26, 0.25]], lin(ctx, 0, 0.75, 0, 0.1, [PAL.steel[0], PAL.steel[2]]), PAL.outline, OL);
-    seg(ctx, [0, 0.7], [0, 0.18], 0.03, 'rgba(255,255,255,0.8)');
-  }
-}
+export function drawItem(ctx, it, time) { return drawItemNew(ctx, it, time); }
+
 
 // ================================================================ ボス
-export function drawBoss(ctx, b, time) {
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const flash = b.hitT > 0 ? b.hitT / 0.1 : 0;
-  if (b.st === 'dying') { const k = Math.min(1, b.deadT / 2.4); ctx.globalAlpha = 1 - k * 0.9; ctx.translate(Math.sin(time * 50) * 0.08 * k, -k * 0.6); }
-  BOSS_ART[b.type](ctx, b, time);
-  if (flash > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = `rgba(255,255,255,${flash * 0.7})`; ctx.fillRect(-4, -2, 8, 8); ctx.globalCompositeOperation = 'source-over'; }
-  ctx.globalAlpha = 1;
-}
-const W = (b, s) => b.st === s;
-const BOSS_ART = {
-  // 墓守ガルム: 巨大な猫背の墓掘り。頭巾・つぎはぎの外套・大シャベル・腰のランタン
-  gravekeeper(ctx, b, time) {
-    const wind = W(b, 'chargeWind') ? Math.min(1, b.t / 0.8) : 0, slamW = W(b, 'slamWind') ? Math.min(1, b.t / 0.7) : 0;
-    const stun = W(b, 'stun'), charge = W(b, 'charge'), walk = Math.sin(time * 5);
-    ctx.translate(0, -wind * 0.25);
-    for (const [x, c, ph] of [[-0.5, '#2e2a26', 0], [0.4, '#3e3830', Math.PI]]) seg(ctx, [x, 1.2], [x + (charge ? Math.sin(time * 20 + ph) * 0.5 : walk * 0.15), 0.05], 0.42, c);
-    ctx.beginPath(); ctx.moveTo(-1.1, 1.0); ctx.quadraticCurveTo(-1.3, 2.6, -0.2, 3.1); ctx.quadraticCurveTo(0.9, 3.2, 1.1, 2.2); ctx.lineTo(1.0, 1.0); ctx.closePath();
-    ctx.fillStyle = lin(ctx, 0, 3.1, 0, 1, ['#6a5a48', '#3a3028']); ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL * 1.5; ctx.stroke();
-    for (let i = 0; i < 3; i++) { ctx.strokeStyle = '#2a2018'; ctx.lineWidth = 0.04; ctx.strokeRect(-0.8 + i * 0.6, 1.4 + (i % 2) * 0.6, 0.35, 0.3); }
-    // 頭巾と顔
-    ctx.save(); ctx.translate(0.65, 2.85); ctx.rotate(wind * 0.3);
-    ell(ctx, 0, 0, 0.55, 0.5, '#4a3e32'); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL * 1.4; ctx.stroke();
-    ell(ctx, 0.2, -0.08, 0.34, 0.3, '#c8b090');
-    EYE(ctx, 0.3, 0.0, 0.07, wind || charge ? '#ff4020' : '#ffd040'); EYE(ctx, 0.05, 0.02, 0.05, wind || charge ? '#ff4020' : '#ffd040');
-    ctx.beginPath(); ctx.moveTo(0.0, -0.22); ctx.quadraticCurveTo(0.25, -0.32 - wind * 0.1, 0.48, -0.2); ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = 0.05; ctx.stroke();
-    for (let i = 0; i < 3; i++) poly(ctx, [[0.08 + i * 0.13, -0.23], [0.12 + i * 0.13, -0.12], [0.16 + i * 0.13, -0.24]], '#f8f0d8');
-    ctx.restore();
-    // シャベル
-    const sh = slamW ? -2.4 * slamW : W(b, 'slam') || W(b, 'recover') ? 0.9 : charge ? 1.2 : 0.3;
-    ctx.save(); ctx.translate(0.9, 2.1); ctx.rotate(-sh);
-    seg(ctx, [0, 0], [0, -2.0], 0.16, '#7a5a34');
-    poly(ctx, [[-0.35, -1.9], [0.35, -1.9], [0.3, -2.7], [0, -2.9], [-0.3, -2.7]], lin(ctx, -0.3, 0, 0.3, 0, ['#5a636c', '#b8c2cc', '#5a636c']), PAL.outline, OL * 1.4);
-    ctx.restore();
-    // ランタン
-    const lx = -0.9, ly = 1.5 + Math.sin(time * 3) * 0.05;
-    seg(ctx, [-0.8, 1.9], [lx, ly + 0.3], 0.03, '#222');
-    poly(ctx, [[lx - 0.17, ly - 0.25], [lx + 0.17, ly - 0.25], [lx + 0.2, ly + 0.25], [lx - 0.2, ly + 0.25]], '#2a2a2a', PAL.outline, OL);
-    glow(ctx, lx, ly, 0.2 + wind * 0.15, [220, 255, 200], [90, 230, 120], time);
-    if (stun) for (let i = 0; i < 4; i++) { const a = time * 5 + i * 1.57; ell(ctx, 0.65 + Math.cos(a) * 0.6, 3.5 + Math.sin(a) * 0.12, 0.08, 0.08, '#ffe14d'); }
-  },
-  // 宵の魔女ヘクセ: 箒に横座り・尖り帽・裂けた外套・鉤鼻。光の輪で斉射、急降下で着地
-  witch(ctx, b, time) {
-    const fan = W(b, 'fanWind') ? Math.min(1, b.t / 0.8) : 0, land = W(b, 'landed');
-    ctx.translate(0, Math.sin(time * 4) * 0.05);
-    if (!land) { seg(ctx, [-1.0, 0.55], [1.0, 0.75], 0.09, '#7a5a34'); for (let i = 0; i < 7; i++) seg(ctx, [-1.0, 0.55], [-1.5, 0.3 + i * 0.08 + Math.sin(time * 10 + i) * 0.03], 0.04, '#b89a50'); }
-    ctx.beginPath(); ctx.moveTo(-0.5, 0.5); ctx.quadraticCurveTo(-0.6, 1.5, 0.0, 1.55); ctx.quadraticCurveTo(0.45, 1.5, 0.5, 0.6);
-    for (let i = 0; i < 5; i++) ctx.lineTo(0.5 - i * 0.25, 0.5 - (i % 2) * 0.18 - Math.sin(time * 8 + i) * 0.05);
-    ctx.closePath(); ctx.fillStyle = lin(ctx, 0, 1.6, 0, 0.3, ['#3a2a5a', '#150e24']); ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL; ctx.stroke();
-    ctx.save(); ctx.translate(0.1, 1.72);
-    ell(ctx, 0.05, 0, 0.24, 0.24, '#9ac08a'); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL; ctx.stroke();
-    poly(ctx, [[0.2, 0.05], [0.48, -0.12], [0.22, -0.08]], '#8ab07a', PAL.outline, OL * 0.6);
-    EYE(ctx, 0.14, 0.06, 0.04, '#ffe14d'); ctx.beginPath(); ctx.arc(0.1, -0.08, 0.1, 0.2, 2.6); ctx.strokeStyle = '#2a1010'; ctx.lineWidth = 0.03; ctx.stroke();
-    poly(ctx, [[-0.42, 0.12], [0.5, 0.14], [0.05, 0.25]], '#1a1030'); poly(ctx, [[-0.2, 0.2], [0.25, 0.22], [-0.25 + Math.sin(time * 3) * 0.1, 1.0]], '#2a1a44', PAL.outline, OL * 0.7);
-    ctx.restore();
-    seg(ctx, [-0.05, 1.3], [-0.35, 0.9], 0.1, '#9ac08a'); for (let i = 0; i < 6; i++) seg(ctx, [-0.05, 1.3], [-0.5 + i * 0.05, 1.8], 0.04, '#8a8a9a');
-    const hx = 0.55 + fan * 0.2, hy = 1.25 + fan * 0.2;
-    seg(ctx, [0.2, 1.3], [hx, hy], 0.08, '#9ac08a');
-    if (fan > 0) { glow(ctx, hx + 0.1, hy, 0.15 + fan * 0.2, [255, 210, 255], [200, 80, 255], time); ctx.strokeStyle = `rgba(230,170,255,${fan})`; ctx.lineWidth = 0.04; ctx.beginPath(); ctx.arc(hx + 0.1, hy, 1.4 - fan * 1.1, 0, TAU); ctx.stroke(); }
-    if (land) for (let i = 0; i < 3; i++) { const a = time * 5 + i * 2.1; ell(ctx, 0.1 + Math.cos(a) * 0.45, 2.15 + Math.sin(a) * 0.1, 0.06, 0.06, '#ffe14d'); }
-  },
-  // 沼獣ヌマヅチ: 鰭のある巨大な鯰の頭。潜る・波紋・跳び出し・岸で這う
-  riverbeast(ctx, b, time) {
-    if (W(b, 'submerged')) return;
-    if (W(b, 'ripple')) return; // 波紋は地形側で描く
-    const land = W(b, 'onLand'), open = land && b.t > 0.75 && b.t < 1.3 ? 1 : 0;
-    const sw = Math.sin(time * 6) * 0.1;
-    ctx.beginPath(); ctx.moveTo(-1.4, 0.2); ctx.quadraticCurveTo(-1.6 + sw, 1.0, -0.6, 1.6); ctx.quadraticCurveTo(0.6, 2.1, 1.35, 1.2); ctx.quadraticCurveTo(1.45, 0.4, 0.9, 0.1); ctx.closePath();
-    ctx.fillStyle = lin(ctx, 0, 2.0, 0, 0, ['#3f7a74', '#1a3a3c']); ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL * 1.4; ctx.stroke();
-    ell(ctx, 0.3, 0.45, 1.0, 0.35, '#c8c890');
-    for (let i = 0; i < 4; i++) poly(ctx, [[-1.0 + i * 0.45, 1.55 + i * 0.05], [-0.8 + i * 0.45, 2.05 + Math.sin(time * 5 + i) * 0.08], [-0.6 + i * 0.45, 1.6]], '#2a5a5a', PAL.outline, OL * 0.6);
-    ell(ctx, 0.85, 1.3, 0.2, 0.2, '#f8f8d0'); ell(ctx, 0.9, 1.3, 0.09, 0.14, '#101010'); EYE(ctx, 0.92, 1.34, 0.02, '#fff');
-    ctx.beginPath(); ctx.moveTo(1.3, 0.7); ctx.quadraticCurveTo(0.8, 0.6 - open * 0.4, 0.4, 0.75); ctx.strokeStyle = '#101818'; ctx.lineWidth = 0.08; ctx.stroke();
-    if (open) ell(ctx, 1.0, 0.62, 0.25, 0.15, '#5a1a2a');
-    for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(1.2, 0.8); ctx.quadraticCurveTo(1.7, 0.8 + s * 0.3 + sw, 2.0, 0.6 + s * 0.5); ctx.strokeStyle = '#2a4a48'; ctx.lineWidth = 0.05; ctx.stroke(); } // ひげ
-  },
-  // 翼の守護者: 青銅の羽根の梟頭の戦士。上空で狙い → 急降下 → 止まり木で息を整える
-  warden(ctx, b, time) {
-    const dw = W(b, 'diveWind') ? Math.min(1, b.t / 0.8) : 0, perch = W(b, 'perch'), dive = W(b, 'dive') || W(b, 'impact');
-    const flap = perch ? 0.1 : dive ? -0.6 : Math.sin(time * 9) * 0.6 + dw * 0.8;
-    for (const s of [-1, 1]) {
-      ctx.save(); ctx.translate(0, 1.4); ctx.rotate(s * (0.3 + flap * 0.5)); ctx.scale(s, 1);
-      for (let i = 0; i < 6; i++) poly(ctx, [[0.1, 0], [0.6 + i * 0.28, 0.4 - i * 0.05], [0.7 + i * 0.3, -0.25 - i * 0.12], [0.3 + i * 0.2, -0.2]], i % 2 ? '#a86a2a' : '#c88a3a', PAL.outline, OL * 0.6);
-      ctx.restore();
-    }
-    poly(ctx, [[-0.45, 0.4], [0.45, 0.4], [0.55, 1.6], [0, 2.0], [-0.55, 1.6]], lin(ctx, 0, 2, 0, 0.4, ['#d8a858', '#6a4418']), PAL.outline, OL);
-    for (let i = 0; i < 4; i++) { ctx.strokeStyle = '#6a4418'; ctx.lineWidth = 0.03; ctx.beginPath(); ctx.arc(0, 1.0 + i * 0.2, 0.3, 0.2, Math.PI - 0.2); ctx.stroke(); }
-    for (const x of [-0.2, 0.2]) { seg(ctx, [x, 0.45], [x * 1.2, 0.05], 0.1, '#8a6a3a'); for (let k = -1; k <= 1; k++) seg(ctx, [x * 1.2, 0.05], [x * 1.2 + k * 0.1 + 0.05, -0.08], 0.03, '#2a2018'); }
-    ctx.save(); ctx.translate(0, 2.1);
-    ell(ctx, 0, 0, 0.45, 0.38, lin(ctx, 0, 0.4, 0, -0.3, ['#e8b868', '#8a5a20'])); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL; ctx.stroke();
-    poly(ctx, [[-0.4, 0.2], [-0.5, 0.6], [-0.2, 0.32]], '#8a5a20'); poly(ctx, [[0.4, 0.2], [0.5, 0.6], [0.2, 0.32]], '#8a5a20');
-    for (const x of [-0.17, 0.17]) { ell(ctx, x, 0.03, 0.15, 0.15, '#fff2c0'); EYE(ctx, x + 0.03, 0.03, 0.06, dw ? '#ff3020' : '#1a1010'); }
-    poly(ctx, [[0, -0.05], [0.08, -0.15], [0, -0.3], [-0.08, -0.15]], '#3a2a18');
-    ctx.restore();
-    if (dw > 0) { ctx.strokeStyle = `rgba(255,80,60,${0.3 + 0.4 * dw})`; ctx.lineWidth = 0.05; ctx.setLineDash([0.2, 0.15]); ctx.beginPath(); ctx.moveTo(0, 1.4); ctx.lineTo((b.tx - b.x) * (b.face || 1), -(b.y - b.floor)); ctx.stroke(); ctx.setLineDash([]); }
-    if (perch) for (let i = 0; i < 3; i++) ell(ctx, (i - 1) * 0.3, 2.7 + Math.sin(time * 4 + i) * 0.1, 0.05, 0.05, 'rgba(255,255,255,0.6)');
-  },
-  // 炎騎士ヴァルグ: 炎をまとった黒鉄の騎士。剣を掲げると炎が走り、引いて構えると横薙ぎ
-  flameknight(ctx, b, time) {
-    const ww = W(b, 'waveWind') ? Math.min(1, b.t / 0.7) : 0, bw = W(b, 'ballWind') ? Math.min(1, b.t / 0.6) : 0, sw = W(b, 'slashWind') ? Math.min(1, b.t / 0.5) : 0;
-    const slash = W(b, 'slash'), rec = W(b, 'recover');
-    const walk = W(b, 'walk') ? Math.sin(time * 7) : 0;
-    ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 7; i++) { const ph = time * 8 + i * 1.3; const x = (i - 3) * 0.22, h = 0.6 + 0.3 * Math.sin(ph); ctx.beginPath(); ctx.moveTo(x - 0.2, 1.2); ctx.quadraticCurveTo(x, 1.2 + h * 1.6, x + Math.sin(ph) * 0.15, 2.6 + h); ctx.quadraticCurveTo(x + 0.1, 1.8, x + 0.2, 1.2); ctx.fillStyle = 'rgba(255,110,30,0.35)'; ctx.fill(); }
-    ctx.restore();
-    seg(ctx, [-0.25, 1.1], [-0.3 + walk * 0.2, 0.05], 0.24, '#2a2228'); seg(ctx, [0.2, 1.1], [0.25 - walk * 0.2, 0.05], 0.26, '#3a3036');
-    poly(ctx, [[-0.5, 1.0], [0.5, 1.0], [0.6, 2.0], [0.3, 2.25], [-0.35, 2.25], [-0.6, 2.0]], lin(ctx, 0, 2.2, 0, 1.0, ['#4a4048', '#181418']), PAL.outline, OL);
-    seg(ctx, [-0.3, 1.9], [0.4, 1.3], 0.05, '#ff7a2a');
-    ctx.save(); ctx.translate(0.1, 2.5);
-    poly(ctx, [[-0.28, -0.25], [0.32, -0.25], [0.36, 0.2], [0, 0.35], [-0.3, 0.2]], lin(ctx, 0, 0.35, 0, -0.25, ['#5a5058', '#201a20']), PAL.outline, OL);
-    ctx.fillStyle = '#ff6a20'; ctx.fillRect(0.02, -0.02, 0.32, 0.07); poly(ctx, [[-0.2, 0.3], [-0.45, 0.7], [-0.1, 0.32]], '#2a2228'); poly(ctx, [[0.2, 0.32], [0.4, 0.72], [0.1, 0.33]], '#2a2228');
-    ctx.restore();
-    const ang = slash ? 1.6 : sw ? -1.2 * sw : ww ? -2.8 * ww : bw ? -2.0 * bw : rec ? 1.3 : 0.5;
-    ctx.save(); ctx.translate(0.45, 1.9); ctx.rotate(-ang);
-    seg(ctx, [0, 0], [0, -0.35], 0.08, '#2a2228'); seg(ctx, [-0.18, -0.35], [0.18, -0.35], 0.07, PAL.gold);
-    poly(ctx, [[-0.08, -0.35], [0.08, -0.35], [0.05, -1.6], [0, -1.75], [-0.05, -1.6]], lin(ctx, -0.1, 0, 0.1, 0, ['#ff9a40', '#fff0c0', '#ff9a40']), PAL.outline, OL * 0.6);
-    if (ww || bw) fireBlob(ctx, 0, -1.6, 0.2 + (ww + bw) * 0.2, time);
-    ctx.restore();
-    if (slash) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(255,180,80,0.8)'; ctx.lineWidth = 0.12; ctx.beginPath(); ctx.arc(0.5, 1.4, 1.5, -1.0, 1.1); ctx.stroke(); ctx.restore(); }
-  },
-  // 魔城の主ノクス: 角の冠・三つの目・広がる外套。段階で姿が崩れ、目が増える
-  lord(ctx, b, time) {
-    const ph = b.phase, ring = W(b, 'ringWind') ? Math.min(1, b.t / 0.8) : 0, sweepW = W(b, 'sweepWind') ? Math.min(1, b.t / 1.0) : 0, tired = W(b, 'tired');
-    let alpha = 1; if (W(b, 'warpOut')) alpha = 1 - Math.min(1, b.t / 0.45); if (W(b, 'warpIn')) alpha = Math.min(1, b.t / 0.4);
-    ctx.globalAlpha *= alpha;
-    const sp = 1 + Math.sin(time * 2) * 0.05 + ring * 0.2;
-    ctx.beginPath(); ctx.moveTo(0, 3.3); ctx.quadraticCurveTo(-1.6 * sp, 2.6, -1.9 * sp, 0.1);
-    for (let i = 0; i < 8; i++) ctx.lineTo(-1.9 * sp + i * 0.48 * sp, 0.1 + (i % 2) * 0.3 + Math.sin(time * 5 + i) * 0.05);
-    ctx.quadraticCurveTo(1.6 * sp, 2.6, 0, 3.3); ctx.closePath();
-    ctx.fillStyle = lin(ctx, 0, 3.3, 0, 0, ph >= 3 ? ['#5a1020', '#14040a'] : ['#2a1a4a', '#0a0612']); ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL * 1.5; ctx.stroke();
-    ctx.strokeStyle = ph >= 2 ? '#ff4060' : '#8a6ad8'; ctx.lineWidth = 0.04; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-1.2 + i * 0.8, 0.4); ctx.quadraticCurveTo(-0.6 + i * 0.4, 1.6, -0.3 + i * 0.3, 2.6); ctx.stroke(); }
-    ctx.save(); ctx.translate(0, 3.3);
-    ell(ctx, 0, 0, 0.5, 0.55, lin(ctx, 0, 0.55, 0, -0.5, ['#d8d0e8', '#6a6080'])); ctx.strokeStyle = PAL.outline; ctx.lineWidth = OL; ctx.stroke();
-    for (const s of [-1, 1]) poly(ctx, [[s * 0.3, 0.35], [s * 0.85, 1.2], [s * 0.45, 0.2]], '#2a2030', PAL.outline, OL * 0.6);
-    for (let i = 0; i < 5; i++) poly(ctx, [[-0.4 + i * 0.2, 0.42], [-0.3 + i * 0.2, 0.75 + (i === 2 ? 0.2 : 0)], [-0.2 + i * 0.2, 0.42]], PAL.gold);
-    const eyes = ph >= 2 ? [[-0.2, 0.05], [0.2, 0.05], [0, 0.25]] : [[-0.18, 0.05], [0.18, 0.05]];
-    if (ph >= 3) eyes.push([-0.32, 0.22], [0.32, 0.22]);
-    for (const [x, y] of eyes) EYE(ctx, x, y, 0.06 + sweepW * 0.04, sweepW ? '#ff3020' : '#ffd040');
-    ctx.beginPath(); ctx.moveTo(-0.2, -0.25); ctx.quadraticCurveTo(0, -0.38 - ring * 0.1, 0.2, -0.25); ctx.strokeStyle = '#1a0a10'; ctx.lineWidth = 0.05; ctx.stroke();
-    ctx.restore();
-    const orbR = 0.25 + ring * 0.3 + Math.sin(time * 6) * 0.03;
-    glow(ctx, 0, 1.7, orbR, [255, 230, 255], ph >= 3 ? [255, 60, 80] : [160, 80, 255], time);
-    if (sweepW) { ctx.strokeStyle = `rgba(255,70,50,${0.4 + 0.5 * Math.sin(time * 30) ** 2})`; ctx.lineWidth = 0.06; const y = b.low ? 0.45 - (b.y - b.floor) : 1.33 - (b.y - b.floor); ctx.setLineDash([0.3, 0.2]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(30 * (b.dir * (b.face || 1)), y); ctx.stroke(); ctx.setLineDash([]); }
-    if (tired) for (let i = 0; i < 3; i++) ell(ctx, (i - 1) * 0.4, 4.2 + Math.sin(time * 4 + i) * 0.1, 0.06, 0.06, 'rgba(255,255,255,0.5)');
-  },
-};
+// ボスは bosses.js（作り直し版）。旧版の BOSS_ART は残さない
+import { drawBossNew } from './bosses.js';
+export function drawBoss(ctx, b, time) { drawBossNew(ctx, b, time); }

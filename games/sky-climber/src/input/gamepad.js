@@ -4,6 +4,7 @@ import { stickToDir, radial } from './dirs.js';
 
 export function padLabels(id = '') {
   const s = id.toLowerCase();
+  if (/xbox|xinput|045e/.test(s)) return { ok: 'A', back: 'B', start: 'Start', kind: 'xbox' };
   if (/054c|playstation|dualshock|dualsense|wireless controller/.test(s)) return { ok: '×', back: '○', start: 'OPTIONS', kind: 'ps' };
   if (/057e|nintendo|pro controller|joy-con/.test(s)) return { ok: 'B', back: 'A', start: '+', kind: 'nintendo' };
   return { ok: 'A', back: 'B', start: 'Start', kind: 'xbox' };

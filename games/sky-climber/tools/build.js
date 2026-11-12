@@ -23,8 +23,9 @@ mkdirSync(join(v, 'addons', 'utils'), { recursive: true });
 for (const f of ['three.module.js', 'three.core.js']) cpSync(join(threeDir, 'build', f), join(v, f));
 cpSync(join(threeDir, 'examples', 'jsm', 'utils', 'BufferGeometryUtils.js'), join(v, 'addons', 'utils', 'BufferGeometryUtils.js'));
 const threePkg = JSON.parse(readFileSync(join(threeDir, 'package.json'), 'utf8'));
-let commit = (process.env.COMMIT_REF || '').slice(0, 7);
-if (!commit) { try { commit = execSync('git rev-parse --short HEAD', { cwd: here }).toString().trim(); } catch (e) { commit = ''; } }
+// 版: 手元の git を優先（CLI からのアップロードでは Netlify の COMMIT_REF がリポジトリのコミットと一致しないため）
+let commit = '';
+try { commit = execSync('git rev-parse --short HEAD', { cwd: here, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch (e) { commit = (process.env.COMMIT_REF || '').slice(0, 7); }
 const info = { game: 'sky-climber', variant, three: threePkg.version, built: new Date().toISOString(), commit };
 writeFileSync(join(dist, 'build-info.json'), JSON.stringify(info, null, 2));
 // Netlify のヘッダー: 版の整合のため本体は毎回確認、three とフォントは 1 日キャッシュ

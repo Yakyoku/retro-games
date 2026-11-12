@@ -161,7 +161,7 @@ class App {
     if (this.vr) this.drawVRScreen();
     requestAnimationFrame(() => this.focusFirst());
   }
-  focusFirst() { const root = this.overlay ? $('#ov-' + this.overlay) : $('#scr-' + this.screen); const f = root?.querySelector('[autofocus]:not([disabled]), button:not([disabled]):not([hidden])'); if (f && !this.vr) f.focus({ preventScroll: true }); }
+  focusFirst() { const root = this.overlay ? $('#ov-' + this.overlay) : $('#scr-' + this.screen); const f = root?.querySelector('[autofocus]:not([disabled]):not([hidden])') || root?.querySelector('button:not([disabled]):not([hidden])'); if (f && !this.vr) f.focus({ preventScroll: true }); }
   openOverlay(n) { this.overlay = n; $$('.overlay').forEach((o) => o.classList.toggle('show', o.id === 'ov-' + n)); this.focusFirst(); if (this.vr) this.drawVRScreen(); }
   closeOverlay() { const was = this.overlay; this.overlay = null; $$('.overlay').forEach((o) => o.classList.remove('show')); if (was === 'settings' && this.screen === 'play' && this.paused) this.openOverlay('pause'); else this.focusFirst(); if (this.vr) this.drawVRScreen(); }
   openSettings() { this.syncSettingsUI(); this.openOverlay('settings'); }
@@ -610,11 +610,13 @@ class App {
     const mv = [['r', nx > 0], ['l', nx < 0], ['u', ny > 0], ['d', ny < 0]].find(([k, h]) => this.rep(k, h, dt) && h);
     for (const [k, h] of [['r', nx > 0], ['l', nx < 0], ['u', ny > 0], ['d', ny < 0]]) if (!h) this.rep(k, false, dt);
     if (mv) { this.moveFocus(mv[0]); this.audio.play('uiMove'); }
-    if (pad.edge.ok) { const a = document.activeElement; if (a && a !== document.body) { if (a.type === 'range') { /* 左右で値を変える */ } else a.click(); } else this.focusFirst(); }
+    const root = this.overlay ? $('#ov-' + this.overlay) : $('#scr-' + this.screen);
+    if (pad.edge.ok) { const a = document.activeElement; if (a && a !== document.body && root?.contains(a)) { if (a.type === 'range') { /* 左右で値を変える */ } else a.click(); } else this.focusFirst(); }
     if (pad.edge.back || kb.edge.back) { this.audio.play('uiBack'); if (this.overlay) { if (this.overlay === 'pause') this.resume(); else this.closeOverlay(); } else if (['setup', 'calib', 'select', 'help'].includes(this.screen)) this.show(this.screen === 'select' ? 'calib' : this.screen === 'calib' ? 'setup' : 'top'); }
   }
   moveFocus(dir) {
     const root = this.overlay ? $('#ov-' + this.overlay) : $('#scr-' + this.screen);
+    if (!root) return;
     const els = Array.from(root.querySelectorAll('button:not([disabled]):not([hidden]), input, select')).filter((e) => e.offsetParent !== null);
     if (!els.length) return;
     const a = document.activeElement;

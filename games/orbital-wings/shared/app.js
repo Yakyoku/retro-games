@@ -198,7 +198,6 @@ export class App {
     if (this.variant === '2d') items.push(tog('retro', 'レトロ表示（任意）', '走査線とにじみの効果。標準は OFF（高精細）'));
     if (this.variant === '3d') {
       items.push(tog('invertDepth', '奥行き操作の反転', 'OFF: 右スティック上・E キーで奥へ。ON で逆'));
-      items.push(tog('spatial', '立体音響（VR の補助）', 'OFF＝忠実（モノラル）。ON で効果音だけ左右の位置を控えめに付ける'));
       items.push({ label: 'VR 戦場の大きさ', value: () => `${Math.round(s.vrScale * 100)}%`, adjust: (d) => set('vrScale', Math.max(0.6, Math.min(1.6, Math.round((s.vrScale + d * 0.1) * 10) / 10))) });
       items.push({ label: 'VR 戦場の高さ', value: () => `${s.vrHeight >= 0 ? '+' : ''}${Math.round(s.vrHeight * 100)}cm`, adjust: (d) => set('vrHeight', Math.max(-0.5, Math.min(0.5, Math.round((s.vrHeight + d * 0.05) * 100) / 100))) });
       items.push({ label: 'VR 戦場の距離', value: () => `${s.vrDistance >= 0 ? '+' : ''}${Math.round(s.vrDistance * 100)}cm`, adjust: (d) => set('vrDistance', Math.max(-0.6, Math.min(1.0, Math.round((s.vrDistance + d * 0.05) * 100) / 100))) });

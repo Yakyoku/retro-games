@@ -102,9 +102,11 @@ export class XRSupport {
     for (const k of this.ctrl) { k.c.visible = false; k.dot.visible = false; }
     this.menuP.visible = this.hudP.visible = this.overP.visible = false;
     this.safeStop();
-    // 通常画面へ戻す
+    // 通常画面へ戻す（エミュレーターなどがキャンバスを移動していたら、メニューより下の先頭へ戻す）
+    const cv = this.renderer.domElement, root = this.app.root;
+    if (root.firstChild !== cv) root.prepend(cv);
     const rig = this.r.rig; rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); this.r.vol.scale.setScalar(1);
-    this.r.resize(true);
+    setTimeout(() => this.r.resize(true), 0);
     if (this.app.screen === 'title') this.app.showTitle();
   }
   readProfiles() {

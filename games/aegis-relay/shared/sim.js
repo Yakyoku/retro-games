@@ -77,7 +77,7 @@ export function step(g, inp) {
   if (g.calm > 0) g.calm--;
   g.phaseT++;
 
-  g.scroll += T.scroll * DT;
+  g.pscroll = g.scroll; g.scroll += T.scroll * DT;
   if (g.phase === 'intro' && g.phaseT > 110) { g.phase = 'play'; g.phaseT = 0; }
 
   spawnWaves(g);
@@ -107,7 +107,7 @@ function spawnWaves(g) {
 
 function mk(g, type, x, y, o = {}) {
   const d = AIR[type];
-  return { id: g.nextId++, type, x, y, px: x, py: y, hp: d.hp, r: d.r, t: 0, vx: 0, vy: 0, dead: false, flash: 0, fireT: 0, ...o };
+  return { id: g.nextId++, type, x, y, px: x, py: y, hp: d.hp, hp0: o.hp ?? d.hp, r: d.r, t: 0, vx: 0, vy: 0, dead: false, flash: 0, fireT: 0, ...o };
 }
 function later(g, delay, e) { g.pending.push({ at: g.tick + delay, e }); }
 
@@ -186,7 +186,7 @@ function updatePlayer(g, inp) {
     const xs = p.docked ? [-S.spread, 0, S.spread] : [0];
     for (const dx of xs) g.shots.push({ x: p.x + dx, y: p.y - 9, px: p.x + dx, py: p.y - 9, vx: dx * 1.6, vy: -S.speed, r: S.r, dead: false });
     g.stats.shots++;
-    ev(g, 'shot', { docked: p.docked });
+    ev(g, 'shot', { docked: p.docked, x: p.x, y: p.y });
   }
 }
 
@@ -219,11 +219,11 @@ function updateShots(g) {
 
 function hitAir(g, e) {
   e.hp--; e.flash = 6;
-  if (e.hp > 0) { ev(g, 'hit', { x: e.x, y: e.y, air: true }); return; }
+  if (e.hp > 0) { ev(g, 'hit', { x: e.x, y: e.y, air: true, id: e.id }); return; }
   e.dead = true; g.stats.kills++;
   const pts = SCORE[AIR[e.type].score];
   addScore(g, pts, e.x, e.y);
-  ev(g, 'kill', { x: e.x, y: e.y, type: e.type, big: e.r >= 11 });
+  ev(g, 'kill', { x: e.x, y: e.y, type: e.type, big: e.r >= 11, r: e.r, vx: e.x - e.px, vy: e.y - e.py });
   if (e.mv === 'twin') onTwinHalfDown(g, e);
 }
 
@@ -241,7 +241,7 @@ function hitGround(g, o) {
   if (o.type === 'core') g.coreHp = o.hp; // 撃ち逃して巻き戻しても与えた損傷は残す
   if (o.hp > 0) { ev(g, 'hit', { x: o.x, y: o.y, air: false }); return; }
   o.dead = true; g.groundDone.add(o.gid); g.stats.kills++;
-  ev(g, 'kill', { x: o.x, y: o.y, type: o.type, ground: true, big: o.type === 'core' || o.type === 'bunker' });
+  ev(g, 'kill', { x: o.x, y: o.y, type: o.type, ground: true, big: o.type === 'core' || o.type === 'bunker', r: o.r, wy: o.wy });
   if (o.type === 'core') {
     addScore(g, SCORE.core * (g.area + 1), o.x, o.y, 'CORE');
     if (g.deathsThisArea === 0) addScore(g, SCORE.noMissArea, o.x, o.y + 16, 'NO MISS');
@@ -290,6 +290,7 @@ function enemyFire(g, x, y, ang, speed) {
   const D = difficulty(g);
   const v = Math.min(T.loop.bulletCap, speed * D.spd);
   g.bullets.push({ x, y, px: x, py: y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, r: 2.4, dead: false, born: g.tick });
+  g.lastEshot = { x, y, tick: g.tick };
   return true;
 }
 function aimAt(g, x, y) { const p = g.player; return Math.atan2(p.y - y, p.x - x); }
@@ -313,7 +314,7 @@ function updateGround(g) {
     if (!o) {
       const gd = GROUND[d.type];
       const hp = d.type === 'core' ? (g.coreHp ?? (gd.hp + Math.min(24, g.loop * 8))) : gd.hp;
-      o = { ...d, x: d.x, y, px: d.x, py: y, hp, r: gd.r, dead: false, flash: 0, fireT: 0 };
+      o = { ...d, x: d.x, y, px: d.x, py: y, hp, hp0: d.type === 'core' ? gd.hp + Math.min(24, g.loop * 8) : gd.hp, r: gd.r, dead: false, flash: 0, fireT: 0 };
       g.ground.set(d.gid, o);
     }
     o.y = y; if (o.flash > 0) o.flash--;

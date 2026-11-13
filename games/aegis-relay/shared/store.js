@@ -5,6 +5,8 @@
 const KEY = 'aegis-relay.v1';
 export const DEFAULTS = Object.freeze({
   master: 0.8, bgm: 0.7, se: 0.8, mute: false,
+  soundStyle: 'modern',     // modern（現代的な音源）| chip（矩形波 3 声＋ノイズの旧音源）
+  hitstop: true,            // 大きな撃破で一瞬だけ時間を止める
   autofire: false, shake: 1, flash: 1, crt: 0, hitbox: false, uiScale: 1, touchLayout: 'stick',
   quality: 'auto',          // auto | big | quest | light | manual
   renderScale: 1,           // manual のときの倍率

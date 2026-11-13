@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const here = join(dirname(fileURLToPath(import.meta.url)), '..');
 const variant = (process.env.VARIANT || 'all').trim();
 const threeDir = process.env.THREE_DIR || join(here, '..', '..', 'node_modules', 'three');
-const dist = join(here, 'dist');
+const dist = process.env.AEGIS_DIST || join(here, 'dist'); // 並行作業用に出力先を変えられる
 if (!['2d', 'vr', 'all'].includes(variant)) { console.error(`[aegis-relay] VARIANT が不正: ${variant}`); process.exit(1); }
 const has = { p2: variant !== 'vr', p3: variant !== '2d' };
 if (has.p3 && !existsSync(join(threeDir, 'build', 'three.module.js'))) { console.error(`[aegis-relay] three が見つかりません: ${threeDir}`); process.exit(1); }
@@ -24,7 +24,10 @@ if (has.p3) {
   const v = join(dist, 'vendor', 'three'); mkdirSync(v, { recursive: true });
   for (const f of ['three.module.js', 'three.core.js']) cpSync(join(threeDir, 'build', f), join(v, f));
   mkdirSync(join(v, 'addons', 'utils'), { recursive: true });
+  mkdirSync(join(v, 'addons', 'environments'), { recursive: true });
   cpSync(join(threeDir, 'examples', 'jsm', 'utils', 'BufferGeometryUtils.js'), join(v, 'addons', 'utils', 'BufferGeometryUtils.js'));
+  cpSync(join(threeDir, 'examples', 'jsm', 'environments', 'RoomEnvironment.js'), join(v, 'addons', 'environments', 'RoomEnvironment.js'));
+  for (const d of ['postprocessing', 'shaders']) cpSync(join(threeDir, 'examples', 'jsm', d), join(v, 'addons', d), { recursive: true });
   threeVer = JSON.parse(readFileSync(join(threeDir, 'package.json'), 'utf8')).version;
 }
 // 入口ページ（サイトごとに中身を変える）

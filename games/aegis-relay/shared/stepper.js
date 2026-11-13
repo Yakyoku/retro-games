@@ -7,10 +7,11 @@ export function makeStepper(stepFn, hz = HZ) {
   let acc = 0;
   return {
     advance(dt) {
-      acc += Math.min(0.25, Math.max(0, dt));
+      // 長いフレーム（タブ復帰・読み込みの引っかかり）の後は、追いつきを 1 フレーム最大 4 tick に抑え、残りは捨てる
+      acc += Math.min(0.1, Math.max(0, dt));
       let n = 0;
-      while (acc >= dtStep && n < 15) { stepFn(); acc -= dtStep; n++; }
-      if (n >= 15) acc = 0;
+      while (acc >= dtStep && n < 4) { stepFn(); acc -= dtStep; n++; }
+      if (acc >= dtStep) acc = acc % dtStep;
       return acc / dtStep;
     },
     reset() { acc = 0; },

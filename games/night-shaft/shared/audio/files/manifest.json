@@ -1,0 +1,92 @@
+{
+  "title": {
+    "file": "title.mp3",
+    "hot": null,
+    "loop": true,
+    "loopStart": 1,
+    "loopEnd": 41,
+    "length": 40,
+    "tempo": 96
+  },
+  "stage1": {
+    "file": "stage1.mp3",
+    "hot": "stage1-hot.mp3",
+    "loop": true,
+    "loopStart": 1,
+    "loopEnd": 31.967755102040815,
+    "length": 30.967755102040815,
+    "tempo": 124
+  },
+  "stage2": {
+    "file": "stage2.mp3",
+    "hot": "stage2-hot.mp3",
+    "loop": true,
+    "loopStart": 1,
+    "loopEnd": 29.23530612244898,
+    "length": 28.23530612244898,
+    "tempo": 136
+  },
+  "stage3": {
+    "file": "stage3.mp3",
+    "hot": "stage3-hot.mp3",
+    "loop": true,
+    "loopStart": 1,
+    "loopEnd": 26.945963718820863,
+    "length": 25.945963718820863,
+    "tempo": 148
+  },
+  "start": {
+    "file": "start.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 6.5,
+    "length": 6.5,
+    "tempo": 120
+  },
+  "doc": {
+    "file": "doc.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 5.7,
+    "length": 5.7,
+    "tempo": 150
+  },
+  "clear": {
+    "file": "clear.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 8.12501133786848,
+    "length": 8.12501133786848,
+    "tempo": 128
+  },
+  "allclear": {
+    "file": "allclear.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 19.642879818594103,
+    "length": 19.642879818594103,
+    "tempo": 112
+  },
+  "miss": {
+    "file": "miss.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 7.3,
+    "length": 7.3,
+    "tempo": 100
+  },
+  "gameover": {
+    "file": "gameover.mp3",
+    "hot": null,
+    "loop": false,
+    "loopStart": 0,
+    "loopEnd": 15.833333333333334,
+    "length": 15.833333333333334,
+    "tempo": 72
+  }
+}

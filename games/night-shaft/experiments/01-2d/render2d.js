@@ -5,50 +5,67 @@ import { Animator, playerAnimState, enemyAnimState } from '../../shared/art/pose
 import { drawPerson } from './person2d.js';
 import { LOOK, THEME } from '../../shared/art/palette.js';
 import { makeRng } from '../../shared/core/rng.js';
+import { FloorCache, CX0, CX1, themeOf, makeSkyLayers } from './backdrop2d.js';
 
-const VIEW_W = 26.4; // 見える幅（ビル 24m + 両側の外）
+const VIEW_FAR = 26.4; // 全体表示（ビル全体の幅）
+const VIEW_NEAR = 16.5; // 寄り（既定）: 人物が大きく見え、プレイヤーを横にも追う
 
 export class Renderer2D {
   constructor(canvas) {
     this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false });
-    this.fx = []; this.popups = []; this.anims = new Map(); this.scarf = null; this.shake = 0; this.camY = null; this.bg = null;
+    this.fx = []; this.popups = []; this.anims = new Map(); this.steps = []; this.scarf = null; this.shake = 0; this.camY = null; this.camX = null; this.bg = null;
     this.vp = { x: 0, y: 0, w: 1, h: 1 };
-    this.deco = new Map();
+    this.cache = new FloorCache(); this.zoom = 'near'; this.flash = 0; this.lightning = 0; this.nextBolt = 6;
+    this.rain = Array.from({ length: 140 }, (_, i) => ({ x: Math.random(), y: Math.random(), v: 0.8 + Math.random() * 0.6 }));
+    this.dust = Array.from({ length: 60 }, () => ({ x: Math.random(), y: Math.random(), p: Math.random() * 6 }));
+    this.post = null;
   }
 
   // vp: ゲームを描く範囲（CSS px）、dpr: 描画倍率
   resize(cssW, cssH, dpr, vp) {
     const w = Math.max(1, Math.round(cssW * dpr)), h = Math.max(1, Math.round(cssH * dpr));
-    if (this.cv.width !== w || this.cv.height !== h) { this.cv.width = w; this.cv.height = h; this.bg = null; }
+    if (this.cv.width !== w || this.cv.height !== h) { this.cv.width = w; this.cv.height = h; }
     this.dpr = dpr;
     this.vp = { x: vp.x * dpr, y: vp.y * dpr, w: vp.w * dpr, h: vp.h * dpr };
-    this.s = this.vp.w / VIEW_W;
-    // 縦長画面でも見える階数が増えすぎないよう上限（最大 7 階ぶん）
+    const viewW = this.zoom === 'near' ? VIEW_NEAR : VIEW_FAR;
+    // 縦長の画面では横幅を詰めすぎない（最低でも 3.2 階ぶんの高さは見せる）
+    this.viewW = Math.min(viewW, Math.max(10.5, this.vp.w / (this.vp.h / (3.2 * FLOOR_H))));
+    if (this.zoom !== 'near') this.viewW = VIEW_FAR;
+    this.s = this.vp.w / this.viewW;
     const maxH = 7 * FLOOR_H * this.s;
     if (this.vp.h > maxH) { this.vp.y += (this.vp.h - maxH) / 2; this.vp.h = maxH; }
+    this.sky = null; this.post = null; this.cache.reset();
   }
+  setZoom(z) { this.zoom = z; }
   get bufferSize() { return [this.cv.width, this.cv.height]; }
 
   // ---- 効果 ----
   spark(x, y, color, n = 8, speed = 3) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, v = speed * (0.4 + Math.random());
-      this.fx.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + 1, life: 0.35 + Math.random() * 0.3, t: 0, color, size: 0.04 + Math.random() * 0.03, g: 9 });
+      this.fx.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + 1, life: 0.35 + Math.random() * 0.3, t: 0, color, size: 0.04 + Math.random() * 0.03, g: 9, glow: true });
     }
   }
+  dustPuff(x, y, n = 4, k = 1) { for (let i = 0; i < n; i++) this.fx.push({ kind: 'dust', x: x + (Math.random() - 0.5) * 0.3, y: y + 0.03, vx: (Math.random() - 0.5) * 0.8 * k, vy: 0.2 + Math.random() * 0.3, life: 0.5 + Math.random() * 0.3, t: 0, r: 0.06 + Math.random() * 0.06 }); }
   popup(x, y, text, color = '#fff') { this.popups.push({ x, y, text, color, t: 0 }); }
   onEvents(game, events) {
     for (const ev of events) {
       switch (ev.type) {
-        case 'shot': this.fx.push({ kind: 'flash', x: ev.x + ev.dir * 0.62, y: ev.y, t: 0, life: 0.06, dir: ev.dir }); break;
-        case 'eshot': this.fx.push({ kind: 'flash', x: ev.x + Math.sign(game.player.x - ev.x) * 0.6, y: ev.y, t: 0, life: 0.08, dir: 0, enemy: true }); break;
-        case 'kill': this.spark(ev.x, ev.y + 1.1, '#ffd27a', 14, 4); this.popup(ev.x, ev.y + 2.1, '+' + ev.pts, ev.cause === 'env' ? '#7fe0ff' : ev.cause === 'kick' ? '#ffb36b' : '#ffffff'); break;
-        case 'lightHit': this.spark(ev.x, level(ev.floor) + 2.35, '#fff6c8', 16, 3); break;
-        case 'lightCrash': this.spark(ev.x, level(ev.floor) + 0.1, '#d8f2ff', 22, 3.5); this.shake = Math.max(this.shake, 0.08); break;
-        case 'bulletCover': this.spark(ev.x, ev.y, '#ffcf8a', 6, 2.5); break;
+        case 'shot':
+          this.fx.push({ kind: 'flash', x: ev.x + ev.dir * 0.66, y: ev.y, t: 0, life: 0.07, dir: ev.dir });
+          this.fx.push({ kind: 'shell', x: ev.x + ev.dir * 0.25, y: ev.y + 0.06, vx: -ev.dir * (1.2 + Math.random()), vy: 2.2 + Math.random(), rot: 0, vr: 18, t: 0, life: 1.4, floorY: level(Math.floor((ev.y + 0.01) / FLOOR_H) + 1), bounced: 0 });
+          this.muzzleT = 0;
+          break;
+        case 'eshot': this.fx.push({ kind: 'flash', x: ev.x + Math.sign(game.player.x - ev.x) * 0.62, y: ev.y, t: 0, life: 0.09, dir: Math.sign(game.player.x - ev.x), enemy: true }); break;
+        case 'kill': this.spark(ev.x, ev.y + 1.1, '#ffd27a', 16, 4); this.fx.push({ kind: 'ring', x: ev.x, y: ev.y + 1.1, t: 0, life: 0.3 }); this.popup(ev.x, ev.y + 2.1, '+' + ev.pts, ev.cause === 'env' ? '#7fe0ff' : ev.cause === 'kick' ? '#ffb36b' : '#ffffff'); this.hitFlash = this.hitFlash || {}; this.hitFlash[ev.id] = 0.12; this.dustPuff(ev.x, ev.y, 6, 1.5); break;
+        case 'lightHit': this.spark(ev.x, level(ev.floor) + 2.35, '#fff6c8', 20, 3.5); this.fx.push({ kind: 'ring', x: ev.x, y: level(ev.floor) + 2.35, t: 0, life: 0.25, col: '255,246,200' }); break;
+        case 'lightCrash': this.spark(ev.x, level(ev.floor) + 0.1, '#d8f2ff', 26, 3.5); this.dustPuff(ev.x, level(ev.floor), 10, 2.5); this.shake = Math.max(this.shake, 0.1); break;
+        case 'bulletCover': this.spark(ev.x, ev.y, '#ffcf8a', 7, 2.5); break;
         case 'bulletWall': this.spark(ev.x, ev.y, '#ffe9a0', 4, 1.8); break;
-        case 'doc': this.popup(ev.x, ev.y != null ? ev.y : level(ev.floor) + 2.5, `書類 ${ev.got}/${ev.total}  +${ev.pts}`, '#ffd36b'); break;
-        case 'miss': this.shake = 0.15; break;
+        case 'land': if (ev.drop > 0.4) this.dustPuff(game.player.x, game.player.y, 6, 1.4); break;
+        case 'doc': this.popup(ev.x, ev.y != null ? ev.y : level(ev.floor) + 2.5, `書類 ${ev.got}/${ev.total}  +${ev.pts}`, '#ffd36b'); this.fx.push({ kind: 'ring', x: ev.x, y: level(ev.floor) + 1.3, t: 0, life: 0.45, col: '255,210,110', big: true }); break;
+        case 'miss': this.shake = 0.18; this.flash = 0.35; break;
+        case 'spot': this.fx.push({ kind: 'alert', id: ev.id, t: 0, life: 0.7 }); break;
         default: break;
       }
     }
@@ -57,45 +74,63 @@ export class Renderer2D {
   // ---- メイン ----
   draw(game, t, dt, opts = {}) {
     const c = this.ctx; const s = this.s; const vp = this.vp;
-    const st = game.stage; const th = THEME[st.theme] || THEME.office;
+    const st = game.stage; const th = THEME[st.theme] || THEME.office; const bt = themeOf(st.theme);
     const p = game.player;
-    // カメラ: 縦だけ追う（階の切り替わりで急に跳ばないよう減衰）。回転・強い揺れはしない
-    const targetY = p.y + 1.4;
+    // カメラ: 縦はプレイヤーの階を、横は（寄りのとき）向いている方を少し先まで見せて追う。回転・強い揺れはしない
+    const targetY = p.y + 1.35;
     if (this.camY == null || opts.snap) this.camY = targetY;
     this.camY += (targetY - this.camY) * Math.min(1, dt * 6);
+    const viewW = this.viewW;
+    const x0min = -1.2, x0max = W + 1.2 - viewW;
+    const look = this.zoom === 'near' ? (p.face || 1) * 2.4 : 0;
+    const targetX = Math.max(x0min, Math.min(x0max, p.x + look - viewW / 2));
+    if (this.camX == null || opts.snap) this.camX = targetX;
+    this.camX += (targetX - this.camX) * Math.min(1, dt * 3.2);
+    const x0 = viewW >= W + 2 ? -(viewW - W) / 2 : this.camX;
     const viewH = vp.h / s;
-    const topY = Math.min(level(st.floors) + FLOOR_H + 2.2, this.camY + viewH / 2);
+    const topY = Math.min(level(st.floors) + FLOOR_H + 2.6, this.camY + viewH / 2);
     const camB = Math.max(-1.0, topY - viewH);
     const sh = this.shake > 0 ? (Math.random() - 0.5) * this.shake * 0.3 : 0;
     this.shake = Math.max(0, this.shake - dt);
-    const x0 = -(VIEW_W - W) / 2;
-    this.view = { x0, y0: camB, s, vp };
+    this.view = { x0, y0: camB, s, vp, w: viewW };
+    this.t = t; this.dt = dt; this.game = game;
 
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.fillStyle = '#05060b'; c.fillRect(0, 0, this.cv.width, this.cv.height);
-    this.drawSky(camB, viewH);
+    this.drawSky(game, x0, camB, viewH, dt);
     c.save();
     c.beginPath(); c.rect(vp.x, vp.y, vp.w, vp.h); c.clip();
     c.setTransform(s, 0, 0, -s, vp.x - x0 * s + sh * s, vp.y + vp.h + camB * s);
 
     const fTop = Math.min(st.floors, floorOf(camB + viewH) + 1), fBot = Math.max(1, floorOf(camB) - 1);
-    this.drawExterior(game, th, camB, viewH);
-    for (let f = fTop; f >= fBot; f--) this.drawFloorBack(game, f, th, t);
+    // 1) 保存した階の背景（下の階から描く＝床のスラブが下の階の天井に重なる）
+    c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
+    for (let f = fBot; f <= fTop; f++) { const e = this.cache.get(game, f, s); c.drawImage(e.cv, Math.round(this.wx(CX0) + sh * s), Math.round(this.wy(e.y1)), e.cv.width, e.cv.height); }
+    c.restore();
+    // 2) 動く背景（モニター・LED・監視カメラ・回転灯・時計）
+    for (let f = fTop; f >= fBot; f--) this.drawFloorDynamic(game, f, t);
     for (const car of game.cars) this.drawShaft(game, car, fBot, fTop, th, t);
     c.save(); c.beginPath(); c.rect(0, -1, W, level(st.floors) + FLOOR_H + 1); c.clip();
     for (let f = fTop; f >= fBot; f--) this.drawFloorProps(game, f, th, t);
     c.restore();
     for (const car of game.cars) this.drawCar(game, car, t);
     this.lastDt = dt;
+    // 3) 人物（接地影 → 人物）
     for (const e of game.enemies) if (e.y > camB - 3 && e.y < camB + viewH + 1) this.drawEnemy(game, e, t);
     this.drawPlayer(game, t, dt);
     for (let f = fTop; f >= fBot; f--) this.drawCovers(game, f, th);
     this.drawBullets(game, t);
     this.drawFx(dt);
+    // 4) 暗がり → 光の筋とほこり（加算）
     for (let f = fTop; f >= fBot; f--) this.drawDark(game, f);
-    for (let f = fTop; f >= fBot; f--) this.drawSlab(game, f, th);
-    if (st.floors >= fTop && fTop === st.floors) this.drawRoof(game, th);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let f = fTop; f >= fBot; f--) this.drawLightVolumes(game, f, t, bt);
+    this.drawGlows(game, t);
     c.restore();
+    if (fTop === st.floors) this.drawRoof(game, th);
+    c.restore();
+    // 5) 後処理（雨・稲光・周辺減光・色調・粒子感）
+    this.drawPost(game, bt, dt, t);
     this.drawLabels(game, fBot, fTop, t);
     this.drawPopups(dt);
   }
@@ -103,110 +138,149 @@ export class Renderer2D {
   wx(x) { return this.vp.x + (x - this.view.x0) * this.s; }
   wy(y) { return this.vp.y + this.vp.h - (y - this.view.y0) * this.s; }
 
-  drawSky(camB, viewH) {
-    const c = this.ctx; const vp = this.vp;
-    if (!this.bg) this.bg = this.makeCity();
-    const off = ((camB * 0.18) % 30 + 30) % 30;
-    const bh = this.bg.height;
-    const y = vp.y + vp.h - bh + off * this.s * 0.25;
-    c.drawImage(this.bg, vp.x, Math.min(vp.y, y), vp.w, bh);
-  }
-
-  makeCity() {
-    const w = Math.max(64, Math.round(this.vp.w)), h = Math.max(64, Math.round(this.vp.h * 1.4));
-    const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
-    const c = cv.getContext('2d');
-    const g = c.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#060814'); g.addColorStop(0.55, '#121a3a'); g.addColorStop(0.85, '#2a2350'); g.addColorStop(1, '#3d2a4a');
-    c.fillStyle = g; c.fillRect(0, 0, w, h);
-    const r = makeRng(42);
-    for (let i = 0; i < 160; i++) { c.fillStyle = `rgba(255,255,255,${0.2 + r() * 0.6})`; const z = r() * 1.6 + 0.4; c.fillRect(r() * w, r() * h * 0.5, z, z); }
-    // 月
-    c.fillStyle = 'rgba(255,246,220,0.9)'; c.beginPath(); c.arc(w * 0.82, h * 0.12, h * 0.035, 0, 7); c.fill();
-    c.fillStyle = 'rgba(255,246,220,0.08)'; c.beginPath(); c.arc(w * 0.82, h * 0.12, h * 0.09, 0, 7); c.fill();
-    for (const [layer, col, win] of [[0, '#0d1226', 0.25], [1, '#0a0e1d', 0.45]]) {
-      let x = -20;
-      while (x < w) {
-        const bw = (40 + r() * 90) * (w / 1600) * (layer ? 1.3 : 1);
-        const bh2 = h * (0.25 + r() * 0.5) * (layer ? 0.8 : 1);
-        c.fillStyle = col; c.fillRect(x, h - bh2, bw, bh2);
-        const cs = Math.max(3, bw / 9);
-        for (let yy = h - bh2 + cs; yy < h - cs; yy += cs * 1.6) for (let xx = x + cs * 0.6; xx < x + bw - cs; xx += cs * 1.5) {
-          if (r() < win) { c.fillStyle = r() < 0.8 ? `rgba(255,214,140,${0.35 + r() * 0.4})` : `rgba(140,200,255,${0.35 + r() * 0.4})`; c.fillRect(xx, yy, cs * 0.7, cs * 0.8); }
-        }
-        x += bw + r() * 12;
-      }
+  // 夜空・3 層の街（視差）・動く車の光・探照灯・飛行機の灯・（警備棟）雨と稲光
+  drawSky(game, x0, camB, viewH, dt) {
+    const c = this.ctx; const vp = this.vp; const t = this.t;
+    if (!this.sky) this.sky = makeSkyLayers(Math.round(vp.w), Math.round(vp.h));
+    c.drawImage(this.sky.sky, vp.x, vp.y, vp.w, vp.h);
+    // 探照灯
+    c.save(); c.beginPath(); c.rect(vp.x, vp.y, vp.w, vp.h); c.clip();
+    c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 2; i++) {
+      const bx = vp.x + vp.w * (0.25 + i * 0.5) - (x0 * this.s * 0.05) % vp.w; const by = vp.y + vp.h;
+      const a = -Math.PI / 2 + Math.sin(t * 0.25 + i * 2.1) * 0.55;
+      const g = c.createLinearGradient(bx, by, bx + Math.cos(a) * vp.h, by + Math.sin(a) * vp.h);
+      g.addColorStop(0, 'rgba(160,190,255,0.10)'); g.addColorStop(1, 'rgba(160,190,255,0)');
+      c.fillStyle = g; c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + Math.cos(a - 0.06) * vp.h * 1.2, by + Math.sin(a - 0.06) * vp.h * 1.2); c.lineTo(bx + Math.cos(a + 0.06) * vp.h * 1.2, by + Math.sin(a + 0.06) * vp.h * 1.2); c.fill();
     }
-    return cv;
-  }
-
-  drawExterior(game, th, camB, viewH) {
-    const c = this.ctx; const st = game.stage;
-    const top = level(st.floors) + FLOOR_H;
-    // 外壁の柱
-    const g = c.createLinearGradient(-0.6, 0, 0, 0);
-    g.addColorStop(0, '#15181f'); g.addColorStop(1, '#2b303a');
-    c.fillStyle = g; c.fillRect(-0.6, -1, 0.6, top + 1.2);
-    const g2 = c.createLinearGradient(W, 0, W + 0.6, 0);
-    g2.addColorStop(0, '#2b303a'); g2.addColorStop(1, '#15181f');
-    c.fillStyle = g2; c.fillRect(W, -1, 0.6, top + 1.2);
-    // 地面
-    c.fillStyle = '#0b0c10'; c.fillRect(-3, -3, W + 6, 3);
-    c.fillStyle = '#2b2d33'; c.fillRect(-3, -0.08, W + 6, 0.08);
-  }
-
-  drawFloorBack(game, f, th, t) {
-    const c = this.ctx; const L = level(f);
-    const g = c.createLinearGradient(0, L, 0, L + FLOOR_H);
-    g.addColorStop(0, th.wallLow); g.addColorStop(0.32, th.wallLow); g.addColorStop(0.33, th.wall); g.addColorStop(1, th.wallTop);
-    c.fillStyle = g; c.fillRect(0, L, W, FLOOR_H);
-    // 腰の見切り・幅木
-    c.fillStyle = th.trim; c.globalAlpha = 0.55; c.fillRect(0, L + 0.96, W, 0.04); c.globalAlpha = 1;
-    c.fillStyle = 'rgba(0,0,0,0.35)'; c.fillRect(0, L, W, 0.12);
-    // 天井の影
-    const g2 = c.createLinearGradient(0, L + FLOOR_H - 0.5, 0, L + FLOOR_H);
-    g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(1, 'rgba(0,0,0,0.4)');
-    c.fillStyle = g2; c.fillRect(0, L + FLOOR_H - 0.5, W, 0.5);
-    this.drawDeco(game, f, th);
-    // 壁の大きな階数
-    c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = 'rgba(255,255,255,0.07)';
-    c.font = `800 ${Math.round(this.s * 1.25)}px "Inter", "Noto Sans JP", system-ui, sans-serif`;
-    c.textBaseline = 'middle';
-    c.fillText(String(f), this.wx(0.35), this.wy(L + 2.15));
+    c.globalCompositeOperation = 'source-over';
+    for (const L of this.sky.layers) {
+      const off = ((x0 * this.s * L.depth) % L.w + L.w) % L.w;
+      const yo = Math.max(-vp.h * 0.2, Math.min(vp.h * 0.4, -(camB - 45) * this.s * L.depth * 0.15));
+      c.drawImage(L.cv, vp.x - off, vp.y + yo, L.w, vp.h); c.drawImage(L.cv, vp.x - off + L.w, vp.y + yo, L.w, vp.h);
+    }
+    // 遠くの道路を走る車の光
+    const roadY = vp.y + vp.h * 0.96;
+    for (let i = 0; i < 18; i++) {
+      const dir = i % 2 ? 1 : -1; const sp = 0.03 + (i % 5) * 0.008;
+      const xx = vp.x + (((i * 0.137 + t * sp * dir) % 1 + 1) % 1) * vp.w;
+      c.fillStyle = dir > 0 ? 'rgba(255,240,200,0.9)' : 'rgba(255,60,50,0.9)';
+      c.fillRect(xx, roadY + (i % 2) * 3, Math.max(2, vp.w / 600), Math.max(1.5, vp.w / 1000));
+    }
+    // 飛行機の点滅灯
+    const ax = vp.x + ((t * 0.012) % 1.2 - 0.1) * vp.w, ay = vp.y + vp.h * 0.12;
+    if (Math.floor(t * 1.4) % 2 === 0) { c.fillStyle = '#ff4d4d'; c.fillRect(ax, ay, 3, 3); }
+    c.fillStyle = 'rgba(255,255,255,0.7)'; c.fillRect(ax + 6, ay + 1, 2, 2);
+    // 稲光（警備棟）
+    if (game.stage.theme === 'security') {
+      this.nextBolt -= dt;
+      if (this.nextBolt <= 0) { this.lightning = 0.5; this.nextBolt = 7 + Math.random() * 9; }
+      if (this.lightning > 0) { this.lightning -= dt; const k = Math.max(0, this.lightning) * (Math.sin(this.lightning * 60) > 0 ? 1 : 0.4); c.fillStyle = `rgba(200,210,255,${k * 0.5})`; c.fillRect(vp.x, vp.y, vp.w, vp.h); }
+    }
     c.restore();
   }
 
-  drawDeco(game, f, th) {
-    const key = game.stage.id + ':' + f;
-    let d = this.deco.get(key);
-    if (!d) {
-      const r = makeRng(f * 977 + game.stage.id.length * 31);
-      d = [];
-      const busy = [...game.byFloor[f].doors.map((q) => q.x), ...game.cars.filter((q) => f >= q.lo - 1 && f <= q.hi + 1).map((q) => q.x)];
-      for (let x = 1.5; x < W - 1; x += 1.7 + r() * 1.6) {
-        if (busy.some((b) => Math.abs(b - x) < 1.7)) continue;
-        d.push({ x, kind: r.pick(['panel', 'panel', 'frame', 'vent', 'plant', 'sign']), v: r() });
-      }
-      this.deco.set(key, d);
+  // 動く背景
+  drawFloorDynamic(game, f, t) {
+    const c = this.ctx; const e = this.cache.get(game, f, this.s); const d = e.dyn;
+    const amb = game.lightAmount ? 1 : 1; void amb;
+    for (const m of d.monitors) {
+      const flick = 0.85 + 0.15 * Math.sin(t * 9 + m.seed * 20);
+      c.fillStyle = `hsla(${m.hue},70%,${40 * flick}%,0.95)`; c.fillRect(m.x, m.y, m.w, m.h);
+      c.fillStyle = 'rgba(255,255,255,0.35)'; const lines = 5; for (let i = 0; i < lines; i++) { const ww = (0.3 + ((Math.sin(m.seed * 50 + i * 7 + Math.floor(t * 0.7)) + 1) / 2) * 0.6) * m.w; c.fillRect(m.x + 0.03, m.y + m.h - 0.06 - i * 0.05, ww * 0.85, 0.018); }
     }
+    for (const s of d.screens) {
+      c.fillStyle = s.kind === 'cctv' ? '#1a2a22' : '#06181e'; c.fillRect(s.x, s.y, s.w, s.h);
+      if (s.kind === 'wave') {
+        c.strokeStyle = '#5fffe0'; c.lineWidth = 0.012; c.beginPath();
+        for (let i = 0; i <= 30; i++) { const u = i / 30; const yy = s.y + s.h / 2 + Math.sin(u * 14 + t * 4 + s.seed * 9) * s.h * 0.25 * Math.sin(u * 3.1); i ? c.lineTo(s.x + u * s.w, yy) : c.moveTo(s.x, yy); } c.stroke();
+      } else {
+        const k = Math.floor(t * 12 + s.seed * 99); const rr = makeRng(k);
+        c.fillStyle = 'rgba(140,200,160,0.18)'; for (let i = 0; i < 14; i++) c.fillRect(s.x + rr() * s.w, s.y + rr() * s.h, s.w * 0.25, 0.012);
+        c.fillStyle = 'rgba(120,180,140,0.5)'; c.fillRect(s.x + s.w * 0.3, s.y + s.h * 0.1, s.w * 0.12, s.h * 0.4);
+        c.fillStyle = Math.floor(t * 1.5 + s.seed * 5) % 2 ? '#ff4040' : 'rgba(255,64,64,0.2)'; c.fillRect(s.x + s.w - 0.06, s.y + s.h - 0.06, 0.03, 0.03);
+      }
+    }
+    for (const l of d.leds) {
+      const on = l.rate < 0.5 ? 1 : (Math.sin(t * l.rate * 6.28 + l.seed * 30) > 0 ? 1 : 0.2);
+      c.fillStyle = l.col; c.globalAlpha = on; c.fillRect(l.x - 0.012, l.y - 0.012, 0.024, 0.024); c.globalAlpha = 1;
+      if (l.bubbles) { c.fillStyle = 'rgba(220,255,250,0.5)'; for (let i = 0; i < 6; i++) { const yy = l.y - l.h / 2 + (((t * 0.25 + i / 6 + l.seed) % 1) * l.h); c.beginPath(); c.arc(l.x + Math.sin(i * 3 + t) * l.w * 0.3, yy, 0.02, 0, 7); c.fill(); } }
+    }
+    for (const k of d.clocks) {
+      const sec = (Date.now() / 1000) % 60, min = (Date.now() / 60000) % 60;
+      c.strokeStyle = '#1a1612'; c.lineWidth = 0.022; c.beginPath(); c.moveTo(k.x, k.y); c.lineTo(k.x + Math.sin(min / 60 * 6.283) * k.r * 0.7, k.y + Math.cos(min / 60 * 6.283) * k.r * 0.7); c.stroke();
+      c.strokeStyle = '#c33'; c.lineWidth = 0.01; c.beginPath(); c.moveTo(k.x, k.y); c.lineTo(k.x + Math.sin(sec / 60 * 6.283) * k.r * 0.85, k.y + Math.cos(sec / 60 * 6.283) * k.r * 0.85); c.stroke();
+    }
+    for (const m of d.cams) {
+      const a = Math.sin(t * 0.6 + m.seed * 10) * 0.6;
+      c.fillStyle = '#2a2f36'; c.fillRect(m.x - 0.03, m.y, 0.06, 0.2);
+      c.save(); c.translate(m.x, m.y); c.rotate(a - 0.3); c.fillStyle = '#d6dae0'; c.fillRect(-0.05, -0.08, 0.3, 0.12); c.fillStyle = '#111'; c.fillRect(0.22, -0.07, 0.05, 0.1);
+      c.fillStyle = Math.floor(t * 2) % 2 ? '#ff3030' : '#601010'; c.fillRect(0.0, -0.06, 0.03, 0.03); c.restore();
+    }
+    for (const b of d.beacons) { c.fillStyle = '#3a1210'; c.fillRect(b.x - 0.08, b.y, 0.16, 0.12); c.fillStyle = '#ff3b30'; c.beginPath(); c.arc(b.x, b.y, 0.08, Math.PI, 0, true); c.fill(); }
+  }
+
+  // 光の筋（体積光）と漂うほこり。加算合成
+  drawLightVolumes(game, f, t, bt) {
     const c = this.ctx; const L = level(f);
-    for (const o of d) {
-      if (o.kind === 'panel') { c.fillStyle = 'rgba(0,0,0,0.12)'; c.fillRect(o.x - 0.5, L + 1.3, 1.0, 1.1); c.strokeStyle = 'rgba(255,255,255,0.08)'; c.lineWidth = 0.025; c.strokeRect(o.x - 0.5, L + 1.3, 1.0, 1.1); }
-      else if (o.kind === 'frame') {
-        c.fillStyle = '#1b1d22'; c.fillRect(o.x - 0.42, L + 1.45, 0.84, 0.62);
-        const hue = th === THEME.lab ? 190 : th === THEME.security ? 5 : 30;
-        c.fillStyle = `hsl(${hue + o.v * 40},35%,${35 + o.v * 20}%)`; c.fillRect(o.x - 0.36, L + 1.51, 0.72, 0.5);
-        c.fillStyle = 'rgba(255,255,255,0.15)'; c.beginPath(); c.moveTo(o.x - 0.36, L + 1.51); c.lineTo(o.x, L + 1.85); c.lineTo(o.x + 0.36, L + 1.51); c.fill();
-      } else if (o.kind === 'vent') { c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(o.x - 0.3, L + 2.5, 0.6, 0.25); c.fillStyle = 'rgba(255,255,255,0.08)'; for (let i = 0; i < 4; i++) c.fillRect(o.x - 0.27, L + 2.53 + i * 0.055, 0.54, 0.02); }
-      else if (o.kind === 'plant') {
-        c.fillStyle = '#3a2c25'; c.fillRect(o.x - 0.18, L, 0.36, 0.42);
-        c.fillStyle = '#2f5a3a'; for (let i = 0; i < 6; i++) { c.beginPath(); c.ellipse(o.x + (i - 2.5) * 0.08, L + 0.6 + (i % 3) * 0.12, 0.09, 0.26, (i - 2.5) * 0.3, 0, 7); c.fill(); }
-      } else if (o.kind === 'sign') {
-        c.fillStyle = th.accent; c.globalAlpha = 0.25; c.fillRect(o.x - 0.45, L + 2.2, 0.9, 0.22); c.globalAlpha = 1;
-      }
+    const warm = game.stage.theme === 'office' ? '255,214,160' : game.stage.theme === 'lab' ? '190,240,255' : game.stage.theme === 'security' ? '255,236,210' : '255,240,210';
+    for (const l of game.byFloor[f].lights) {
+      if (l.state !== 'on') continue;
+      const flick = game.stage.theme === 'lab' && Math.sin(t * 37 + l.id) > 0.995 ? 0.4 : 1;
+      const y = L + 2.25;
+      const g = c.createLinearGradient(0, y, 0, L);
+      g.addColorStop(0, `rgba(${warm},${0.2 * flick})`); g.addColorStop(1, `rgba(${warm},0)`);
+      c.fillStyle = g; c.beginPath(); c.moveTo(l.x - 0.2, y); c.lineTo(l.x - 1.9, L + 0.1); c.lineTo(l.x + 1.9, L + 0.1); c.lineTo(l.x + 0.2, y); c.fill();
+      // 床の照り返し
+      const rg = c.createRadialGradient(l.x, L + 0.12, 0.05, l.x, L + 0.12, 1.6); rg.addColorStop(0, `rgba(${warm},${0.16 * flick})`); rg.addColorStop(1, `rgba(${warm},0)`);
+      c.fillStyle = rg; c.fillRect(l.x - 1.6, L, 3.2, 0.3);
+      // 電球のにじみ
+      const bg = c.createRadialGradient(l.x, y, 0.02, l.x, y, 0.55); bg.addColorStop(0, `rgba(${warm},${0.55 * flick})`); bg.addColorStop(1, `rgba(${warm},0)`);
+      c.fillStyle = bg; c.fillRect(l.x - 0.55, y - 0.55, 1.1, 1.1);
+      if (this.lowFx) continue;
+      // ほこり
+      c.fillStyle = `rgba(${warm},0.5)`;
+      for (let i = 0; i < 7; i++) { const u = ((t * 0.04 + i * 0.137 + l.id * 0.31) % 1); const yy = L + 0.2 + u * 2.0; const spread = (yy - L) / 2.25; const xx = l.x + Math.sin(t * 0.5 + i * 2.3) * 1.5 * (1 - spread * 0.85); c.fillRect(xx, yy, 0.014, 0.014); }
     }
-    if (th.deco === 'stripes') { c.fillStyle = 'rgba(242,194,48,0.3)'; for (let x = 0; x < W; x += 0.6) c.fillRect(x, L + 0.12, 0.3, 0.06); }
+  }
+  // 発光物のにじみ（敵のバイザー・弾・銃口）
+  drawGlows(game, t) {
+    const c = this.ctx;
+    for (const e of game.enemies) {
+      if (!e.alive || e.state !== 'windup') continue;
+      const k = 1 - Math.max(0, e.t) / game.D.windup;
+      const hx = e.x + e.dir * 0.12, hy = e.y + (e.stance === 'crouch' ? 1.12 : 1.62);
+      const g = c.createRadialGradient(hx, hy, 0.01, hx, hy, 0.45 + k * 0.35); g.addColorStop(0, `rgba(255,120,60,${0.5 * k})`); g.addColorStop(1, 'rgba(255,120,60,0)');
+      c.fillStyle = g; c.fillRect(hx - 0.8, hy - 0.8, 1.6, 1.6);
+      // 予兆の光の線（どの高さに撃つか）
+      const gy = e.y + (e.lowShot ? 0.42 : 1.35);
+      const lg2 = c.createLinearGradient(e.x, 0, e.x + e.dir * 3.5, 0); lg2.addColorStop(0, `rgba(255,80,60,${0.25 * k})`); lg2.addColorStop(1, 'rgba(255,80,60,0)');
+      c.fillStyle = lg2; c.fillRect(Math.min(e.x, e.x + e.dir * 3.5), gy - 0.01, 3.5, 0.02);
+    }
+    for (const b of game.eBullets) { const g = c.createRadialGradient(b.x, b.y, 0.01, b.x, b.y, 0.4); g.addColorStop(0, 'rgba(255,110,60,0.55)'); g.addColorStop(1, 'rgba(255,110,60,0)'); c.fillStyle = g; c.fillRect(b.x - 0.4, b.y - 0.4, 0.8, 0.8); }
+    for (const b of game.pBullets) { const g = c.createRadialGradient(b.x, b.y, 0.01, b.x, b.y, 0.3); g.addColorStop(0, 'rgba(255,240,160,0.45)'); g.addColorStop(1, 'rgba(255,240,160,0)'); c.fillStyle = g; c.fillRect(b.x - 0.3, b.y - 0.3, 0.6, 0.6); }
+    const ex = game.stage.exit; if (game.docsGot >= game.docTotal) { const L = level(ex.floor); const g = c.createRadialGradient(ex.x, L + 1.2, 0.1, ex.x, L + 1.2, 2.2); g.addColorStop(0, `rgba(60,255,140,${0.22 + 0.08 * Math.sin(t * 4)})`); g.addColorStop(1, 'rgba(60,255,140,0)'); c.fillStyle = g; c.fillRect(ex.x - 2.2, L, 4.4, 3); }
+  }
+
+  // 後処理
+  drawPost(game, bt, dt, t) {
+    const c = this.ctx; const vp = this.vp;
+    c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.beginPath(); c.rect(vp.x, vp.y, vp.w, vp.h); c.clip();
+    if (game.stage.theme === 'security') { // 雨（画面の手前を斜めに）
+      c.strokeStyle = 'rgba(170,190,230,0.16)'; c.lineWidth = Math.max(1, this.s * 0.012); c.beginPath();
+      for (const d of this.rain) { d.y += d.v * dt * 1.6; d.x += d.v * dt * 0.25; if (d.y > 1) { d.y -= 1; d.x = Math.random(); } const x = vp.x + (d.x % 1) * vp.w, y = vp.y + d.y * vp.h; c.moveTo(x, y); c.lineTo(x + this.s * 0.06, y + this.s * 0.38); }
+      c.stroke();
+    }
+    if (this.lowFx) { c.restore(); return; }
+    if (!this.post) this.post = makePost(Math.round(vp.w), Math.round(vp.h));
+    c.globalCompositeOperation = 'soft-light'; c.fillStyle = bt.tint.replace(/[\d.]+\)$/, (m) => String(Math.min(1, parseFloat(m) * 4)) + ')'); c.fillRect(vp.x, vp.y, vp.w, vp.h);
+    c.globalCompositeOperation = 'source-over';
+    c.drawImage(this.post.vig, vp.x, vp.y, vp.w, vp.h);
+    c.globalAlpha = 0.05; const ox = Math.floor(Math.random() * 128), oy = Math.floor(Math.random() * 128);
+    c.fillStyle = this.post.grainPat || (this.post.grainPat = c.createPattern(this.post.grain, 'repeat')); c.translate(vp.x - ox, vp.y - oy); c.fillRect(ox, oy, vp.w, vp.h); c.globalAlpha = 1;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.flash > 0) { c.fillStyle = `rgba(255,40,30,${this.flash * 0.5})`; c.fillRect(vp.x, vp.y, vp.w, vp.h); this.flash -= dt; }
+    c.restore();
   }
 
   drawShaft(game, car, fBot, fTop, th, t) {
@@ -363,22 +437,28 @@ export class Renderer2D {
   }
 
   drawLight(l, L, t) {
-    const c = this.ctx; const x = l.x;
+    const c = this.ctx; const x = l.x; const style = themeOf(this.game.stage.theme).light;
     if (l.state === 'broken') {
-      c.strokeStyle = '#555'; c.lineWidth = 0.02; c.beginPath(); c.moveTo(x, L + FLOOR_H); c.lineTo(x + 0.05, L + 2.6); c.stroke();
-      c.fillStyle = '#9aa6b2'; for (let i = 0; i < 5; i++) c.fillRect(x - 0.4 + i * 0.18, L, 0.1, 0.03);
+      c.strokeStyle = '#555'; c.lineWidth = 0.02; c.beginPath(); c.moveTo(x, L + FLOOR_H - 0.2); c.lineTo(x + 0.05, L + 2.6); c.stroke();
+      if (Math.sin(t * 23 + x) > 0.93) { c.fillStyle = '#bfe6ff'; c.fillRect(x + 0.03, L + 2.58, 0.04, 0.04); } // 切れた配線の火花
+      c.fillStyle = '#9aa6b2'; for (let i = 0; i < 6; i++) c.fillRect(x - 0.45 + i * 0.17, L + 0.02, 0.09, 0.025);
       return;
     }
+    const on = l.state === 'on';
     const y = l.state === 'falling' ? L + l.fy : L + 2.3;
-    c.strokeStyle = '#333a44'; c.lineWidth = 0.025;
-    if (l.state === 'on') { c.beginPath(); c.moveTo(x, L + FLOOR_H); c.lineTo(x, y + 0.25); c.stroke(); }
-    if (l.state === 'on') {
-      const g = c.createRadialGradient(x, y, 0.05, x, y - 0.5, 3.2);
-      g.addColorStop(0, 'rgba(255,236,190,0.45)'); g.addColorStop(0.4, 'rgba(255,220,160,0.12)'); g.addColorStop(1, 'rgba(255,220,160,0)');
-      c.fillStyle = g; c.beginPath(); c.moveTo(x - 0.2, y); c.lineTo(x - 2.4, L); c.lineTo(x + 2.4, L); c.lineTo(x + 0.2, y); c.fill();
+    c.strokeStyle = '#2a3038'; c.lineWidth = 0.022;
+    if (on) { c.beginPath(); c.moveTo(x - 0.1, L + FLOOR_H - 0.22); c.lineTo(x - 0.1, y + 0.2); c.moveTo(x + 0.1, L + FLOOR_H - 0.22); c.lineTo(x + 0.1, y + 0.2); c.stroke(); }
+    if (style === 'tube') {
+      c.fillStyle = '#c9d3d9'; c.fillRect(x - 0.55, y + 0.05, 1.1, 0.1); c.fillStyle = on ? '#eaffff' : '#667'; c.fillRect(x - 0.5, y, 1.0, 0.06);
+    } else if (style === 'cage') {
+      c.fillStyle = '#2b2f2a'; c.fillRect(x - 0.18, y + 0.14, 0.36, 0.1);
+      c.fillStyle = on ? '#fff0c8' : '#666'; c.beginPath(); c.ellipse(x, y + 0.06, 0.12, 0.1, 0, 0, 7); c.fill();
+      c.strokeStyle = '#1b1d1a'; c.lineWidth = 0.015; for (const dx of [-0.08, 0, 0.08]) { c.beginPath(); c.moveTo(x + dx, y + 0.15); c.lineTo(x + dx * 1.3, y - 0.04); c.stroke(); }
+    } else {
+      c.fillStyle = lg2(c, x - 0.3, 0, x + 0.3, 0, '#20252c', '#3a414c'); c.beginPath(); c.moveTo(x - 0.3, y); c.lineTo(x + 0.3, y); c.lineTo(x + 0.13, y + 0.26); c.lineTo(x - 0.13, y + 0.26); c.fill();
+      c.fillStyle = 'rgba(255,255,255,0.15)'; c.fillRect(x - 0.12, y + 0.2, 0.08, 0.04);
+      c.fillStyle = on ? '#fff3cf' : '#777'; c.beginPath(); c.ellipse(x, y, 0.21, 0.05, 0, 0, 7); c.fill();
     }
-    c.fillStyle = '#2b313b'; c.beginPath(); c.moveTo(x - 0.28, y); c.lineTo(x + 0.28, y); c.lineTo(x + 0.12, y + 0.25); c.lineTo(x - 0.12, y + 0.25); c.fill();
-    c.fillStyle = l.state === 'on' ? '#fff3cf' : '#777'; c.beginPath(); c.ellipse(x, y, 0.2, 0.05, 0, 0, 7); c.fill();
   }
 
   drawCovers(game, f, th) {
@@ -419,13 +499,37 @@ export class Renderer2D {
   }
 
   drawRoof(game, th) {
-    const c = this.ctx; const top = level(game.stage.floors) + FLOOR_H;
-    c.fillStyle = th.floor; c.fillRect(-0.6, top - 0.32, W + 1.2, 0.32);
-    c.fillStyle = '#3a404b'; c.fillRect(-0.6, top, W + 1.2, 0.5);
-    c.fillStyle = '#4b5260'; c.fillRect(0.2, top + 0.5, 2.6, 2.0); c.fillStyle = '#20252e'; c.fillRect(0.75, top + 0.5, 0.9, 1.7);
-    c.strokeStyle = '#4b5260'; c.lineWidth = 0.06; c.beginPath(); c.moveTo(19, top + 0.5); c.lineTo(19, top + 4); c.moveTo(18.4, top + 3); c.lineTo(19.6, top + 3); c.stroke();
-    const blink = (performance.now() / 1000) % 1.4 < 0.15;
-    c.fillStyle = blink ? '#ff3b30' : '#5a1512'; c.beginPath(); c.arc(19, top + 4.05, 0.08, 0, 7); c.fill();
+    const c = this.ctx; const top = level(game.stage.floors) + FLOOR_H; const t = this.t;
+    // 屋上のスラブ（防水層）とパラペット
+    c.fillStyle = lg2(c, 0, top - 0.35, 0, top, '#0e0f12', '#2d3036'); c.fillRect(CX0, top - 0.35, CX1 - CX0, 0.35);
+    c.fillStyle = '#2b313b'; c.fillRect(CX0, top, CX1 - CX0, 0.12);
+    c.fillStyle = lg2(c, 0, top, 0, top + 0.75, '#3a414c', '#252a32'); c.fillRect(-1.6, top, 0.35, 0.75); c.fillRect(W + 1.25, top, 0.35, 0.75);
+    c.fillStyle = '#596270'; c.fillRect(-1.6, top + 0.72, 0.35, 0.05); c.fillRect(W + 1.25, top + 0.72, 0.35, 0.05);
+    // 手すり
+    c.strokeStyle = '#5a6270'; c.lineWidth = 0.035; c.beginPath(); c.moveTo(-1.25, top + 1.05); c.lineTo(W + 1.25, top + 1.05); c.moveTo(-1.25, top + 0.55); c.lineTo(W + 1.25, top + 0.55); c.stroke();
+    c.lineWidth = 0.03; for (let x = -1.2; x < W + 1.25; x += 1.5) { c.beginPath(); c.moveTo(x, top + 0.12); c.lineTo(x, top + 1.05); c.stroke(); }
+    // 階段室（スタートの扉がある小屋）
+    c.fillStyle = lg2(c, 0.1, 0, 3.0, 0, '#3c434e', '#535c69'); c.fillRect(0.1, top + 0.12, 2.9, 2.5);
+    c.fillStyle = '#2a2f37'; c.fillRect(0.0, top + 2.6, 3.1, 0.14);
+    c.fillStyle = '#1d222a'; c.fillRect(0.7, top + 0.12, 1.0, 2.05); c.fillStyle = 'rgba(255,220,150,0.5)'; c.fillRect(0.78, top + 1.6, 0.84, 0.35);
+    c.fillStyle = '#ffd36b'; c.beginPath(); c.arc(2.4, top + 2.2, 0.08, 0, 7); c.fill();
+    // 空調の室外機（ファンが回る）
+    for (const ax of [6.5, 8.2, 14.8]) {
+      c.fillStyle = lg2(c, ax, 0, ax + 1.4, 0, '#5d6672', '#7b8592'); c.fillRect(ax, top + 0.12, 1.4, 1.0);
+      c.fillStyle = '#20252c'; c.beginPath(); c.arc(ax + 0.7, top + 0.62, 0.36, 0, 7); c.fill();
+      c.save(); c.translate(ax + 0.7, top + 0.62); c.rotate(t * 9 + ax); c.fillStyle = '#4a525e'; for (let k = 0; k < 4; k++) { c.rotate(Math.PI / 2); c.fillRect(-0.04, 0, 0.08, 0.32); } c.restore();
+      c.strokeStyle = 'rgba(255,255,255,0.12)'; c.lineWidth = 0.012; for (let k = 0; k < 6; k++) { c.beginPath(); c.moveTo(ax + 0.06, top + 0.2 + k * 0.15); c.lineTo(ax + 0.2, top + 0.2 + k * 0.15); c.stroke(); }
+    }
+    // 給水タンク
+    c.fillStyle = '#4b5462'; c.fillRect(10.6, top + 0.12, 0.08, 1.2); c.fillRect(12.4, top + 0.12, 0.08, 1.2);
+    c.fillStyle = lg2(c, 10.4, 0, 12.7, 0, '#5a6372', '#8a94a3'); c.fillRect(10.4, top + 1.3, 2.3, 1.6); c.fillStyle = '#3a414c'; c.fillRect(10.3, top + 2.85, 2.5, 0.12);
+    // アンテナと航空障害灯
+    c.strokeStyle = '#4b5260'; c.lineWidth = 0.06; c.beginPath(); c.moveTo(19, top + 0.12); c.lineTo(19, top + 4.4); c.moveTo(18.3, top + 3.2); c.lineTo(19.7, top + 3.2); c.moveTo(18.5, top + 3.8); c.lineTo(19.5, top + 3.8); c.stroke();
+    const blink = (t % 1.4) < 0.18;
+    c.fillStyle = blink ? '#ff3b30' : '#5a1512'; c.beginPath(); c.arc(19, top + 4.45, 0.09, 0, 7); c.fill();
+    if (blink) { c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(19, top + 4.45, 0.02, 19, top + 4.45, 0.9); g.addColorStop(0, 'rgba(255,60,50,0.6)'); g.addColorStop(1, 'rgba(255,60,50,0)'); c.fillStyle = g; c.fillRect(18.1, top + 3.55, 1.8, 1.8); c.restore(); }
+    // ヘリポートの標示（屋上の面の縁）
+    c.fillStyle = 'rgba(242,194,48,0.85)'; c.fillRect(20.6, top + 0.12, 2.6, 0.03); c.fillStyle = 'rgba(255,255,255,0.75)'; c.fillRect(21.7, top + 0.12, 0.4, 0.03);
   }
 
   drawDark(game, f) {
@@ -445,32 +549,88 @@ export class Renderer2D {
   anim(key, seed) { let a = this.anims.get(key); if (!a) { a = new Animator(seed); this.anims.set(key, a); } a.seen = this.frameNo; return a; }
   drawPlayer(game, t, dt) {
     const p = game.player;
-    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; this.scarf = null; }
+    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; this.scarf = null; this.pool = []; }
     this.frameNo = (this.frameNo || 0) + 1;
     const A = this.anim('p', 3).update(dt, { ...playerAnimState(p, t), deadT: undefined });
-    const c = this.ctx;
+    if (A.step) { this.steps.push({ x: p.x, y: p.y, gain: 0.6 + A.run * 0.5, player: true }); if (A.run > 0.5) this.dustPuff(p.x - (p.face || 1) * 0.15, p.y, 2, 0.6); }
     let alpha = 1;
-    if (p.state === 'door') alpha = p.t > 0.8 ? 1 - (1.1 - p.t) / 0.3 : p.t < 0.3 ? 1 - p.t / 0.3 : 0; // ドアに入って消え、出てくる
-    else if (p.inv > 0 && p.state === 'play') alpha = 0.45 + 0.4 * Math.abs(Math.sin(t * 12)); // 無敵（強い点滅ではなく脈打つ半透明）
+    if (p.state === 'door') alpha = p.t > 0.8 ? 1 - (1.1 - p.t) / 0.3 : p.t < 0.3 ? 1 - p.t / 0.3 : 0;
+    this.muzzleT = (this.muzzleT ?? 9) + dt;
     this.updateScarf(p, A, dt);
-    c.save(); c.globalAlpha = Math.max(0, Math.min(1, alpha));
-    this.drawScarfTail(LOOK.agent);
-    drawPerson(c, p.x, p.y, A.faceV, A, LOOK.agent, { scarf: true });
-    c.restore();
-    // 使われなくなった敵の動きの状態を捨てる
+    const inv = p.inv > 0 && p.state === 'play' ? 0.5 + 0.5 * Math.sin(t * 14) : 0;
+    this.drawShadow(game, p.x, p.y, A);
+    if (alpha > 0.01) this.drawCharacter(game, 'p', p.x, p.y, A, LOOK.agent, { scarf: true }, { alpha, inv, muzzle: Math.max(0, 1 - this.muzzleT / 0.07), scarfPts: this.scarf, hitFlash: p.hitT != null && p.hitT < 0.1 ? 1 - p.hitT / 0.1 : 0 });
     if (this.frameNo % 120 === 0) for (const [k, a] of this.anims) if (a.seen < this.frameNo - 60) this.anims.delete(k);
   }
   drawEnemy(game, e, t) {
-    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; }
+    if (game !== this.animGame) { this.anims = new Map(); this.animGame = game; this.pool = []; }
     const look = LOOK.guard[e.type] || LOOK.guard[0];
     const A = this.anim(e.id, e.id).update(this.lastDt || 1 / 60, enemyAnimState(e, game, t));
-    if (!e.alive && e.deadT > 1.0) { this.ctx.save(); this.ctx.globalAlpha = Math.max(0, 1 - (e.deadT - 1.0) / 0.4); }
-    const c = this.ctx;
+    if (A.step) this.steps.push({ x: e.x, y: e.y, gain: 0.35 });
     const spawning = e.state === 'spawn';
-    if (spawning) { c.save(); c.globalAlpha = Math.max(0.15, 1 - e.spawnT / 0.35); }
-    drawPerson(c, e.x, e.y, A.faceV, A, look, { windup: e.state === 'windup' ? 1 - Math.max(0, e.t) / game.D.windup : 0, scale: spawning ? 0.9 + 0.1 * (1 - e.spawnT / 0.35) : 1 });
-    if (spawning) c.restore();
-    if (!e.alive && e.deadT > 1.0) this.ctx.restore();
+    let alpha = spawning ? Math.max(0.15, 1 - e.spawnT / 0.35) : 1;
+    if (!e.alive && e.deadT > 1.0) alpha = Math.max(0, 1 - (e.deadT - 1.0) / 0.4);
+    const hf = this.hitFlash && this.hitFlash[e.id] > 0 ? this.hitFlash[e.id] / 0.12 : (e.hitT < 0.1 ? 1 - e.hitT / 0.1 : 0);
+    if (this.hitFlash && this.hitFlash[e.id] > 0) this.hitFlash[e.id] -= this.lastDt || 0.016;
+    if (alpha < 0.01) return;
+    if (e.alive || e.deadT < 1.2) this.drawShadow(game, e.x, e.y, A);
+    this.drawCharacter(game, e.id, e.x, e.y, A, look, { windup: e.state === 'windup' ? 1 - Math.max(0, e.t) / game.D.windup : 0, scale: spawning ? 0.9 + 0.1 * (1 - e.spawnT / 0.35) : 1 }, { alpha, hitFlash: hf, silhouette: spawning ? 1 - Math.min(1, (0.35 - e.spawnT) / 0.25) : 0 });
+  }
+  // 接地影（足元の楕円。倒れている時は横長）
+  drawShadow(game, x, y, A) {
+    const c = this.ctx; const P = A.pose; const lying = P.kind === 'dead';
+    const lx = (P.legs[0].ankle[0] + P.legs[1].ankle[0]) / 2 * (A.faceV >= 0 ? 1 : -1);
+    const lift = Math.min(P.legs[0].ankle[1], P.legs[1].ankle[1]);
+    const k = Math.max(0.25, 1 - lift * 1.2);
+    const g = c.createRadialGradient(x + lx, y + 0.06, 0.02, x + lx, y + 0.06, lying ? 1.0 : 0.5);
+    g.addColorStop(0, `rgba(0,0,0,${0.5 * k})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.save(); c.translate(x + lx, y + 0.06); c.scale(1, 0.16); c.translate(-(x + lx), -(y + 0.06));
+    c.fillStyle = g; c.fillRect(x + lx - 1.1, y + 0.06 - 1.1, 2.2, 2.2); c.restore();
+  }
+  // 人物を作業用キャンバスに描き、形の内側にだけ照明・被弾の光を重ねてから貼る
+  drawCharacter(game, key, x, y, A, look, o, fx) {
+    if (this.lowFx) { const m = this.ctx; m.save(); m.globalAlpha = fx.alpha ?? 1; drawPerson(m, x, y, A.faceV, A, look, o); m.restore(); return; }
+    const s = this.s; const W2 = 1.9, H2 = 2.7, HB = 0.25;
+    const pw = Math.ceil(W2 * 2 * s), ph = Math.ceil((H2 + HB) * s);
+    let oc = this.charCv && this.charCv.width >= pw && this.charCv.height >= ph ? this.charCv : null;
+    if (!oc) { oc = this.charCv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(pw, ph) : Object.assign(document.createElement('canvas'), { width: pw, height: ph }); this.charCtx = oc.getContext('2d'); }
+    const c = this.charCtx;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, pw, ph);
+    c.setTransform(s, 0, 0, -s, W2 * s, H2 * s);
+    if (fx.scarfPts) { // マフラーの尾（布の帯）
+      for (const [col, w] of [['#07090f', 0.13], [look.scarfDark, 0.095], [look.scarf, 0.055]]) {
+        c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round';
+        c.beginPath(); fx.scarfPts.forEach((q, i) => (i ? c.lineTo(q.x - x, q.y - y) : c.moveTo(q.x - x, q.y - y))); c.stroke();
+      }
+    }
+    drawPerson(c, 0, 0, A.faceV, A, look, o);
+    // 照明: その場所の明るさと、いちばん近い点灯中の照明の方向
+    const f = Math.floor((y + 0.6) / FLOOR_H) + 1;
+    const amt = game.lightAmount(f, x);
+    let lamp = null; for (const l of (game.byFloor[f] ? game.byFloor[f].lights : [])) if (l.state === 'on' && (!lamp || Math.abs(l.x - x) < Math.abs(lamp.x - x))) lamp = l;
+    c.globalCompositeOperation = 'source-atop';
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    if (lamp && Math.abs(lamp.x - x) < 5) {
+      const dir = Math.sign(lamp.x - x) || 1; const k = Math.max(0, 1 - Math.abs(lamp.x - x) / 5) * 0.4;
+      const gx0 = W2 * s + dir * 0.45 * s, gx1 = W2 * s - dir * 0.35 * s;
+      const gr = c.createLinearGradient(gx0, 0, gx1, 0); gr.addColorStop(0, `rgba(255,225,170,${k})`); gr.addColorStop(1, 'rgba(255,225,170,0)');
+      c.fillStyle = gr; c.fillRect(0, 0, pw, ph);
+      const top = c.createLinearGradient(0, (H2 - 2.0) * s, 0, (H2 - 0.8) * s); top.addColorStop(0, `rgba(255,235,200,${k * 0.6})`); top.addColorStop(1, 'rgba(255,235,200,0)');
+      c.fillStyle = top; c.fillRect(0, 0, pw, ph);
+    }
+    // 暗がりでは青い月明かりの縁取り
+    const rim = c.createLinearGradient(W2 * s - 0.5 * s, 0, W2 * s + 0.1 * s, 0); rim.addColorStop(0, `rgba(110,160,255,${0.22 * (1.3 - amt)})`); rim.addColorStop(1, 'rgba(110,160,255,0)');
+    c.fillStyle = rim; c.fillRect(0, 0, pw, ph);
+    if (fx.muzzle > 0) { const mg = c.createRadialGradient(W2 * s + (A.faceV >= 0 ? 0.6 : -0.6) * s, (H2 - 1.3) * s, 0, W2 * s + (A.faceV >= 0 ? 0.6 : -0.6) * s, (H2 - 1.3) * s, 1.0 * s); mg.addColorStop(0, `rgba(255,220,140,${0.7 * fx.muzzle})`); mg.addColorStop(1, 'rgba(255,220,140,0)'); c.fillStyle = mg; c.fillRect(0, 0, pw, ph); }
+    if (fx.hitFlash > 0) { c.fillStyle = `rgba(255,255,255,${0.85 * fx.hitFlash})`; c.fillRect(0, 0, pw, ph); }
+    if (fx.silhouette > 0) { c.fillStyle = `rgba(10,12,20,${fx.silhouette})`; c.fillRect(0, 0, pw, ph); } // 扉の光を背にした影から現れる
+    // 貼り付け
+    const m = this.ctx; m.save(); m.setTransform(1, 0, 0, 1, 0, 0);
+    const sx = this.wx(x) - W2 * s, sy = this.wy(y) - H2 * s;
+    m.globalAlpha = fx.alpha ?? 1;
+    if (fx.inv > 0) { m.shadowColor = `rgba(110,220,255,${0.9 * fx.inv})`; m.shadowBlur = 0.25 * s; }
+    m.drawImage(oc, 0, 0, pw, ph, sx, sy, pw, ph);
+    m.restore();
   }
   updateScarf(p, A, dt) {
     const P = A.pose; const f = A.faceV >= 0 ? 1 : -1;
@@ -513,22 +673,40 @@ export class Renderer2D {
   }
 
   drawFx(dt) {
-    const c = this.ctx;
+    const c = this.ctx; const g = this.game;
     for (const f of this.fx) {
       f.t += dt;
-      if (f.kind === 'flash') {
-        const a = 1 - f.t / f.life;
-        c.fillStyle = f.enemy ? `rgba(255,150,80,${a})` : `rgba(255,245,190,${a})`;
-        c.beginPath(); c.arc(f.x, f.y, 0.16 * (1 + f.t * 8), 0, 7); c.fill();
-        continue;
+      const a = Math.max(0, 1 - f.t / f.life);
+      if (f.kind === 'flash') { // 銃口の閃光（星形＋にじみ）
+        c.save(); c.globalCompositeOperation = 'lighter';
+        const col = f.enemy ? '255,140,70' : '255,240,180';
+        const rg = c.createRadialGradient(f.x, f.y, 0.01, f.x, f.y, 0.5); rg.addColorStop(0, `rgba(${col},${a})`); rg.addColorStop(1, `rgba(${col},0)`);
+        c.fillStyle = rg; c.fillRect(f.x - 0.5, f.y - 0.5, 1, 1);
+        c.fillStyle = `rgba(255,255,230,${a})`; c.beginPath(); const d = f.dir || 1;
+        c.moveTo(f.x - d * 0.05, f.y); c.lineTo(f.x + d * 0.1, f.y + 0.09); c.lineTo(f.x + d * 0.42, f.y); c.lineTo(f.x + d * 0.1, f.y - 0.09); c.closePath(); c.fill();
+        c.restore(); continue;
+      }
+      if (f.kind === 'shell') { // 薬莢（跳ねて転がる）
+        f.vy -= 14 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
+        if (f.y < f.floorY + 0.02 && f.vy < 0) { f.y = f.floorY + 0.02; f.vy *= -0.38; f.vx *= 0.6; f.vr *= 0.5; f.bounced++; }
+        c.save(); c.translate(f.x, f.y); c.rotate(f.rot); c.fillStyle = `rgba(214,170,80,${Math.min(1, a * 2)})`; c.fillRect(-0.025, -0.012, 0.05, 0.024); c.restore(); continue;
+      }
+      if (f.kind === 'dust') { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.96; f.r += dt * 0.25; c.fillStyle = `rgba(190,180,170,${0.28 * a})`; c.beginPath(); c.arc(f.x, f.y, f.r, 0, 7); c.fill(); continue; }
+      if (f.kind === 'ring') { c.strokeStyle = `rgba(${f.col || '255,220,150'},${a * 0.8})`; c.lineWidth = 0.04 * a; c.beginPath(); c.arc(f.x, f.y, (f.big ? 1.4 : 0.6) * (1 - a * a) + 0.1, 0, 7); c.stroke(); continue; }
+      if (f.kind === 'alert') { // 敵が気づいた（頭上の「!」）
+        const e = g && g.enemies.find((q) => q.id === f.id); if (!e || !e.alive) { f.t = f.life; continue; }
+        const pop = Math.min(1, f.t / 0.1); const y = e.y + 2.25 + (1 - pop) * 0.2;
+        c.save(); c.translate(e.x, y); c.scale(pop, pop);
+        c.fillStyle = `rgba(255,70,50,${a})`; c.beginPath(); c.moveTo(0, 0.28); c.lineTo(0.17, -0.02); c.lineTo(-0.17, -0.02); c.closePath(); c.fill();
+        c.fillStyle = `rgba(255,255,255,${a})`; c.fillRect(-0.022, 0.06, 0.044, 0.15); c.fillRect(-0.022, 0.0, 0.044, 0.035);
+        c.restore(); continue;
       }
       f.vy -= f.g * dt; f.x += f.vx * dt; f.y += f.vy * dt;
-      c.fillStyle = f.color; c.globalAlpha = Math.max(0, 1 - f.t / f.life);
-      c.fillRect(f.x - f.size / 2, f.y - f.size / 2, f.size, f.size);
-      c.globalAlpha = 1;
+      if (f.glow) { c.save(); c.globalCompositeOperation = 'lighter'; c.strokeStyle = f.color; c.globalAlpha = a; c.lineWidth = f.size * 0.8; c.beginPath(); c.moveTo(f.x, f.y); c.lineTo(f.x - f.vx * 0.02, f.y - f.vy * 0.02); c.stroke(); c.restore(); }
+      else { c.fillStyle = f.color; c.globalAlpha = a; c.fillRect(f.x - f.size / 2, f.y - f.size / 2, f.size, f.size); c.globalAlpha = 1; }
     }
     this.fx = this.fx.filter((f) => f.t < f.life);
-    if (this.fx.length > 400) this.fx.splice(0, this.fx.length - 400);
+    if (this.fx.length > 500) this.fx.splice(0, this.fx.length - 500);
   }
 
   drawLabels(game, fBot, fTop, t) {
@@ -539,7 +717,7 @@ export class Renderer2D {
     const docFloors = new Set(game.remainingDocFloors());
     for (let f = fBot; f <= fTop; f++) {
       const L = level(f);
-      const x = this.wx(-0.3), y = this.wy(L + 1.5);
+      const x = Math.max(this.wx(-0.3), this.vp.x + s * 0.4), y = this.wy(L + 1.5);
       c.fillStyle = docFloors.has(f) ? '#c4313d' : '#262b35';
       roundRect(c, x - s * 0.27, y - s * 0.24, s * 0.54, s * 0.48, s * 0.08); c.fill();
       c.fillStyle = '#e9eef5'; c.font = `700 ${Math.round(s * 0.26)}px "Inter","Noto Sans JP",system-ui,sans-serif`;
@@ -586,3 +764,15 @@ function shade(hex, k) {
   return `rgb(${f(r)},${f(g)},${f(b)})`;
 }
 function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+function lg2(c, x0, y0, x1, y1, a, b) { const g = c.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, a); g.addColorStop(1, b); return g; }
+function makePost(w, h) {
+  const mk = (ww, hh) => { const cv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(ww, hh) : Object.assign(document.createElement('canvas'), { width: ww, height: hh }); return [cv, cv.getContext('2d')]; };
+  const [vig, v] = mk(Math.max(1, w), Math.max(1, h));
+  const g = v.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)'); v.fillStyle = g; v.fillRect(0, 0, w, h);
+  const [grain, gc] = mk(128, 128); const id = gc.createImageData(128, 128);
+  for (let i = 0; i < id.data.length; i += 4) { const n = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = n; id.data[i + 3] = 255; }
+  gc.putImageData(id, 0, 0);
+  return { vig, grain };
+}

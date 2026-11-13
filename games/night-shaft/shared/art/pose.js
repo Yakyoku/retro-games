@@ -258,6 +258,8 @@ export class Animator {
     const run = clamp((this.speed - 1.5) / 1.4, 0, 1);
     this.run = run;
     if (s.kind === 'move' || s.kind === 'ride') this.phase += Math.abs(dx) * Math.PI / lerp(STEP_WALK, STEP_RUN, run);
+    // 足が着いた瞬間（位相 π ごと）＝足音
+    const si = Math.floor(this.phase / Math.PI); this.step = s.kind === 'move' && si !== this.lastStep; this.lastStep = si;
     // 加減速で前後に傾く（ばね）
     const acc = dt > 0 ? (this.speed - prevSpeed) / dt : 0;
     this.leanAcc += (clamp(acc * 0.025, -0.22, 0.22) - this.leanAcc) * Math.min(1, dt * 8);
@@ -286,7 +288,7 @@ export class Animator {
     const out = this.prev && this.blend < 1 ? lerpPose(this.prev, P, ease(this.blend)) : P;
     out.kind = s.kind;
     this.lastPose = out;
-    return { pose: out, faceV: this.faceV, hem: this.hem, blink: this.blink > 0, run, speed: this.speed };
+    return { pose: out, faceV: this.faceV, hem: this.hem, blink: this.blink > 0, run, speed: this.speed, step: this.step };
   }
 }
 

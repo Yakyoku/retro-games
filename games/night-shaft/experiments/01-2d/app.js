@@ -5,6 +5,7 @@ import { Autopilot } from '../../shared/core/autopilot.js';
 import { DIFF, W } from '../../shared/core/const.js';
 import { Save } from '../../shared/core/save.js';
 import { AudioEngine, playGameEvents, DEFAULT_VOLUME } from '../../shared/audio/engine.js';
+import { STAGE_SONG } from '../../shared/audio/songs2.js';
 import { Renderer2D } from './render2d.js';
 import { Input2D, PAD_GLYPH } from './input2d.js';
 
@@ -23,6 +24,8 @@ const audio = new AudioEngine({ ...DEFAULT_VOLUME, ...(S.volume || {}) });
 const input = new Input2D();
 const cv = $('#cv');
 const R = new Renderer2D(cv);
+R.setZoom(S.camera || 'near');
+R.lowFx = S.quality === 'light';
 input.bindTouch($('#touch'));
 document.body.classList.toggle('retro', !!S.retro);
 
@@ -177,6 +180,7 @@ function settingsScreen(onBack) {
     ${mi('vol', '効果音', { val: v.muteSfx ? 'ミュート' : pct(v.sfx), adj: true, data: 'data-k="sfx"' })}
     ${mi('vol', '補助音（メニューの音）', { val: v.muteUi ? 'ミュート' : pct(v.ui), adj: true, data: 'data-k="ui"' })}
     ${mi('quality', '画質', { val: qLabel[S.quality], adj: true, sub: `描画バッファ ${bw}×${bh}px（画面 ${innerWidth}×${innerHeight}・倍率 ${devicePixelRatio}）` })}
+    ${mi('camera', 'カメラ', { val: (S.camera || 'near') === 'near' ? '寄り（人物を大きく）' : '全体（ビルの幅を全部）', adj: true })}
     ${mi('hints', 'チュートリアルのヒント', { val: S.hints ? '表示' : '非表示', adj: true })}
     ${mi('retro', 'レトロ表示（走査線）', { val: S.retro ? 'オン' : 'オフ', adj: true, sub: '任意。標準の高精細表示は変わりません' })}
     ${mi('back2', '戻る')}
@@ -191,9 +195,10 @@ handlers.vol = (el, dx) => {
   const i = menu.i; settingsScreen(menu.onBack); focusMenu(i, true);
 };
 handlers.quality = (el, dx) => {
-  const ks = ['auto', 'standard', '4k', 'light']; S.quality = ks[(ks.indexOf(S.quality) + (dx || 1) + ks.length) % ks.length]; save.write();
+  const ks = ['auto', 'standard', '4k', 'light']; S.quality = ks[(ks.indexOf(S.quality) + (dx || 1) + ks.length) % ks.length]; save.write(); R.lowFx = S.quality === 'light';
   layout(true); const i = menu.i; settingsScreen(menu.onBack); focusMenu(i, true);
 };
+handlers.camera = () => { S.camera = (S.camera || 'near') === 'near' ? 'far' : 'near'; save.write(); R.setZoom(S.camera); layout(true); const i = menu.i; settingsScreen(menu.onBack); focusMenu(i, true); };
 handlers.hints = () => { S.hints = !S.hints; save.write(); const i = menu.i; settingsScreen(menu.onBack); focusMenu(i, true); };
 handlers.retro = () => { S.retro = !S.retro; save.write(); document.body.classList.toggle('retro', S.retro); const i = menu.i; settingsScreen(menu.onBack); focusMenu(i, true); };
 
@@ -237,7 +242,8 @@ function startStage() {
   $('#screen').innerHTML = ''; menu = null;
   $('#hud').hidden = false; $('#minimap').hidden = false;
   R.camY = null; R.fx = []; R.popups = []; R.scarf = null;
-  audio.stopAll(); audio.clearPaused();
+  audio.stopAll(); audio.clearPaused(); audio.setIntensity(0);
+  audio.setStage(run.stage, STAGE_SONG[run.stage]);
   const d = audio.playJingle('start') || 0;
   bgmAt = d ? d - 0.35 : 0.01; // ジングルがまだ描けていない時も、ステージの BGM は必ず始める
   toast(`${STAGES[run.stage].name}　書類 ${game.docTotal} 件を回収せよ`, 'info', 3.2);
@@ -375,7 +381,9 @@ function frame(now) {
   }
   const g = state === 'title' || !game ? demo : game;
   R.noPrompts = g === demo;
+  R.steps.length = 0;
   if (g) R.draw(g, now / 1000, state === 'play' ? dt : (state === 'title' ? dt : 0));
+  if (state === 'play' && game) for (const st of R.steps) { const dy = Math.abs(st.y - game.player.y); if (dy < 0.6 && (st.player || Math.abs(st.x - game.player.x) < 7)) audio.step(st.gain, st.player ? 0 : (st.x - game.player.x) / 10); }
   if (state === 'play' || state === 'pause') updateHud(dt);
   frameMs = performance.now() - t0;
   fpsAcc += dt; fpsN++;

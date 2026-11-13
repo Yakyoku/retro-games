@@ -26,11 +26,22 @@ export function lampLight(game, f, x, y, z) {
 
 // 頂点色つきの面を組み立てる小さな道具
 class Builder {
-  constructor() { this.pos = []; this.base = []; this.idx = []; }
-  quad(a, b, c, d, color) { // 反時計回り
+  constructor() { this.pos = []; this.base = []; this.idx = []; this.uv = []; }
+  quad(a, b, c, d, color) { // 反時計回り。UV は面の向きから世界座標で投影（1.2m で 1 枚）
     const i = this.pos.length / 3;
-    for (const p of [a, b, c, d]) { this.pos.push(p[0], p[1], p[2]); this.base.push(color.r, color.g, color.b); }
+    const nx = Math.abs((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1])), ny = Math.abs((b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]));
+    for (const p of [a, b, c, d]) {
+      this.pos.push(p[0], p[1], p[2]); this.base.push(color.r, color.g, color.b);
+      if (ny > nx && ny > 1e-9) this.uv.push(p[0] / 1.2, p[2] / 1.2); else if (nx > 1e-9) this.uv.push(p[2] / 1.2, p[1] / 1.2); else this.uv.push(p[0] / 1.2, p[1] / 1.2);
+    }
     this.idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  }
+  box(x0, x1, y0, y1, z0, z1, color, faces = 'all') { // 手前・上・両側（奥は壁に付くので省く）
+    const c2 = color.clone ? color : col(color);
+    const top = c2.clone().multiplyScalar(1.15), side = c2.clone().multiplyScalar(0.8);
+    this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], c2);
+    this.quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], top);
+    if (faces === 'all') { this.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], side); this.quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], side); }
   }
   // 細かく分割した長方形（照明の焼き込みを滑らかにする）
   gridX(x0, x1, y0, y1, z, color, nrm, step = 0.5, ystep = 0.5) {
@@ -63,6 +74,7 @@ class Builder {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.base.slice(), 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setIndex(this.idx);
     g.computeBoundingSphere();
     g.userData.base = Float32Array.from(this.base);
@@ -84,7 +96,9 @@ export class World3D {
     this.floors = {}; this.interact = []; this.cars = []; this.lampMeshes = [];
     this.th = THEME[game.stage.theme] || THEME.office;
     this.mats = {
-      baked: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      baked: new THREE.MeshBasicMaterial({ vertexColors: true, map: this.surfaceTexture(game.stage.theme) }),
+      emit: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      cone: new THREE.MeshBasicMaterial({ map: this.coneTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, opacity: 0.55 }),
       glass: new THREE.MeshBasicMaterial({ color: 0x9cc8e8, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide }),
       lampOn: new THREE.MeshBasicMaterial({ color: 0xfff1c8 }),
       lampOff: new THREE.MeshBasicMaterial({ color: 0x555a60 }),
@@ -176,8 +190,11 @@ export class World3D {
     b.gridX(0, W, L, L + 0.12, ZB + 0.006, col('#15171b'), 1, 0.5, 0.12);
     // 床の縁（穴の警告）
     for (const c of g.cars) if (f >= c.lo && f <= c.hi) for (const ex of [c.x - CAR_W / 2 - 0.25, c.x + CAR_W / 2]) b.plane(L + 0.004, col('#d9a72a'), true, [], [ex, ex + 0.25], zs);
+    const em = new Builder();
+    this.props3d(b, em, f, L);
     const geo = b.geometry();
     const mesh = new THREE.Mesh(geo, this.mats.baked); grp.add(mesh);
+    if (em.pos.length) grp.add(new THREE.Mesh(em.geometry(), this.mats.emit));
     // 窓ガラス
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(W, 1.55), this.mats.glass); glass.position.set(W / 2, L + 1.675, ZF - 0.02); glass.rotation.y = Math.PI; grp.add(glass);
     // 階の表示（奥の壁）
@@ -198,6 +215,59 @@ export class World3D {
       fd.exitSign = s;
     }
     this.bake(f);
+  }
+
+  surfaceTexture(theme) {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); const r = makeRng(theme.length * 31);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(0,0,0,${r() * 0.05})`; g.fillRect(r() * 256, r() * 256, 1 + r() * 3, 1 + r() * 3); } // 細かなざらつき
+    if (theme === 'office') { g.fillStyle = 'rgba(0,0,0,0.06)'; for (let x = 0; x < 256; x += 12) g.fillRect(x, 0, 4, 256); }
+    else if (theme === 'lab') { g.strokeStyle = 'rgba(0,30,40,0.35)'; g.lineWidth = 3; g.strokeRect(1, 1, 254, 254); g.fillStyle = 'rgba(255,255,255,0.12)'; g.beginPath(); g.moveTo(20, 20); g.lineTo(110, 20); g.lineTo(20, 110); g.fill(); }
+    else if (theme === 'security') { for (let i = 0; i < 18; i++) { g.fillStyle = `rgba(0,0,0,${0.04 + r() * 0.06})`; g.beginPath(); g.ellipse(r() * 256, r() * 256, 10 + r() * 40, 6 + r() * 30, 0, 0, 7); g.fill(); } g.fillStyle = 'rgba(255,255,255,0.25)'; for (const [x, y] of [[12, 12], [244, 12], [12, 244], [244, 244]]) { g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); } }
+    else { g.strokeStyle = 'rgba(0,0,0,0.2)'; g.lineWidth = 3; for (let y = 0; y < 256; y += 64) { g.beginPath(); g.moveTo(0, y); g.lineTo(256, y); g.stroke(); for (let x = (y / 64) % 2 ? 64 : 0; x < 256; x += 128) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 64); g.stroke(); } } }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+  }
+  coneTexture() {
+    const c = document.createElement('canvas'); c.width = 4; c.height = 128; const g = c.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(255,230,180,0.0)'); gr.addColorStop(0.05, 'rgba(255,230,180,0.35)'); gr.addColorStop(1, 'rgba(255,230,180,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 4, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  }
+  // 家具・機材（照明を焼き込む面は b、発光する面は em に結合。描画呼び出しを増やさない）
+  props3d(b, em, f, L) {
+    const g = this.game; const theme = g.stage.theme; const r = makeRng(f * 7717 + g.stage.id.length * 131 + 9);
+    const busy = [];
+    for (const d of g.byFloor[f].doors) busy.push([d.x - 0.95, d.x + 0.95]);
+    for (const c of g.cars) if (f >= c.lo - 1 && f <= c.hi) busy.push([c.x - CAR_W / 2 - 0.85, c.x + CAR_W / 2 + 0.85]);
+    for (const e of g.stage.escalators) if (e.upper - 1 === f || e.upper === f) busy.push([Math.min(e.xBot, e.xTop) - 0.6, Math.max(e.xBot, e.xTop) + 0.6]);
+    if (f === g.stage.start.floor) busy.push([0, 2.4]); if (f === g.stage.exit.floor) busy.push([g.stage.exit.x - 1.4, W]);
+    const kinds = { office: ['desk', 'desk', 'cabinet', 'shelf', 'plant', 'cooler'], lab: ['rack', 'rack', 'bench', 'tank', 'plant'], security: ['locker', 'locker', 'monitors', 'crates', 'equip'], training: ['target', 'target', 'bench', 'locker'] }[theme] || ['desk'];
+    const z1 = ZB + 0.55, z0 = ZB + 0.02;
+    let x = 0.5 + r() * 0.6, guard = 0;
+    const E = (x0, x1, y0, y1, color) => em.quad([x0, y0, z1 + 0.003], [x1, y0, z1 + 0.003], [x1, y1, z1 + 0.003], [x0, y1, z1 + 0.003], col(color));
+    while (x < W - 0.6 && guard++ < 60) {
+      const k = kinds[Math.floor(r() * kinds.length)];
+      const w = { desk: 1.6, cabinet: 0.6, shelf: 1.1, plant: 0.6, cooler: 0.45, rack: 0.75, bench: 1.6, tank: 0.6, locker: 1.3, monitors: 1.6, crates: 1.0, equip: 0.8, target: 0.7 }[k];
+      if (x + w > W - 0.3) break;
+      if (busy.some(([a, bb]) => x < bb && x + w > a)) { x += 0.4; continue; }
+      const Y = L;
+      switch (k) {
+        case 'desk': b.box(x, x + w, Y + 0.7, Y + 0.78, z0, z1, '#5b4232'); b.box(x + 0.05, x + 0.11, Y, Y + 0.7, z0, z1 - 0.05, '#2a1d15'); b.box(x + w - 0.6, x + w - 0.1, Y, Y + 0.7, z0, z1 - 0.05, '#3a2a1e'); b.box(x + 0.3, x + 0.85, Y + 0.85, Y + 1.22, z0 + 0.1, z0 + 0.16, '#121418'); em.quad([x + 0.33, Y + 0.88, z0 + 0.165], [x + 0.82, Y + 0.88, z0 + 0.165], [x + 0.82, Y + 1.19, z0 + 0.165], [x + 0.33, Y + 1.19, z0 + 0.165], col('#3a7cc8')); break;
+        case 'cabinet': b.box(x, x + w, Y, Y + 1.3, z0, z1 - 0.1, '#6b737e'); break;
+        case 'shelf': b.box(x, x + w, Y, Y + 1.9, z0, z1 - 0.15, '#3a2a1e'); for (let i = 0; i < 4; i++) { let bx = x + 0.06; while (bx < x + w - 0.1) { const bw = 0.05 + r() * 0.05; b.box(bx, bx + bw, Y + 0.1 + i * 0.46, Y + 0.38 + i * 0.46 + r() * 0.08, z0, z1 - 0.12, `hsl(${r() * 360},30%,35%)`, 'front'); bx += bw + 0.01; } } break;
+        case 'plant': b.box(x + 0.15, x + w - 0.15, Y, Y + 0.45, z0 + 0.1, z1 - 0.1, '#4a3a30'); b.box(x + 0.05, x + w - 0.05, Y + 0.45, Y + 1.25, z0 + 0.05, z1, '#2f5a3a'); break;
+        case 'cooler': b.box(x, x + w, Y, Y + 0.95, z0, z1 - 0.15, '#d9dde3'); b.box(x + 0.05, x + w - 0.05, Y + 0.95, Y + 1.35, z0 + 0.05, z1 - 0.2, '#78b8f0'); break;
+        case 'rack': b.box(x, x + w, Y, Y + 2.15, z0, z1, '#1a1f26'); for (let yy = Y + 0.15; yy < Y + 2.1; yy += 0.13) for (let i = 0; i < 4; i++) { const cc = ['#36f08a', '#46c8e0', '#ffb347'][Math.floor(r() * 3)]; E(x + 0.1 + i * 0.05, x + 0.125 + i * 0.05, yy, yy + 0.025, cc); } break;
+        case 'bench': b.box(x, x + w, Y + 0.85, Y + 0.91, z0, z1, '#c9d3d9'); b.box(x + 0.06, x + 0.12, Y, Y + 0.85, z0, z1 - 0.05, '#8796a0'); b.box(x + w - 0.12, x + w - 0.06, Y, Y + 0.85, z0, z1 - 0.05, '#8796a0'); for (let i = 0; i < 4; i++) { const bx = x + 0.2 + i * 0.35; em.quad([bx, Y + 0.91, z1 - 0.15], [bx + 0.1, Y + 0.91, z1 - 0.15], [bx + 0.1, Y + 1.08, z1 - 0.15], [bx, Y + 1.08, z1 - 0.15], col(['#7fe0e6', '#b07fff', '#7fff9f', '#ffd36b'][i])); } break;
+        case 'tank': b.box(x + 0.05, x + w - 0.05, Y, Y + 0.08, z0, z1, '#5e6b74'); b.box(x + 0.05, x + w - 0.05, Y + 1.65, Y + 1.75, z0, z1, '#5e6b74'); E(x + 0.1, x + w - 0.1, Y + 0.1, Y + 1.15, '#2fbfa8'); break;
+        case 'locker': { const n = 3, lw = w / n; for (let i = 0; i < n; i++) b.box(x + i * lw + 0.01, x + (i + 1) * lw - 0.01, Y, Y + 1.9, z0, z1 - 0.12, '#4f5a64'); break; }
+        case 'monitors': b.box(x, x + w, Y, Y + 0.8, z0, z1, '#1b1e23'); b.box(x, x + w, Y + 0.85, Y + 2.0, z0, z0 + 0.15, '#0d1116'); for (let i = 0; i < 2; i++) for (let j = 0; j < 3; j++) em.quad([x + 0.05 + j * 0.52, Y + 0.9 + i * 0.55, z0 + 0.155], [x + 0.53 + j * 0.52, Y + 0.9 + i * 0.55, z0 + 0.155], [x + 0.53 + j * 0.52, Y + 1.38 + i * 0.55, z0 + 0.155], [x + 0.05 + j * 0.52, Y + 1.38 + i * 0.55, z0 + 0.155], col('#3d6a4f')); break;
+        case 'crates': b.box(x, x + w * 0.55, Y, Y + 0.6, z0, z1, '#6a5233'); b.box(x + w * 0.5, x + w, Y, Y + 0.75, z0, z1 - 0.05, '#5e4a2e'); b.box(x + w * 0.15, x + w * 0.6, Y + 0.6, Y + 1.1, z0, z1 - 0.1, '#755b38'); break;
+        case 'equip': b.box(x, x + w, Y, Y + 1.6, z0, z1, '#20252b'); for (let i = 0; i < 5; i++) E(x + w - 0.14, x + w - 0.1, Y + 0.2 + i * 0.3, Y + 0.24 + i * 0.3, r() < 0.5 ? '#ff5040' : '#36f08a'); break;
+        case 'target': b.box(x + 0.33, x + 0.37, Y, Y + 0.9, z0, z0 + 0.05, '#3a3226'); b.box(x + 0.1, x + w - 0.1, Y + 0.9, Y + 1.5, z0, z0 + 0.03, '#e8e0cc'); b.box(x + 0.22, x + w - 0.22, Y + 1.5, Y + 1.75, z0, z0 + 0.03, '#e8e0cc'); break;
+        default: break;
+      }
+      x += w + 0.25 + r() * 0.9;
+    }
   }
 
   bake(f) {
@@ -250,7 +320,8 @@ export class World3D {
     const wire = this.box(0.02, 0.7, 0.02, '#333a44'); wire.position.y = 0.35 + 0.25; grp.add(wire);
     const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.3, 0.25, 16, 1, true), this.mats.lampShade); shade.position.y = 0.12; grp.add(shade);
     const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.22, 20), this.mats.lampOn); bulb.rotation.x = Math.PI / 2; bulb.position.y = 0.005; grp.add(bulb);
-    const o = { l, grp, bulb, wire, shade, hitR: 0.32 };
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 2.2, 24, 1, true), this.mats.cone); cone.position.y = -1.1; grp.add(cone);
+    const o = { l, grp, bulb, wire, shade, cone, hitR: 0.32 };
     fd.lamps.push(o); this.lampMeshes.push(o);
   }
 
@@ -375,6 +446,7 @@ export class World3D {
       }
       for (const o of fd.lamps) {
         const l = o.l;
+        o.cone.visible = l.state === 'on';
         if (l.state === 'on') { o.grp.position.y = level(fd.f) + 2.3; o.bulb.material = this.mats.lampOn; o.grp.visible = true; o.wire.visible = true; }
         else if (l.state === 'falling') { o.grp.position.y = level(fd.f) + l.fy; o.wire.visible = false; o.bulb.material = this.mats.lampOff; }
         else { o.grp.position.y = level(fd.f) + 0.02; o.grp.rotation.z = 1.2; o.wire.visible = false; o.bulb.material = this.mats.lampOff; }

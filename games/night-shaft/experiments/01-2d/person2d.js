@@ -71,6 +71,7 @@ function figure(c, P, A, look, pass, bulk, guard, o) {
     if (!OL) {
       poly([T(-0.075, 0), T(0.2, 0), T(0.2, 0.018), T(-0.075, 0.018)], '#020203'); // 靴底
       c.fillStyle = 'rgba(255,255,255,0.18)'; c.beginPath(); c.ellipse(...T(0.1, 0.06), 0.035, 0.012, a - 0.4, 0, 7); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.22)'; c.lineWidth = 0.007; for (const lx of [0.02, 0.05, 0.08]) { const p0 = T(lx, 0.075), p1 = T(lx + 0.02, 0.09); c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke(); } // 靴ひも
     }
   };
   const armDraw = (Ar, far, withGun) => {
@@ -130,7 +131,9 @@ function figure(c, P, A, look, pass, bulk, guard, o) {
     for (const [i, q] of [T(-0.085, 0.5), T(-0.12, 0.43), T(-0.135, 0.34), T(-0.11, 0.18)].entries()) i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); c.stroke();
     if (longCoat) {
       // 襟とラペル、ボタン、裾の割れ目
-      poly([T(0.04, 0.52), T(0.13, 0.42), T(0.07, 0.3), T(0.0, 0.43)], look.coatLight);
+      poly([T(0.0, 0.52), T(0.12, 0.5), T(0.1, 0.32), T(0.03, 0.34)], '#e9edf2');           // ワイシャツ
+      poly([T(0.06, 0.5), T(0.085, 0.5), T(0.09, 0.36), T(0.07, 0.33), T(0.055, 0.36)], '#1a2238'); // ネクタイ
+      poly([T(0.04, 0.52), T(0.13, 0.42), T(0.11, 0.3), T(0.12, 0.46)], look.coatLight);
       poly([T(-0.05, 0.525), T(0.03, 0.56), T(0.06, 0.515)], look.coatDark);
       c.fillStyle = '#c9b48a'; for (const u of [0.24, 0.12]) { const q = T(0.1, u); c.beginPath(); c.arc(q[0], q[1], 0.013, 0, 7); c.fill(); }
       c.strokeStyle = look.coatDark; c.lineWidth = 0.014; c.beginPath(); const s0 = T(-0.01, -0.05), s1 = T(-0.02 + hem * 0.3, hemY); c.moveTo(s0[0], s0[1]); c.lineTo(s1[0], s1[1]); c.stroke();
@@ -138,6 +141,7 @@ function figure(c, P, A, look, pass, bulk, guard, o) {
       // 制服: 胸ポケット・無線機・肩章
       poly([T(0.03, 0.34), T(0.11, 0.34), T(0.11, 0.26), T(0.03, 0.26)], shade(look.coat, -0.12));
       poly([T(-0.02, 0.42), T(0.04, 0.42), T(0.04, 0.32), T(-0.02, 0.32)], '#1b1d22');
+      c.fillStyle = '#d9b23a'; const em = T(0.08, 0.4); c.beginPath(); c.moveTo(em[0], em[1] + 0.03); c.lineTo(em[0] + 0.025, em[1]); c.lineTo(em[0], em[1] - 0.03); c.lineTo(em[0] - 0.025, em[1]); c.fill(); // 胸章
       c.fillStyle = '#ff5a3c'; const q = T(0.01, 0.405); c.fillRect(q[0], q[1], 0.012, 0.012);
     }
     if (look.vest) {
@@ -197,6 +201,7 @@ function head(c, P, A, look, OL, poly, circle, guard, o) {
     poly([[0.1, 0.035], [0.185, 0.015], [0.18, 0.0], [0.1, 0.012]], look.helmetDark); // つば
     if (!OL) {
       c.fillStyle = 'rgba(255,255,255,0.28)'; c.beginPath(); c.ellipse(0.03, 0.12, 0.06, 0.02, -0.25, 0, 7); c.fill();
+      c.strokeStyle = look.band || (look.vest ? '#ff9b3a' : '#e8edf2'); c.lineWidth = 0.022; c.beginPath(); c.arc(0, 0.03, 0.128, Math.PI * 0.25, Math.PI * 0.75); c.stroke(); // 型ごとの線
       c.fillStyle = look.helmetDark; c.fillRect(-0.04, 0.03, 0.012, 0.11);
       const glow = o.windup || 0;
       const vcol = glow ? `rgb(255,${Math.round(225 - glow * 165)},${Math.round(160 - glow * 130)})` : look.visor;

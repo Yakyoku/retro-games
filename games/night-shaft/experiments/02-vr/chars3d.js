@@ -123,11 +123,16 @@ export class Person3D {
     const frame = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.036), M.gunDark); frame.position.set(0.07, 0.015, 0); this.gun.add(frame);
     const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.034), M.gunDark); grip.position.set(-0.035, -0.045, 0); grip.rotation.z = 0.28; this.gun.add(grip);
     const guardT = new THREE.Mesh(new THREE.TorusGeometry(0.025, 0.005, 4, 10, Math.PI), M.gunDark); guardT.rotation.z = Math.PI; guardT.position.set(0.035, 0.0, 0); this.gun.add(guardT);
+    // 接地影（足元の柔らかい楕円）とバイザーの光（構えると強くなる）
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shadowMat()); this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.012; this.shadow.renderOrder = 1; this.root.add(this.shadow);
+    if (this.visor) { this.glow = new THREE.Sprite(glowMat()); this.glow.scale.set(0.5, 0.5, 1); this.glow.position.set(SKEL.headR * 1.05, 0.012, 0); this.glow.visible = false; this.head.add(this.glow); }
     this.root.traverse((o) => { if (o.isMesh) o.frustumCulled = true; });
   }
 
   setBrightness(k) { for (const [n, m] of Object.entries(this.mats)) if (m.isMeshToonMaterial && this.base[n]) m.color.copy(this.base[n]).multiplyScalar(k); }
-  setVisor(glow) { if (this.mats.visorM) { if (glow > 0) this.mats.visorM.color.setRGB(1, 0.88 - glow * 0.65, 0.62 - glow * 0.52); else this.mats.visorM.color.set(this.look.visor); } }
+  setFlash(k) { for (const m of Object.values(this.mats)) if (m.isMeshToonMaterial) m.emissive.setScalar(k * 0.9); }
+  setVisor(glow) {
+    if (this.glow) { this.glow.visible = glow > 0.02; this.glow.material.opacity = 0.8 * glow; this.glow.scale.setScalar(0.16 + glow * 0.26); } if (this.mats.visorM) { if (glow > 0) this.mats.visorM.color.setRGB(1, 0.88 - glow * 0.65, 0.62 - glow * 0.52); else this.mats.visorM.color.set(this.look.visor); } }
 
   placeLimb(mesh, a, b) { // a, b: THREE.Vector3（inner の座標）
     vD.subVectors(b, a); const len = vD.length() || 1e-4;
@@ -139,6 +144,8 @@ export class Person3D {
     const A = this.anim.update(dt, s);
     const P = A.pose;
     this.root.position.set(x, y, z);
+    { const P0 = A.pose; const lying = P0.kind === 'dead'; const lift = Math.min(P0.legs[0].ankle[1], P0.legs[1].ankle[1]); const k = Math.max(0.3, 1 - lift); this.shadow.scale.set(lying ? 2.0 : 0.95, lying ? 0.9 : 0.6, 1); this.shadow.material.opacity = 0.55 * k; this.shadow.position.x = lying ? -0.6 * Math.sign(A.faceV || 1) : 0; }
+    this.setFlash(s.hitT != null && s.hitT < 0.1 ? 1 - s.hitT / 0.1 : 0);
     this.inner.rotation.y = (1 - Math.max(-1, Math.min(1, A.faceV))) * Math.PI / 2; // 振り向きで実際に回る
     P.legs.forEach((Lg, i) => {
       const m = this.legs[i];
@@ -209,3 +216,8 @@ export function makeHandModel() {
   const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.1, 12), sleeve); cuff.rotation.x = Math.PI / 2; cuff.position.set(0, -0.01, 0.07); g.add(cuff);
   return g;
 }
+
+let _shadowTex = null, _glowTex = null;
+function radialTex(inner, outer) { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, inner); gr.addColorStop(1, outer); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
+function shadowMat() { _shadowTex ||= radialTex('rgba(0,0,0,1)', 'rgba(0,0,0,0)'); return new THREE.MeshBasicMaterial({ map: _shadowTex, transparent: true, depthWrite: false, opacity: 0.55 }); }
+function glowMat() { _glowTex ||= radialTex('rgba(255,140,80,1)', 'rgba(255,140,80,0)'); return new THREE.SpriteMaterial({ map: _glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }); }

@@ -6,6 +6,7 @@ import { Game, STAGES } from '../../shared/core/game.js';
 import { DIFF, W, CAR_W, FLOOR_H, level, floorOf, E as EN, P as PL } from '../../shared/core/const.js';
 import { Save } from '../../shared/core/save.js';
 import { AudioEngine, playGameEvents, DEFAULT_VOLUME } from '../../shared/audio/engine.js';
+import { STAGE_SONG } from '../../shared/audio/songs2.js';
 import { LOOK } from '../../shared/art/palette.js';
 import { Animator, enemyAnimState } from '../../shared/art/pose.js';
 import { World3D, lampLight, ZB, ZF, ESC_Z0, ESC_Z1 } from './world3d.js';
@@ -50,6 +51,7 @@ camera.rotation.order = 'YXZ';
 const dolly = new THREE.Group(); dolly.add(camera); scene.add(dolly);
 scene.add(new THREE.HemisphereLight(0xc8d8ff, 0x3a3026, 1.25));
 const sun = new THREE.DirectionalLight(0xfff0dd, 0.7); sun.position.set(3, 10, 6); scene.add(sun);
+const rimLight = new THREE.DirectionalLight(0x6fa0ff, 0.55); rimLight.position.set(-4, 5, -8); scene.add(rimLight); // 背後からの青い縁取り光
 addEventListener('resize', () => { if (renderer.xr.isPresenting) return; camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
 // 暗転（XR では頭の周りの黒い球、画面では DOM）とビネット
@@ -228,7 +230,8 @@ function startStage() {
   state = 'play'; playTime = 0; virtualCrouch = false; carStick = 0; carPulse = 0;
   closeMenu();
   if (mode === 'xr') rigPending = 3; else placeRigAtPlayer(true); // XR は頭の姿勢が届いてから合わせる
-  audio.stopAll(); audio.clearPaused();
+  audio.stopAll(); audio.clearPaused(); audio.setIntensity(0);
+  audio.setStage(run.stage, STAGE_SONG[run.stage]);
   const d = audio.playJingle('start') || 0; bgmAt = d ? d - 0.35 : 0.01;
   showMsg(`${STAGES[run.stage].name}　書類 ${game.docTotal} 件を回収せよ`, 4, '#7fe0ff');
   setFade(1); fadeV = 1; setTimeout(() => setFade(0), 120);

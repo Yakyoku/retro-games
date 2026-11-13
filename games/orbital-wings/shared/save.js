@@ -3,7 +3,7 @@ const NS = 'orbital-wings-gic:v1';
 
 export const DEFAULT_SETTINGS = {
   master: 0.8, bgm: 0.7, sfx: 0.8, mute: false, soundEngine: 'modern',   // 'modern' | 'retro'（旧 arrange 設定は廃止）
-  autoFire: false, quality: 'auto', retro: false, vibration: true,
+  autoFire: false, fx: 'full', quality: 'auto', retro: false, vibration: true,
   invertDepth: false, spatial: false,
   vrScale: 1.0, vrHeight: 0.0, vrDistance: 0.0,
 };

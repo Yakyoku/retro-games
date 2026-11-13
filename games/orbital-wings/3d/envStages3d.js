@@ -98,7 +98,7 @@ function buildVolcanic(c) {
   const vol = (G, x, z, R, h, y0, seed, plume) => {
     G.add(prim24(), mat4(x, y0 + h / 2, z, 0, seed, 0, R, h, R), (p, n, out) => {
       const t = clamp01((p.y - y0) / h), a = Math.atan2(p.z - z, p.x - x), s = hash2(Math.round(a * 24 / TAU * 2), seed, 3);
-      out.set('#2c1616').lerp(C('#5a2a1e'), t * t).multiplyScalar(0.8 + 0.4 * hash2(Math.round(a * 12), Math.round(t * 3), seed));
+      out.set('#3a1c1a').lerp(C('#8a4628'), t * t).multiplyScalar(0.8 + 0.4 * hash2(Math.round(a * 12), Math.round(t * 3), seed));
       return t > 0.96 ? 0.6 : 0;
     }, { jitter: 0.1, seed, phase: (p) => p.y * 0.9 });
     for (let i = 0; i < 5; i++) {      // 溶岩の筋（火口から垂れる細い帯）
@@ -212,7 +212,7 @@ function buildColossi(c) {
   ridge(far, PF, -160, 40, -14, 24, 23, '#1c1630', '#44305a', { step: 5, n: 6, nx: 44 });
   // 夕日の光の筋と流れる雲
   for (let k = 0; k < 7; k++) ray(rays, k * PM / 7 + rng() * 6, 22, -10 - rng() * 30, 3 + rng() * 5, 36, -0.5 - rng() * 0.1, '#ffb070', rng() * TAU, 0.06 + rng() * 0.05);
-  for (let i = 0; i < 46; i++) c.alpha.ambient(rng(), 0.62 + rng() * 0.36, rng() * 0.7, -0.9 - rng() * 0.8, 0, 0, 12 + rng() * 14, 7, 0.08, 0.75, i % 3 ? '#4a3868' : '#b87a4a', rng() * TAU);
+  for (let i = 0; i < 46; i++) c.alpha.ambient(rng(), 0.62 + rng() * 0.36, rng() * 0.7, -0.9 - rng() * 0.8, 0, 0, 12 + rng() * 14, 7, 0.08, 0.75, i % 3 ? '#3a3060' : '#a8703a', rng() * TAU);
   for (let i = 0; i < 90; i++) c.add.ambient(rng(), rng(), rng(), -0.8 - rng(), -0.1 + rng() * 0.2, 0, 0.1 + rng() * 0.12, 6, 0.5 + rng(), 0.7, '#ffd8b0', rng() * TAU);
 }
 
@@ -270,6 +270,8 @@ function tube(G, pts, r, col, o = {}) {
   G.add(g, mat4(), col, { flat: false, ...o }); g.dispose();
 }
 
+// 肋骨の向き: 輪の x → 上（y）、輪の y → 奥（−z）。半円が戦場の奥へ回り込む（手前には出ない）
+const ribM = new THREE.Matrix4(), RX = new THREE.Vector3(0, 1, 0), RY = new THREE.Vector3(0, 0, -1), RZ = new THREE.Vector3(-1, 0, 0);
 function buildFlesh(c) {
   const { mid, far, rng } = c, bone = '#7a6860', fl = '#5a1a28', glow = c.cfg.accent;
   // 奥の肉壁（うねる面）と血管
@@ -288,10 +290,10 @@ function buildFlesh(c) {
   // 肋骨（奥へ回り込む半円）と背骨
   for (let x = 6; x < PM; x += 12) {
     const R = 15 + ((x / 12) & 1) * 1.5;
-    mid.add(PR.torus(Math.PI, 5, 14, 0.036), mat4(x, 0, -9.5, 0, Math.PI / 2, Math.PI / 2, R, R, R), (p, n, out) => { out.set(bone).multiplyScalar(0.6 + 0.4 * clamp01(1 - Math.abs(p.y) / 16)); }, { flat: false });
+    mid.add(PR.torus(Math.PI, 5, 14, 0.036), ribM.makeBasis(RX, RY, RZ).scale(_bs.set(R, R, R)).setPosition(x, 0, -9.5), (p, n, out) => { out.set(bone).multiplyScalar(0.6 + 0.4 * clamp01(1 - Math.abs(p.y) / 16)); }, { flat: false });
     mid.add(PR.sph(8, 6), mat4(x, 0, -9.5 - R, 0, 0, 0, 1.7, 1.3, 1.2), bone, { flat: false });
   }
-  pipeX(mid, 0, PM, 0, -25.0, 0.8, '#6a5850');
+  pipeX(mid, 0, PM, 0, -25.0, 0.8, '#4e403c');
   // 垂れる腱と脈打つ瘤
   for (let i = 0; i < 12; i++) { const x = rng() * PM, z = -9 - rng() * 12; cone(mid, x, 15, z, 0.5 + rng() * 0.5, -(6 + rng() * 10), 6, fl, {}); cone(mid, x + 3, -15, z, 0.6 + rng() * 0.6, 5 + rng() * 8, 6, fl, {}); }
   for (let i = 0; i < 10; i++) { const x = rng() * PM, y = -12 + rng() * 24, s = 1.5 + rng() * 2.5; mid.add(PR.sph(10, 8), mat4(x, y, wz(x, y) + s * 0.4, 0, 0, 0, s, s, s * 0.7), (p, n, out) => { out.set('#8a2a40'); return 0.4; }, { flat: false, phase: i * 0.9 }); }
@@ -313,7 +315,7 @@ function buildCells(c) {
     G.add(PR.sph(8, 6), mat4(x + s * 0.2, y + s * 0.1, z + s * 0.72, 0, 0, 0, s * 0.34, s * 0.3, s * 0.2), glow, { glow: 0.85, phase: i * 1.3, flat: false });
     if (s > 2.4 && G === mid) for (let k = 0; k < 14; k++) { const a = k / 14 * TAU; G.add(PR.cone(4), mat4(x + Math.cos(a) * s * 1.2, y + Math.sin(a) * s * ry * 1.2, z, 0, 0, a - Math.PI / 2, 0.12 * s, s * 0.5, 0.12 * s), '#7adcae', { glow: 0.4, phase: i }); }
   };
-  for (let i = 0; i < 26; i++) cell(mid, rng() * PM, -13 + rng() * 26, -9 - rng() * rng() * 46, 1.4 + rng() * rng() * 5.5, i);
+  for (let i = 0; i < 26; i++) { const s = 1.4 + rng() * rng() * 5.5; cell(mid, rng() * PM, -13 + rng() * 26, -(D + 1.2 + s * 1.15) - rng() * rng() * 40, s, i); }
   // 細胞をつなぐ糸
   for (let i = 0; i < 7; i++) { const pts = []; let y = -10 + rng() * 20, z = -12 - rng() * 20; const x0 = rng() * PM; for (let k = 0; k <= 5; k++) { y += (rng() - 0.5) * 10; z += (rng() - 0.5) * 6; pts.push([x0 + k * 9, y, Math.min(-8, z)]); } tube(mid, pts, 0.14, (p, n, out) => { out.set('#9affd8'); return 0.6; }, { rs: 4, phase: (p) => p.x * 0.6 + i }); }
   // 上下の膜（遠景へ続く）
@@ -365,7 +367,7 @@ function buildCitadel(c) {
     }
   }
   // 床と天井の奥（要塞の中）
-  box(mid, PM / 2, -14.5, -9 - D, PM, 1, 18, '#1c2232', {}); box(mid, PM / 2, 17.5, -9 - D, PM, 1, 18, '#161b28', {});
+  box(mid, PM / 2, -14.5, -9.6 - D, PM, 1, 17, '#1c2232', {}); box(mid, PM / 2, 17.5, -9.6 - D, PM, 1, 17, '#161b28', {});
   // 遠景: 窓の向こうの塔・アンテナ・艦隊の灯
   for (let i = 0; i < 20; i++) {
     const x = (i + rng() * 0.7) * PF / 20, z = -60 - rng() * 80, w = 4 + rng() * 8, h = 20 + rng() * 40;
@@ -386,7 +388,7 @@ const STAGES = {
     tex: { kind: 'rock', seed: 11, emis: '#ff5a14', pal: ['#6a3526', '#c0683a', '#1c0c0a'] }, mat: { shininess: 18, specular: 0x33221a, normalScale: 1.3 },
     terr: { rise: [0.5, 1.4, 2.4, 2.6, 0.5], amp: [0.5, 1.2, 2.0, 2.4, 1.5], freq: 0.22, baseY: -9.2, cRise: [0.6, 2.2, 5, 9.5, 16], cAmp: [0.5, 1.2, 1.8, 2, 2], emis: [0.75, 0.35, 1.7, 0.35], edge: '#ff9a3c', edgeK: 0.55, cap: '#140606', prop: 'spike' },
     light: { hemi: ['#ffc8a0', '#4a1408'], key: ['#ffd8b0', 2.1, -7, 13, 12], rim: ['#ff5a1e', 1.5, 5, -9, -4], pt: ['#ff7a2a', 60, -6.5, 1.5], bake: { dir: V(-0.5, 0.75, 0.45), key: C('#ffb890', 0.9), sky: C('#5a3040', 0.8), ground: C('#c8401e', 0.4) } },
-    fog: { col: '#2c1016', near: 8, far: 150, max: 0.92 }, heat: 0.07, blink: [1.6, 0.55],
+    fog: { col: '#2c1016', near: 8, far: 190, max: 0.8 }, heat: 0.07, blink: [1.6, 0.55],
     sky: { seed: 3, stops: [[0, '#05030c'], [0.28, '#0e0512'], [0.44, '#260a16'], [0.5, '#4a1412'], [0.56, '#2c1016'], [1, '#160810']], blooms: [[430, 262, 300, '#ff5a1e', 0.28], [820, 250, 240, '#ff8a3a', 0.14]], neb: [{ x: 300, y: 130, w: 700, slope: -0.12, spread: 150, r: 110, count: 60, a: 0.12, cols: ['#a02a1a', '#6a1a3a', '#ff7a3a'] }], haze: ['#2c1016', 240, 300, 0.6] },
     bodies: [{ type: 'planet', yaw: -15, pitch: 10.5, size: 15, base: '#3a1612', blots: ['#1c0a0a', '#5a2418'], craters: 24, lava: '#ff6a2a', atmo: '#ff5a2a', light: [0.5, 0.55] }, { type: 'planet', yaw: 21, pitch: 13, size: 4.5, base: '#b8a090', craters: 30, blots: ['#8a7466'], light: [-0.6, 0.5] }],
     stars: 0.8, fore: { type: 'spike', col: '#120606', n: 15 }, build: buildVolcanic,
@@ -409,8 +411,8 @@ const STAGES = {
     tex: { kind: 'carved', seed: 33, emis: '#ffb44a', pal: ['#66627a', '#b4aec8', '#201c2c'] }, mat: { shininess: 20, specular: 0x2a2630, normalScale: 1.2 },
     terr: { rise: [0.5, 1.0, 2.0, 2.4, 0.4], amp: [0.3, 0.6, 1.0, 1.2, 1], freq: 0.14, quant: 0.8, baseY: -9.5, cRise: [0.5, 2, 5, 9.5, 16], cAmp: [0.3, 0.8, 1.2, 1.5, 1.5], emis: [0.7, 0.4, 1.1, 0.2], edge: '#e2d8ff', edgeK: 0.32, cap: '#0e0b16', prop: 'block' },
     light: { hemi: ['#c8b8ff', '#3a1c30'], key: ['#ffd2b0', 2.0, 9, 9, 10], rim: ['#ff8a5a', 1.6, -8, 3, -10], pt: ['#ffb060', 22, 0, -3], bake: { dir: V(-0.45, 0.5, 0.74), key: C('#ffc8a0', 0.8), sky: C('#5a4a88', 0.7), ground: C('#3a2440', 0.7), rim: C('#ff9a4a', 0.9), rimDir: V(0.85, 0.3, -0.2) } },
-    fog: { col: '#33264a', near: 8, far: 150, max: 0.93 }, blink: [1.0, 0.5],
-    sky: { seed: 5, stops: [[0, '#06041a'], [0.26, '#140e36'], [0.4, '#2c1e56'], [0.47, '#4a3052'], [0.505, '#b06a30'], [0.54, '#4a3046'], [0.62, '#33264a'], [1, '#120e1e']], blooms: [[410, 250, 300, '#ff9a3a', 0.22], [410, 250, 110, '#ffd08a', 0.25]], neb: [{ x: 80, y: 205, w: 1000, slope: 0.02, spread: 60, r: 80, count: 90, a: 0.11, cols: ['#e09050', '#7a5a9a', '#ffc070'], scale: 3.2, sy: 0.3 }, { x: 200, y: 110, w: 800, slope: -0.08, spread: 120, r: 100, count: 40, a: 0.09, cols: ['#6a3ab0', '#3a2a8a'] }] },
+    fog: { col: '#2a2448', near: 8, far: 150, max: 0.93 }, blink: [1.0, 0.5],
+    sky: { seed: 5, stops: [[0, '#06041a'], [0.26, '#120e34'], [0.4, '#221c4e'], [0.47, '#3a2c4c'], [0.505, '#a86a2c'], [0.54, '#3c2c40'], [0.62, '#2a2448'], [1, '#100e1e']], blooms: [[410, 250, 300, '#ff9a3a', 0.22], [410, 250, 110, '#ffd08a', 0.25]], neb: [{ x: 80, y: 205, w: 1000, slope: 0.02, spread: 60, r: 80, count: 90, a: 0.09, cols: ['#c8803a', '#5a4a8a', '#e0a050'], scale: 3.2, sy: 0.3 }, { x: 200, y: 110, w: 800, slope: -0.08, spread: 120, r: 100, count: 40, a: 0.09, cols: ['#6a3ab0', '#3a2a8a'] }] },
     bodies: [{ type: 'sun', yaw: -9, pitch: 1.6, size: 13, glow: '#ff9a3a', core: '#ffe0a0', bars: '#7a4a5a' }, { type: 'planet', yaw: 18, pitch: 12.5, size: 9, base: '#c8b8d8', craters: 30, blots: ['#9a88b0'], atmo: '#d0b0ff', light: [-0.75, -0.3] }],
     stars: 1.0, fore: { type: 'block', col: '#0c0814', n: 14 }, build: buildColossi,
     boss: { tint: [0.66, 0.6, 0.82], sky: [0.55, 0.5, 0.85] },
@@ -469,6 +471,7 @@ export function buildScenery(cfg, add, alpha, light) {
   cfg.amb?.(c, rng);
   foreBuild(c.fore, cfg.fore, rng);
   const out = { spin: c.spin, tris: { mid: c.mid.tris, far: c.far.tris, fore: c.fore.tris, rays: c.rays.tris } };
+  for (const k of ['mid', 'far', 'rays']) { let zmax = -1e9; for (const a of c[k].pos) for (let i = 2; i < a.length; i += 3) if (a[i] > zmax) zmax = a[i]; out.tris[k + 'Zmax'] = +zmax.toFixed(2); if (zmax > -D - 0.3) console.warn(`[env] ${cfg.name} ${k}: 戦場の奥行きに入り込んでいます z=${zmax.toFixed(2)}`); }
   out.rays = c.rays.n ? c.rays.build() : null;
   out.mid = c.mid.build(); out.far = c.far.build(); out.fore = c.fore.build();
   if (cfg.spin) out.spinGeo = cfg.spin === 'gear' ? gearGeo(light, 14, '#8a7458') : fanGeo(light, '#6a7898');

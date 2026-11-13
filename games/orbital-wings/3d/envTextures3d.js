@@ -316,6 +316,11 @@ export function bakeSky(cfg) {
   // 地平線のもや
   x.globalCompositeOperation = 'source-over';
   if (cfg.haze) { const [col, y0, y1, a] = cfg.haze, gr = x.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, rgba(col, 0)); gr.addColorStop(0.5, rgba(col, a)); gr.addColorStop(1, rgba(col, a)); x.fillStyle = gr; x.fillRect(0, y0, W, Hh - y0); }
+  // 上下の端は 1 色にそろえる（球の上と下はこの端の色を引き伸ばすので、模様が残ると縦筋になる）
+  for (const [y0, y1, col] of [[0, 40, cfg.stops[0][1]], [Hh, Hh - 40, cfg.stops[cfg.stops.length - 1][1]]]) {
+    const gr = x.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, col); gr.addColorStop(0.25, col); gr.addColorStop(1, rgba(col, 0));
+    x.fillStyle = gr; x.fillRect(0, Math.min(y0, y1), W, 40);
+  }
   return tex(c, { wrapS: THREE.MirroredRepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, aniso: 2 });
 }
 

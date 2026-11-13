@@ -354,8 +354,8 @@ export class Render3D {
     this.xr.drawPanels(g, now);
     this.renderer.render(this.scene, this.camera);
   }
-  // 演出の強さ（揺れ・閃光）。設定 shake（0..1）があれば従い、画質「低」では半分
-  fxScale() { const s = this.app.settings || {}; return (s.shake ?? 1) * (s.quality === 'low' ? 0.5 : 1); }
+  // 演出の強さ（揺れ・閃光）。設定 fx（full/weak/off）に従い、画質「低」では半分
+  fxScale() { const s = this.app.settings || {}; return (s.fx === 'off' ? 0 : s.fx === 'weak' ? 0.4 : 1) * (s.quality === 'low' ? 0.5 : 1); }
   // VR では法線マップを外して画素あたりの計算を軽くする（模様・粗さ・映り込みは残す）
   setXRMode(on) {
     this.xrMode = on;

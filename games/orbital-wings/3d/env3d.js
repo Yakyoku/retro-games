@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { VIEW_W, VIEW_H, DEPTH } from '../shared/config.js';
 import { hash1 } from '../shared/rng.js';
 import { NONE_FLOOR, NONE_CEIL } from '../shared/terrain.js';
-import { makeUniforms, layerMaterial, terrainMaterial, EnvSprites, makeStars, causticMaterial, fbm2, smooth, clamp01 } from './envKit3d.js';
+import { makeUniforms, layerMaterial, terrainMaterial, EnvSprites, makeStars, causticMaterial, fbm2, smooth } from './envKit3d.js';
 import { bakeTerrain, bakeSky, bakeBodies, spriteAtlas, causticTex } from './envTextures3d.js';
 import { stageEnv, buildScenery, Z5, PM, PF, PFORE } from './envStages3d.js';
 
@@ -265,7 +265,7 @@ export class Env3D {
     const dg = new THREE.SphereGeometry(150, 40, 20), uv = dg.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4 + 0.5, 0.5 + (uv.getY(i) - 0.5) * 180 / 48);
     E.dome = new THREE.Mesh(dg, new THREE.MeshBasicMaterial({ color: 0x05060c, side: THREE.BackSide, depthWrite: false, fog: false }));
-    E.dome.renderOrder = -3; E.dome.frustumCulled = false; E.skyGroup.add(E.dome);
+    E.dome.renderOrder = 6; E.dome.frustumCulled = false; E.skyGroup.add(E.dome);   // 不透明の最後に描く（手前の物に隠れた画素は深度で捨てられる）
     E.bodies = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, fog: false }));
     E.bodies.renderOrder = -1; E.bodies.frustumCulled = false; E.bodies.visible = false; E.skyGroup.add(E.bodies);
     // 遠景・前景・光の筋の材質（面をまたいで使い回す）
@@ -344,10 +344,11 @@ export class Env3D {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.vol.add(mesh);
       const L = { mesh, period, n, f }; E.layers.push(L); return L;
     };
-    layer(sc.far, E.matFar, PF, 3, 1); layer(sc.mid, E.matFar, PM, 3, 1);
-    E.fore = layer(sc.fore, E.matFore, PFORE, 3, 1.22);
+    // 不透明の物は手前から描く（地形 → 前景 → 中景 → 遠景 → 空）。奥の画素の塗りつぶしを減らす
+    layer(sc.far, E.matFar, PF, 3, 1, 5); layer(sc.mid, E.matFar, PM, 3, 1, 4);
+    E.fore = layer(sc.fore, E.matFore, PFORE, 3, 1.22, 1);
     E.rays = sc.rays ? layer(sc.rays, E.matRays, PM, 3, 1, 1) : null;
-    if (sc.spinGeo && sc.spin.length) { E.spin = layer(sc.spinGeo, E.matSpin, PM, sc.spin.length * 3, 1); E.spin.list = sc.spin; E.spin.isSpin = true; }
+    if (sc.spinGeo && sc.spin.length) { E.spin = layer(sc.spinGeo, E.matSpin, PM, sc.spin.length * 3, 1, 3); E.spin.list = sc.spin; E.spin.isSpin = true; }
     E.caustic.visible = !!cfg.caustic; if (cfg.caustic) E.caustic.material.uniforms.uCol.value.set(cfg.caustic);
     // 壊れない箱を専用の造形に差し替える
     for (const m of this.blockMeshes) { this.vol.remove(m); m.geometry.dispose(); }

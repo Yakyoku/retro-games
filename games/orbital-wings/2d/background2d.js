@@ -13,7 +13,7 @@ import { buildMaterial, drawBlock } from './bgTerrain2d.js';
 const SKY_EXTRA = 16;          // 空の絵は盤面より 16u 広く焼いて、ゆっくり流す
 const SKY_PAR = 0.025;
 const STAR_WRAP = 48;
-const BAKE_MAX = 84;           // 焼き込みは 1u = 84px まで（幅 64u×0.75 の帯が 4096px に収まる）
+const BAKE_MAX = 64;           // 焼き込みは 1u = 64px まで（4K でも 1 フレームに参照する絵の総量を抑え、描画命令の途中フラッシュを防ぐ）
 const NV = 72;                 // 地形の頂点数（0.5u 刻みで 35.5u ぶん）
 const _xs = new Float32Array(NV), _yf = new Float32Array(NV), _yc = new Float32Array(NV);
 
@@ -81,7 +81,7 @@ function buildSky(B, art, C) {
   }
   // 階調の縞を防ぐ微かな粒
   c.globalAlpha = 0.035; c.fillStyle = c.createPattern(B.com.grain, 'repeat'); c.fillRect(0, 0, w, h); c.globalAlpha = 1;
-  C.sky = { cv, w, h, k };
+  C.sky = { cv, w, h, ppu: S * k };
   // 手前の星 3 層（等級・色温度・またたき）。明るいものは光条つきの絵で描く
   const dens = sk.stars ?? 1, n = Math.round(260 * dens);
   const st = C.stars = { n, x: new Float32Array(n), y: new Float32Array(n), s: new Float32Array(n), ph: new Float32Array(n), L: new Uint8Array(n), col: new Uint8Array(n), big: new Uint8Array(n) };
@@ -159,21 +159,37 @@ function buildEnv(terrain, mode) {
   };
 }
 
+// キャッシュが持つオフスクリーンの絵をすべて解放する（大きさを 0 にすると裏の画像メモリがすぐ返る）
+function freeCanvases(o, depth = 0, seen = new Set()) {
+  if (!o || typeof o !== 'object' || depth > 5 || seen.has(o)) return;
+  seen.add(o);
+  if (typeof HTMLCanvasElement !== 'undefined' && o instanceof HTMLCanvasElement) { o.width = 0; o.height = 0; return; }
+  if (ArrayBuffer.isView(o)) return;
+  for (const k of Object.keys(o)) { if (k === 'B' || k === 'com' || k === 'ctx' || k === 'stage' || k === 'pal' || k === 'art') continue; freeCanvases(o[k], depth + 1, seen); }
+}
+
 export class Bg2D {
   // ---- 焼き込み ---------------------------------------------------------------
   buildStageCache() {
     const st = this.stage, S = this.S, pal = st.pal;
-    if (!this.bgCommon || this.bgCommon.S !== S || this.bgCommon.bw !== this.bw || this.bgCommon.bh !== this.bh) this.bgCommon = buildCommon(this);
+    // 焼いた絵は「世界の単位」で描くので解像度に依らない。同じ面で解像度が少し変わっただけ（画質の自動調整・小さな
+    // リサイズ・同じ面のやり直し）なら作り直さずに使い回す。大きく変わったときと面が変わったときだけ焼き直す
+    const prev = this.bgPrev, fits = (s0) => S <= s0 * 1.25 && S >= s0 * 0.4;
+    if (prev && prev.stage === st && fits(prev.S) && this.bgCommon && fits(this.bgCommon.S)) { this.stageCache = prev; return; }
+    // 前の絵はすぐ手放す（GC 待ちにするとメモリが膨らむ）
+    if (prev) { freeCanvases(prev); this.bgPrev = null; }
+    if (!this.bgCommon || !fits(this.bgCommon.S)) { if (this.bgCommon) freeCanvases(this.bgCommon); this.bgCommon = buildCommon(this); }
     const art = STAGE_ART[st.id] || STAGE_ART[1];
     // 焼き込みの解像度の上限（4K では遠景を少し粗く焼く。巨大なテクスチャで GPU のキャッシュがあふれるのを防ぐ。地形の材質は実解像度のまま）
     const B = { S, Sb: Math.min(S, BAKE_MAX), pal, id: st.id, stage: st, bw: this.bw, bh: this.bh, com: this.bgCommon, ctx: this.ctx };
     const C = this.stageCache = {
-      S, id: st.id, art, pal, B, steps: [], buildMs: 0, maxStep: 0, nSteps: 0, log: [],
+      S, id: st.id, stage: st, art, pal, B, steps: [], buildMs: 0, maxStep: 0, nSteps: 0, log: [],
       sky: null, stars: null, bodies: [], mat: null, layers: [], front: [],
       env: buildEnv(st.terrain), envF: buildEnv(st.terrain, 'f'), envC: buildEnv(st.terrain, 'c'),
       F: { now: 0, dt: 0, e: 1, out: 0, xb: 1e9, mood: 0, warn: 0, spd: 0, shx: 0, shy: 0, allIn: false, allOut: false, clip: false, flash: 0 },
       lights: Array.from({ length: 6 }, () => ({ on: false, x: 0, y: 0, r: 0, a: 0, life: 0, max: 1, c: 0 })),
     };
+    this.bgPrev = C;
     const def = art.build(B);
     C.def = def; C.portal = def.portal || null;
     C.steps.push(() => {
@@ -262,7 +278,7 @@ export class Bg2D {
     if (F.allIn) { if (!C.layers.some((L) => L.inside && L.t === 'strip' && L.cv)) { ctx.fillStyle = pal.sky[0]; ctx.fillRect(0, 0, this.bw, this.bh); } return; }
     const sk = C.sky;
     if (sk) {
-      const off = clamp(cam * SKY_PAR, 0, SKY_EXTRA) * S * sk.k, sw = VIEW_W * S * sk.k;
+      const off = clamp(cam * SKY_PAR, 0, SKY_EXTRA) * sk.ppu, sw = VIEW_W * sk.ppu;
       ctx.drawImage(sk.cv, off, 0, sw, sk.h, 0, 0, this.bw, this.bh);
     } else { ctx.fillStyle = pal.sky[0]; ctx.fillRect(0, 0, this.bw, this.bh); }
     // 星（3 層の視差。最遠の層は空に焼いてある）

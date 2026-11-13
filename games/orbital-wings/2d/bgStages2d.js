@@ -80,9 +80,10 @@ export const STAGE_ART = {
         { x: 9.5, y: 15.4, size: 1.8, par: 0.05, make: () => planetSprite(1.8 * S, { r: 0.7, base: ['#e8d8c8', '#8a7a78', '#201820'], craters: 9, light: [-0.7, -0.45], seed: 9 }) },
       ],
       layers: [
-        { t: 'band', y0: 0, y1: 10, rise: -11, stops: [[0, p.haze, 0], [0.55, p.haze, 0.45], [1, '#d8501a', 0.75]], pulse: 0.08, pf: 0.8 },
         { t: 'strip', par: 0.1, k: 0.5, P: 64, y0: 0, y1: 11.5, rise: -12.5,
           paint(c) {
+            // 地平の照り返し（帯ごと焼いて、重ね描きを 1 枚減らす）
+            const hz = c.createLinearGradient(0, 11, 0, 0); hz.addColorStop(0, rgba(p.haze, 0)); hz.addColorStop(0.55, rgba(p.haze, 0.42)); hz.addColorStop(1, rgba('#d8501a', 0.7)); c.fillStyle = hz; c.fillRect(-1, 0, 66, 11);
             c.fillStyle = mix(p.far, p.haze, 0.5); ridge(c, 64, 2.6, 4.2, 101, 1 / 16, 4);
             rep3(c, 64, () => vol.forEach(([x, h, w], i) => {
               c.fillStyle = mix(p.glow, p.far, 0.55); volPath(c, x - 0.08, h + 0.06, w); c.fill();
@@ -95,7 +96,7 @@ export const STAGE_ART = {
               c.fillStyle = '#ffd08a'; c.beginPath(); c.ellipse(x - 0.15, h - 0.34, 0.5, 0.1, 0, 0, TAU); c.fill();
             }));
             c.fillStyle = mix(p.far, '#12060c', 0.3); ridge(c, 64, 0.8, 3.4, 131, 1 / 8, 4);
-            atop(c, 11, 0, [[0, p.haze, 0], [0.6, p.haze, 0.25], [1, '#c8481a', 0.6]]);
+            atop(c, 11, 0, [[0, p.haze, 0], [0.6, p.haze, 0.2], [1, '#c8481a', 0.5]]);
           },
           init(B, L) { L.puff = puffSprite(S * 2.2, '#3a1a1c', 3); L.puffHot = puffSprite(S * 1.6, '#ff6a2a', 5); L.glow = glowSprite(S * 3, '#ff7a2a', 0.2, 1.6); },
           post(R, ctx, L, cam, now) {
@@ -208,9 +209,9 @@ STAGE_ART[2] = { build(B) {
       { x: 7.5, y: 15, size: 3.4, par: 0.045, make: () => planetSprite(3.4 * S, { r: 0.42, base: ['#c8e8f0', '#3a7a98', '#04141e'], tex: tint(B.com.cloudA, '#0a2a3a'), texA: 0.5, bands: true, ring: { c: '#9ad8f0', c2: '#e8f8ff', rIn: 1.35, rOut: 2.2, a: 0.6, tilt: -0.4 }, atmo: '#6ac8f0', light: [0.75, -0.3] }) },
     ],
     layers: [
-      { t: 'band', y0: 0, y1: 10, rise: -11, stops: [[0, p.haze, 0], [0.55, p.haze, 0.5], [1, '#3a98b0', 0.7]] },
       { t: 'strip', par: 0.09, k: 0.5, P: 64, y0: 0, y1: 11, rise: -12,
         paint(c) {
+          const hz = c.createLinearGradient(0, 10.5, 0, 0); hz.addColorStop(0, rgba(p.haze, 0)); hz.addColorStop(0.55, rgba(p.haze, 0.48)); hz.addColorStop(1, rgba('#3a98b0', 0.66)); c.fillStyle = hz; c.fillRect(-1, 0, 66, 10.5);
           c.fillStyle = mix(p.far, p.haze, 0.62); ridge(c, 64, 2.2, 3.6, 201, 1 / 16, 4, { quant: 0.3 });
           c.fillStyle = mix(p.far, p.haze, 0.45);
           rep3(c, 64, () => {
@@ -222,7 +223,7 @@ STAGE_ART[2] = { build(B) {
             for (let i = 0; i < 6; i++) column(c, 57 + i * 1.2, 2.0, 1.4 + H(i, 8) * 2.0, 0.28, H(i, 9) > 0.6);
           });
           c.fillStyle = mix(p.far, p.haze, 0.32); ridge(c, 64, 0.8, 2.4, 231, 1 / 8, 4, { quant: 0.25 });
-          atop(c, 11, 0, [[0, p.haze, 0], [0.55, p.haze, 0.2], [1, '#4ab0c8', 0.55]]);
+          atop(c, 11, 0, [[0, p.haze, 0], [0.55, p.haze, 0.16], [1, '#4ab0c8', 0.45]]);
         },
         init(B, L) { L.glow = glowSprite(S * 2, p.glow, 0.3, 1.8); },
         post(R, ctx, L, cam, now) { lamps(R, ctx, L, cam, now, orbs, L.glow, { speed: 1.1, a: 0.8 }); } },
@@ -633,7 +634,8 @@ STAGE_ART[6] = { build(B) {
           const S = R.S; ctx.globalCompositeOperation = 'lighter';
           const lay = (img, w, h, ox, oy, a) => {
             ctx.globalAlpha = a; ox = ((ox % w) + w) % w; oy = ((oy % h) + h) % h;
-            for (let y = -oy; y < VIEW_H; y += h) for (let x = -ox; x < VIEW_W; x += w) ctx.drawImage(img, x * S, y * S, w * S + 1, h * S + 1);
+            // 画素の境目に合わせて並べる（加算なので重なりも隙間も線になって見える）
+            for (let y = -oy; y < VIEW_H; y += h) { const y0 = Math.round(y * S), y1 = Math.round((y + h) * S); for (let x = -ox; x < VIEW_W; x += w) { const x0 = Math.round(x * S), x1 = Math.round((x + w) * S); ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0); } }
           };
           lay(L.c1, 11, 6.6, cam * 0.1 + now * 0.35, now * 0.12, 0.1 + 0.03 * Math.sin(now * 0.9));
           if (!F.lite) lay(L.c2, 15, 8.6, cam * 0.14 - now * 0.22, -now * 0.17, 0.075);

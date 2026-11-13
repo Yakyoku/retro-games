@@ -229,6 +229,7 @@ export class App {
       { label: '音源', hint: 'モダン＝FM・アナログ風シンセ・合成ドラム・残響つきのステレオ（既定）。レトロ＝従来の PSG・波形メモリ音源（モノラル）', value: () => (s.soundEngine === 'retro' ? 'レトロ音源' : 'モダン'), adjust: () => set('soundEngine', s.soundEngine === 'retro' ? 'modern' : 'retro') },
       tog('autoFire', 'オート射撃', 'ON にすると押さなくても撃ち続ける'),
       { label: '画質', hint: '自動は描画時間を見て解像度を調整（下限あり）。高＝実解像度（4K なら 3840×2160 で描く）', value: () => ({ auto: '自動', high: '高（固定）', medium: '中（固定）', low: '低（固定）' }[s.quality]), adjust: (d) => { const q = ['auto', 'high', 'medium', 'low']; set('quality', q[(q.indexOf(s.quality) + d + 4) % 4]); } },
+      { label: '画面の揺れ・閃光', hint: '爆発やボス戦の画面の揺れと閃光の強さ', value: () => ({ full: '標準', weak: '弱め', off: 'なし' }[s.fx] || '標準'), adjust: (d) => { const q = ['full', 'weak', 'off']; set('fx', q[(Math.max(0, q.indexOf(s.fx)) + (d || 1) + 3) % 3]); } },
       tog('vibration', '振動', 'ゲームパッド・Quest コントローラーの振動（控えめ）'),
     ];
     if (this.variant === '2d') items.push(tog('retro', 'レトロ表示（任意）', '走査線とにじみの効果。標準は OFF（高精細）'));

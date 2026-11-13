@@ -656,7 +656,7 @@ export class Bosses3D {
         for (let i = 3; i < 7; i++) {
           const q = e.parts[i], t = P(q);
           if (q.alive) { this.M3('omegaGun', t[0], t[1], t[2], 0, 0, clamp(wrap(Math.atan2(pl.y - q.y, pl.x - q.x) - PI), -0.5, 0.5), 1, 1, 1, fl(q), tint); S.put(SP.glow, t[0] - 0.3, t[1] + 0.3, t[2] + 0.55, 0.6, 0.6, 0, 0x4ab0ff, 0.8); }
-          else { this.M3('omegaGunX', t[0] + 0.3, t[1], t[2], i, 0, 0, 1, 1, 1); S.put(SP.fire, t[0], t[1] + 0.3, t[2] + 0.4, 1.3, 1.5, now * 2 + i, 0xff7a20, 0.8, 0.2); if (!e.dead && this.every(3)) this.smokePuff(q.x, q.y + 0.4, q.z, 0.8, 0x2a2630, 0.5, 1.2, 1.0, 0.5); }
+          else { this.M3('omegaGunX', t[0] + 0.3, t[1], t[2], i, 0, 0, 1, 1, 1); S.put(SP.fire, t[0], t[1] + 0.3, t[2] + 0.4, 1.0 + 0.15 * Math.sin(now * 9 + i), 1.3 + 0.2 * Math.sin(now * 7 + i), Math.sin(now * 3 + i) * 0.3, 0xff7a20, 0.6, 0.1); if (!e.dead && this.every(3)) this.smokePuff(q.x, q.y + 0.4, q.z, 0.8, 0x2a2630, 0.5, 1.2, 1.0, 0.5); }
         }
         // コア: フェーズ 1 は装甲の花弁が閉じ、フェーズ 2 で開いて炉心が現れる
         const core = e.parts[7];
@@ -678,7 +678,7 @@ export class Bosses3D {
         const h = e.parts[8];
         if (ph === 3) {
           if (!e.dead && this.every(10)) { const fy = rr(-6, 6); this.smokePuff(x + rr(1, 4), y + fy, z + rr(-2, 2), rr(1, 2), 0x1a1a20, 0.3, 1.5, 1.6, 0.6); if (rnd() < 0.5) this.ember(x + rr(1, 4), y + fy, z + rr(-2, 2), rr(-1, 1), rr(1, 4), 0xff7a20, 1.0); }
-          for (let k = 0; k < 5; k++) S.put(SP.fire, lx + 1.6 + (k * 0.83) % 2.6, ly - 5 + k * 2.4 + Math.sin(now * 5 + k) * 0.15, lz + 2.2, 1.8, 2.4, now * 1.5 + k, 0xff6a18, 0.75, 0.15);
+          for (let k = 0; k < 5; k++) S.put(SP.fire, lx + 1.6 + (k * 0.83) % 2.6, ly - 5 + k * 2.4 + Math.sin(now * 5 + k) * 0.15, lz + 2.2, 1.3 + 0.2 * Math.sin(now * 9 + k), 2.0 + 0.3 * Math.sin(now * 7 + k * 2), Math.sin(now * 3 + k) * 0.3, 0xff6a18, 0.6, 0.1);
           if (h.vis && h.alive) {
             const t = P(h), hx = t[0], hy = t[1], hz = t[2], hf = fl(h), bt = 1 + Math.max(0, Math.sin(now * 7)) * 0.14;
             this.M3('omegaHeart', hx, hy, hz, 0, now * 0.6, Math.sin(now * 0.9) * 0.3, bt, bt, bt, hf);

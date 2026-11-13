@@ -2,7 +2,7 @@
 const NS = 'orbital-wings-gic:v1';
 
 export const DEFAULT_SETTINGS = {
-  master: 0.8, bgm: 0.7, sfx: 0.8, mute: false, arrange: false,
+  master: 0.8, bgm: 0.7, sfx: 0.8, mute: false, soundEngine: 'modern',   // 'modern' | 'retro'（旧 arrange 設定は廃止）
   autoFire: false, quality: 'auto', retro: false, vibration: true,
   invertDepth: false, spatial: false,
   vrScale: 1.0, vrHeight: 0.0, vrDistance: 0.0,
@@ -17,6 +17,8 @@ function load() {
     if (raw) {
       const d = JSON.parse(raw);
       mem.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
+      delete mem.settings.arrange;                                   // 旧設定（レトロ音源の軽いステレオ化）は廃止。音源は soundEngine で選ぶ
+      if (mem.settings.soundEngine !== 'retro') mem.settings.soundEngine = 'modern';
       mem.hi = d.hi || {}; mem.unlocked = { ...mem.unlocked, ...(d.unlocked || {}) }; mem.cleared = d.cleared || {};
     }
   } catch (e) { ok = false; lastError = String(e && e.message || e); }

@@ -32,9 +32,9 @@ export function expandRepeats(src) {
 }
 
 // 1 トラックを変換する。drum=true なら k s h o x t u j が打楽器になる
-export function compileTrack(src, { drum = false, name = '?' } = {}) {
+export function compileTrack(src, { drum = false, name = '?', drumKeys = DRUM_KEYS, modern = false } = {}) {
   const s = expandRepeats(src);
-  let i = 0, oct = 4, defLen = TPQ, vol = 15, q = 8, inst = drum ? 'drum' : 'lead', tr = 0, arp = null, det = 0;
+  let i = 0, oct = 4, defLen = TPQ, vol = 15, q = 8, inst = drum ? 'drum' : 'lead', tr = 0, arp = null, det = 0, pan = 0, cut = 0;
   const events = [];
   const errors = [];
   let tick = 0, loopIndex = -1, loopTick = -1, lastBar = 0, bars = 0;
@@ -95,9 +95,10 @@ export function compileTrack(src, { drum = false, name = '?' } = {}) {
     if (c === 'r') { i++; const len = readLen(); events.push({ t: 'r', len }); tick += len; tie(); continue; }
     if (c === '^') { tie(); if (s[i] === '^') { err('^ の使い方'); i++; } continue; }
     if (drum) {
-      if (DRUM_KEYS.includes(c)) {
+      if (modern && c === 'P') { i++; const v = readInt(); if (v == null || v < -100 || v > 100) err('P は -100〜100'); else pan = v / 100; continue; }
+      if (drumKeys.includes(c)) {
         i++; const len = readLen();
-        events.push({ t: 'd', d: c, len, vol });
+        events.push({ t: 'd', d: c, len, vol, pan });
         tick += len; tie(); continue;
       }
       err(`打楽器トラックで使えない文字 "${c}"`); i++; continue;
@@ -114,6 +115,32 @@ export function compileTrack(src, { drum = false, name = '?' } = {}) {
       arp = list.length > 1 ? list : null;
       continue;
     }
+    if (modern && c === 'P') { i++; const v = readInt(); if (v == null || v < -100 || v > 100) err('P は -100〜100'); else pan = v / 100; continue; }
+    if (modern && c === 'F') { i++; const v = readInt(); if (v == null || v < -60 || v > 60) err('F は -60〜60'); else cut = v; continue; }
+    if (modern && c === '{') {
+      // 和音 {c e g}4 … 中の音を同時に鳴らす（長さは } の後ろ）
+      i++; const ms = []; let co = oct;
+      while (i < s.length && s[i] !== '}') {
+        const d = s[i];
+        if (d === ' ') { i++; continue; }
+        if (d === '<') { co--; i++; continue; }
+        if (d === '>') { co++; i++; continue; }
+        if (d === 'o') { i++; const v = readInt(); if (v == null) err('o の後に数がない'); else co = v; continue; }
+        if (NOTE_BASE[d] === undefined) { err(`和音の中で使えない文字 "${d}"`); i++; continue; }
+        i++; let semi = NOTE_BASE[d];
+        while (s[i] === '+' || s[i] === '#' || s[i] === '-') { semi += s[i] === '-' ? -1 : 1; i++; }
+        ms.push(12 * (co + 1) + semi + tr);
+      }
+      if (s[i] !== '}') { err('} がない'); continue; }
+      i++;
+      if (!ms.length) { err('空の和音'); continue; }
+      const len = readLen();
+      for (const m of ms) { if (m < minNote) minNote = m; if (m > maxNote) maxNote = m; }
+      const ev = { t: 'n', m: ms[0], ms, len, q, inst, vol, arp: null, det, leg: false, pan, cut };
+      events.push(ev); tick += len; tie();
+      if (s[i] === '&') { i++; ev.leg = true; }
+      continue;
+    }
     if (NOTE_BASE[c] !== undefined) {
       i++;
       let semi = NOTE_BASE[c];
@@ -122,7 +149,7 @@ export function compileTrack(src, { drum = false, name = '?' } = {}) {
       const m = 12 * (oct + 1) + semi + tr;
       if (m < minNote) minNote = m;
       if (m > maxNote) maxNote = m;
-      const ev = { t: 'n', m, len, q, inst, vol, arp, det, leg: false };
+      const ev = { t: 'n', m, ms: null, len, q, inst, vol, arp, det, leg: false, pan, cut };
       events.push(ev); tick += len;
       tie();
       if (s[i] === '&') { i++; ev.leg = true; }
@@ -157,6 +184,32 @@ export function compileSong(id, song) {
   return {
     id, tempo: song.tempo, loop: !!song.loop, title: song.title || id,
     tracks, totalTicks, loopTick, tpf, errors,
+    seconds: totalTicks * secPerTick,
+    introSeconds: song.loop ? loopTick * secPerTick : 0,
+    loopSeconds: song.loop ? (totalTicks - loopTick) * secPerTick : 0,
+  };
+}
+
+// ---------------------------------------------------------------- モダン音源の曲
+// tracks: { 名前: { mml, drum, patch, layer, gain, pan } }。トラック名は自由、打楽器の鍵は MODERN_DRUM_KEYS。
+// 追加の記法: {c e g}4 和音 / P-100〜100 定位 / F-60〜60 フィルターの開き（半音単位）
+export const MODERN_DRUM_KEYS = 'kshoxtujcy';
+export function compileModernSong(id, song) {
+  const tracks = [];
+  const errors = [];
+  for (const key of Object.keys(song.tracks)) {
+    const d = song.tracks[key];
+    const t = compileTrack(d.mml, { drum: !!d.drum, name: `${id}.${key}`, drumKeys: MODERN_DRUM_KEYS, modern: true });
+    t.name = key; t.layer = d.layer ?? 0; t.gain = d.gain ?? 1; t.pan = d.pan ?? 0; t.patch = d.patch || null;
+    tracks.push(t);
+    errors.push(...t.errors);
+  }
+  const totalTicks = tracks.length ? Math.max(...tracks.map((t) => t.totalTicks)) : 0;
+  const loopTick = song.loop ? (tracks.find((t) => t.loopTick >= 0)?.loopTick ?? 0) : -1;
+  const secPerTick = 60 / (song.tempo * TPQ);
+  return {
+    id, tempo: song.tempo, loop: !!song.loop, title: song.title || id, key: song.key || null, modern: true,
+    tracks, totalTicks, loopTick, errors, secPerTick,
     seconds: totalTicks * secPerTick,
     introSeconds: song.loop ? loopTick * secPerTick : 0,
     loopSeconds: song.loop ? (totalTicks - loopTick) * secPerTick : 0,

@@ -4,7 +4,7 @@
 import { Game } from './game.js';
 import { STAGES } from './stages.js';
 import { BOSS } from './bosses.js';
-import { GAUGE, GAUGE_JA, DIFFICULTY, PLAYER, OPTION } from './config.js';
+import { GAUGE, GAUGE_JA, DIFFICULTY, PLAYER, OPTION, VIEW_W } from './config.js';
 import { Input, attachTouch } from './input.js';
 import { Save } from './save.js';
 import { FixedStep } from './loop.js';
@@ -52,13 +52,48 @@ export class App {
     const s = this.settings;
     this.audio.setVolumes?.({ master: s.master, bgm: s.bgm, sfx: s.sfx });
     this.audio.setMuted?.(s.mute);
-    this.audio.setArrange?.(s.arrange);
+    this.audio.setEngine?.(s.soundEngine);
   }
   async unlockAudio() {
     try { await this.audio.unlock(); this.applyAudio(); } catch (e) { console.warn('audio', e); this.toast('音声を開始できませんでした（もう一度操作してください）'); }
   }
-  music(id) { if (id) this.audio.playMusic?.(id); else this.audio.stopMusic?.(); }
-  sfx(n) { this.audio.sfx?.(n); }
+  music(id, opts) { if (id) this.audio.playMusic?.(id, opts); else this.audio.stopMusic?.(opts); }
+  sfx(n, opts) { this.audio.sfx?.(n, opts); }
+  // 効果音の定位: 画面上の x 位置で左右に振る（控えめ、最大 ±0.5。2D・3D・VR で同じ）
+  panOf(g, x) { return typeof x === 'number' && g ? Math.max(-0.5, Math.min(0.5, (x - g.camX) / VIEW_W - 0.5)) : 0; }
+  // ゲームからの効果音: 位置つきのものは定位し、段のある音（ゲージ・シールド）は対応する出来事の側で鳴らす
+  gameSfx(ev, g, last) {
+    let n = ev.n;
+    if (n === 'capsule' || n === 'powerup' || n === 'shield_hit') return;       // gauge / powerup / shieldhit の出来事で鳴らす
+    let x = ev.x;
+    if (x === undefined) {
+      if (n === 'explode_s' || n === 'explode_m' || n === 'part_destroyed' || n === 'cell_pop') { x = last.x; if (n === 'explode_m' && last.size === 'l') n = 'explode_l'; }
+      else if (n === 'shot' || n === 'double' || n === 'laser' || n === 'missile' || n === 'player_die' || n === 'shield_on' || n === 'deny') x = g.player.x;
+      else if (n === 'boss_beam' || n === 'boss_attack' || n === 'boss_explode' || n === 'phase_change') x = g.boss ? g.boss.x : undefined;
+    }
+    this.sfx(n, { pan: this.panOf(g, x) });
+  }
+  // ゲームからの曲の切り替え: 面の開始はファンファーレから切れ目なく、ボスは一打を重ね、ゲームオーバーはテープを止めるように
+  gameMusic(ev, g, respawned) {
+    const id = ev.id;
+    if (!id) { this.music(null, { fade: 0.7 }); return; }
+    if (/^stage/.test(id)) { if (respawned) this.music(id, { fade: 0.4 }); else this.music(id, { restart: true, lead: true, fade: 0.25 }); return; }
+    if (id === 'boss' || id === 'final') { this.sfx('boss_enter'); this.sfx('stinger'); this.music(id, { fade: 0.15 }); return; }
+    if (id === 'gameover') { this.music(id, { mode: 'tape', fade: 0.9 }); return; }
+    this.music(id, { fade: 0.3 });
+  }
+  // 動的な曲と予告音: ボスの体力・フェーズで層を足し、残機が最後なら緊張の層。ボスが攻撃の構えに入ったら予告音
+  audioWatch(g) {
+    const b = g.boss && !g.boss.dead ? g.boss : null;
+    let inten = 0;
+    if (b) {
+      const [c, m] = BOSS[b.type].bossHp(b), f = m ? c / m : 1;
+      inten = b.phase ? Math.min(2, b.phase - 1) : f < 0.3 ? 2 : f < 0.65 ? 1 : 0;
+      if (b.st !== this._bossSt) { if (this._bossSt === 'idle' && b.st !== 'idle') this.sfx('boss_telegraph', { pan: this.panOf(g, b.x) }); this._bossSt = b.st; }
+    } else this._bossSt = null;
+    this.audio.setIntensity?.(inten);
+    this.audio.setLayer?.('danger', g.lives <= 1 && !g.over && g.mode !== 'practice');
+  }
 
   // ---- DOM ------------------------------------------------------------------
   buildDom() {
@@ -159,6 +194,7 @@ export class App {
     this.screen = 'title'; this.game = null; this.paused = false;
     this.el.hud.hidden = true; this.el.banner.hidden = true;
     this.startDemo();
+    this.audio.setIntensity?.(0); this.audio.setLayer?.('danger', false);
     this.music('title');
     const v = this.variant;
     const items = [
@@ -190,7 +226,7 @@ export class App {
     const items = [
       pct('master'), pct('bgm'), pct('sfx'),
       tog('mute', 'ミュート'),
-      tog('arrange', '音: アレンジ（任意）', 'OFF＝忠実モード（モノラル・残響なし）。ON は軽いステレオと残響を足す追加モード'),
+      { label: '音源', hint: 'モダン＝FM・アナログ風シンセ・合成ドラム・残響つきのステレオ（既定）。レトロ＝従来の PSG・波形メモリ音源（モノラル）', value: () => (s.soundEngine === 'retro' ? 'レトロ音源' : 'モダン'), adjust: () => set('soundEngine', s.soundEngine === 'retro' ? 'modern' : 'retro') },
       tog('autoFire', 'オート射撃', 'ON にすると押さなくても撃ち続ける'),
       { label: '画質', hint: '自動は描画時間を見て解像度を調整（下限あり）。高＝実解像度（4K なら 3840×2160 で描く）', value: () => ({ auto: '自動', high: '高（固定）', medium: '中（固定）', low: '低（固定）' }[s.quality]), adjust: (d) => { const q = ['auto', 'high', 'medium', 'low']; set('quality', q[(q.indexOf(s.quality) + d + 4) % 4]); } },
       tog('vibration', '振動', 'ゲームパッド・Quest コントローラーの振動（控えめ）'),
@@ -239,7 +275,7 @@ export class App {
       <p><b>ORBITAL WINGS</b>（仮称）— プロジェクト識別名 GradiusInspired_Cloud</p>
       <p>このゲームは、Claude Codeのクラウドセッションで制作しました。企画の指示: 依頼者／設計・プログラム・アート・作曲・効果音: Claude（Anthropic）</p>
       <p>初代グラディウスに着想を得た非公式作品です。コナミの公式作品ではありません。名称・機体・敵・ボス・地形・曲・効果音はすべて新規に作成し、原作のデータ（画像・音・ROM）は使っていません。</p>
-      <p>描画: three.js r${this.renderer.threeVersion || '187'}（MIT）／${this.variant === '2d' ? 'Canvas 2D（ベクター描画）' : 'WebGL 2・WebXR'}　音: 自作の PSG・波形メモリ音源の模擬（AudioWorklet）　フォント: 端末の標準フォント</p>
+      <p>描画: three.js r${this.renderer.threeVersion || '187'}（MIT）／${this.variant === '2d' ? 'Canvas 2D（ベクター描画）' : 'WebGL 2・WebXR'}　音: 自作のソフト音源（FM・アナログ風シンセ・合成ドラム／従来の PSG・波形メモリ音源の模擬も選べる。AudioWorklet）　フォント: 端末の標準フォント</p>
       <p>素材の出所と利用条件は ASSET_LICENSES.md、音の参照と再現方針は AUDIO_REFERENCE.md（リポジトリ内）に記録。</p>`,
       items: [{ label: 'もどる', act: () => this.popMenu() }] }, true);
   }
@@ -260,6 +296,8 @@ export class App {
     this.setMenu(null); this.menu = null; this.el.menuWrap.hidden = true;
     this.el.hud.hidden = false;
     this.renderer.setStage?.(this.game.stage, this.game);
+    this.sfx('start');
+    this.audio.setIntensity?.(0); this.audio.setLayer?.('danger', false); this._bossSt = null;
     this.handleEvents(this.game.drainEvents());
     this.step.reset();
     this.input.releaseAll();
@@ -278,7 +316,7 @@ export class App {
       this.renderer.onPause?.(true);
     } else if (!on && this.screen === 'pause') {
       this.screen = 'play'; this.paused = false; this.setMenu(null); this.menu = null; this.el.menuWrap.hidden = true;
-      this.audio.setPaused?.(false); this.input.releaseAll(); this.step.reset();
+      this.audio.setPaused?.(false); this.sfx('resume'); this.input.releaseAll(); this.step.reset();
       this.renderer.onPause?.(false);
     }
   }
@@ -301,24 +339,30 @@ export class App {
 
   handleEvents(evs, demo = false) {
     const g = demo ? this.demo : this.game;
+    const last = { x: undefined, size: 's' }; let respawned = false;   // この 1 tick の中で直前にあった爆発の位置・復帰の有無
     for (const ev of evs) {
       if (!demo) {
         switch (ev.t) {
-          case 'sfx': this.sfx(ev.n); break;
-          case 'music': this.music(ev.id); break;
+          case 'sfx': this.gameSfx(ev, g, last); break;
+          case 'music': this.gameMusic(ev, g, respawned); break;
+          case 'explode': last.x = ev.x; last.size = ev.size; break;
+          case 'respawn': respawned = true; break;
+          case 'gauge': this.sfx('capsule', { step: ev.sel, pan: this.panOf(g, g.player.x) }); break;
           case 'stage':
             this.renderer.setStage?.(g.stage, g);
             this.banner(`<small>STAGE ${ev.n}</small><b>${esc(g.stage.en)}</b><span>${esc(g.stage.name)}</span>`, 3000, 'stage');
             if (g.mode === 'main') Save.unlock(this.variant, ev.n);
             break;
           case 'deny': this.toast(ev.why, 1100); break;
-          case 'powerup': this.toast(`${ev.item} ${GAUGE_JA[GAUGE.indexOf(ev.item)]}`, 900); this.input.rumble(0.15, 50); break;
+          case 'powerup': this.toast(`${ev.item} ${GAUGE_JA[GAUGE.indexOf(ev.item)]}`, 900); this.input.rumble(0.15, 50);
+            if (ev.item !== 'SHIELD') this.sfx('powerup_' + String(ev.item).toLowerCase(), { pan: this.panOf(g, g.player.x) });
+            break;
           case 'bosswarn': this.banner(`<b class="warnb">WARNING</b><span>${esc(ev.name)} 接近</span>`, 2000, 'warn'); break;
           case 'phase': this.banner(`<b class="warnb">PHASE ${ev.n}</b>`, 1400, 'warn'); break;
           case 'stageclear': this.banner(`<b>STAGE ${ev.n} CLEAR</b>`, 4000, 'stage'); break;
           case 'die': this.input.rumble(0.5, 220); break;
           case 'checkpoint': if (DEBUG) this.toast(`checkpoint ${ev.i}`); break;
-          case 'shieldhit': this.input.rumble(0.2, 40); break;
+          case 'shieldhit': this.input.rumble(0.2, 40); this.sfx(ev.left > 0 ? 'shield_hit' : 'shield_break', { step: ev.left, pan: this.panOf(g, g.player.x) }); break;
         }
       }
       this.renderer.onEvent?.(ev, g, demo);
@@ -339,6 +383,7 @@ export class App {
         g.tick(inp);
         this.stats.ticks++;
         this.handleEvents(g.drainEvents());
+        this.audioWatch(g);
         if (g.over) { this.handleEvents(g.drainEvents()); setTimeout(() => this.showResult(), g.cleared ? 400 : 1600); this.screen = 'ending'; }
       }, this.paused);
       if (this.paused) { const inp = this.input.poll(); this.menuInput(inp); }

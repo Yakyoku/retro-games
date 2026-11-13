@@ -49,7 +49,7 @@ function onHitParts(e, g, dmg, idx, hx, hy, hz) {
     q.alive = false;
     g.score += q.score;
     g.emit({ t: 'explode', x: q.x, y: q.y, z: q.z, size: q.r > 1 ? 'm' : 's', kind: e.type });
-    g.emit({ t: 'sfx', n: 'explode_m' });
+    g.emit({ t: 'sfx', n: 'part_destroyed', x: q.x });
     if (q.core) { g.kill(e); }
     else { const def = BOSS[e.type]; if (def.onPartDown) def.onPartDown(q, g, e); }
   } else g.emit({ t: 'sfx', n: 'enemy_hit' });
@@ -104,7 +104,7 @@ export const BOSS = {
       if (e.st === 'charge') { e.charge = e.stT / 36; if (e.stT >= 36) { e.st = 'beam'; e.stT = 0; e.charge = 0; } }
       if (e.st === 'beam') {
         if (e.stT % 10 === 1) for (const oy of [-2.6, -1.3, 1.3, 2.6]) beam(g, e, e.x - 1.6, e.y + oy, e.z, Math.PI, 20 * g.diff.bulletSpeed / g.diff.bulletSpeed);
-        if (e.stT === 1) g.emit({ t: 'sfx', n: 'laser' });
+        if (e.stT === 1) g.emit({ t: 'sfx', n: 'boss_beam' });
         if (e.stT > (hard ? 40 : 30)) { e.st = 'idle'; e.stT = 0; }
       }
       if (e.st === 'spread') {
@@ -311,7 +311,7 @@ export const BOSS = {
       if (e.st === 'idle' && e.stT > (tips ? 120 : 60)) { e.st = e.alt ? 'eye' : 'pulse'; e.alt = !e.alt; e.stT = 0; }
       if (e.st === 'pulse') {
         e.pulse = Math.min(1, e.stT / 40);   // 予告: 体が膨らむ
-        if (e.stT === 40) { radial(g, e, tips ? 12 : 16, e.x - 0.5, e.y, e.z, 6.5, 0.4, e.t * 0.1); g.emit({ t: 'sfx', n: 'explode_s' }); }
+        if (e.stT === 40) { radial(g, e, tips ? 12 : 16, e.x - 0.5, e.y, e.z, 6.5, 0.4, e.t * 0.1); g.emit({ t: 'sfx', n: 'boss_attack' }); }
         if (e.stT === 70 && !tips) radial(g, e, 16, e.x - 0.5, e.y, e.z, 6.5, 0.4, e.t * 0.1 + 0.2);
         if (e.stT > 80) { e.st = 'idle'; e.stT = 0; e.pulse = 0; }
       } else if (e.st === 'eye') {
@@ -351,7 +351,7 @@ export const BOSS = {
       if (e.st === 'idle' && e.stT > (hard ? 45 : 75)) { e.st = seq[(e.seq = (e.seq ?? -1) + 1) % seq.length]; e.stT = 0; }
       if (e.st === 'pulse') {
         e.glow = Math.min(1, e.stT / 40);
-        if (e.stT === 40 || (hard && e.stT === 65)) { radial(g, e, 16, e.x, e.y, e.z, 6, 0.32, e.stT * 0.2); g.emit({ t: 'sfx', n: 'explode_s' }); }
+        if (e.stT === 40 || (hard && e.stT === 65)) { radial(g, e, 16, e.x, e.y, e.z, 6, 0.32, e.stT * 0.2); g.emit({ t: 'sfx', n: 'boss_attack' }); }
         if (e.stT > 80) { e.st = 'idle'; e.stT = 0; e.glow = 0; }
       } else if (e.st === 'spawn') {
         if (e.stT === 20 || e.stT === 50) g.spawn('blob', { x: e.x - 3.5, y: e.y + (e.stT === 20 ? 2 : -2), z: e.z, t: 20 });
@@ -385,7 +385,7 @@ export const BOSS = {
       for (let k = 0; k < 2; k++) for (let i = 0; i < 4; i++) { const q = part('bar', 0, 0, 0.5, { armor: true }); q.free = true; q.k = k; q.i = i; q.vis = false; e.parts.push(q); }
     },
     onPartDown(q, g, e) {
-      if (q.name === 'gun' && e.parts.filter((p) => p.name === 'gun' && p.alive).length === 0) { e.phase = 2; e.st = 'idle'; e.stT = 0; g.emit({ t: 'phase', n: 2 }); g.emit({ t: 'sfx', n: 'warning' }); }
+      if (q.name === 'gun' && e.parts.filter((p) => p.name === 'gun' && p.alive).length === 0) { e.phase = 2; e.st = 'idle'; e.stT = 0; g.emit({ t: 'phase', n: 2 }); g.emit({ t: 'sfx', n: 'phase_change' }); }
       if (q.name === 'core') {
         e.phase = 3; e.st = 'idle'; e.stT = 0;
         e.parts[8].vis = true;
@@ -411,7 +411,7 @@ export const BOSS = {
         e.parts.forEach((q) => { if (q.name === 'gun' && q.alive && (e.t + q.oy * 13 | 0) % g.fireInterval(60) === 0) g.fire(e, { x: q.x - 0.6, y: q.y, z: q.z, speed: 9 }); });
         if (e.st === 'idle' && e.stT > 110) { e.st = 'charge'; e.stT = 0; }
         if (e.st === 'charge') { e.charge = e.stT / 40; if (e.stT > 40) { e.st = 'beam'; e.stT = 0; e.charge = 0; } }
-        if (e.st === 'beam') { if (e.stT % 8 === 1) for (const oy of [-3.9, 0, 3.9]) beam(g, e, e.x + 0.5, e.y + oy, e.z, Math.PI, 22, 3); if (e.stT > 30) { e.st = 'idle'; e.stT = 0; } }
+        if (e.st === 'beam') { if (e.stT === 1) g.emit({ t: 'sfx', n: 'boss_beam' }); if (e.stT % 8 === 1) for (const oy of [-3.9, 0, 3.9]) beam(g, e, e.x + 0.5, e.y + oy, e.z, Math.PI, 22, 3); if (e.stT > 30) { e.st = 'idle'; e.stT = 0; } }
       } else if (e.phase === 2) {
         e.y += (VIEW_H / 2 + Math.sin(e.t * 0.015) * 2.2 - e.y) * 0.02;
         // 回る扇状の弾と、狙う 3 連射

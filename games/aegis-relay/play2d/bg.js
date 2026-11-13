@@ -79,7 +79,7 @@ export function createBackdrop(R) {
 
   function* bakeNebula(e) {
     const NK = Math.min(R.K, R.low ? 1.5 : 2.25), w = Math.round(W * NK), h = Math.round(SKYH * NK);
-    const cv = makeCanvas(w, h), c = cv.getContext('2d', { alpha: false }), CH = 24, s = (NT * 2) / h;
+    const cv = makeCanvas(w, h), c = cv.getContext('2d', { alpha: false }), CH = 12, s = (NT * 2) / h;
     const [s0, s1, s2] = e.pal.sky, [A, B, C] = e.pal.neb; let seed = 12345 + e.area * 977;
     const off = e.area * 61.7;
     for (let y0 = 0; y0 < h; y0 += CH) {
@@ -324,18 +324,29 @@ export function createBackdrop(R) {
     c.imageSmoothingQuality = 'low';
     const part = (x, y, w, h) => { if (w > 0 && h > 0) c.drawImage(margin, x * ms, y * ms, w * ms, h * ms, x, y, w, h); };
     part(0, 0, fx0, Hp); part(fx1, 0, Wp - fx1, Hp); part(fx0, 0, fx1 - fx0, fy0); part(fx0, fy1, fx1 - fx0, Hp - fy1);
-    const u = lay.u * S, lw = Math.max(1, Math.round(S));
-    for (let k = 0; k < 2; k++) { // ゆっくり動く走査線
-      const y = Math.round(mod(time * 0.35 * (k ? -0.6 : 1) + k * Hp * 0.5, Hp));
-      c.fillStyle = 'rgba(120,190,255,.07)'; c.fillRect(0, y, fx0 - 4 * u, lw); c.fillRect(fx1 + 4 * u, Hp - y, Wp - fx1, lw);
-    }
-    for (const sx of [-1, 1]) { // 文字盤の上を回る短い弧
-      const ax = sx < 0 ? fx0 * 0.18 : Wp - (Wp - fx1) * 0.18, ay = Hp * 0.72, a = time * 0.004 * sx;
-      c.strokeStyle = 'rgba(140,210,255,.12)'; c.lineWidth = lw * 2; c.beginPath(); c.arc(ax, ay, 94 * u, a, a + 0.9); c.stroke();
-      c.strokeStyle = 'rgba(140,210,255,.08)'; c.lineWidth = lw; c.beginPath(); c.arc(ax, ay, 128 * u, -a * 0.7 + 2, -a * 0.7 + 3.4); c.stroke();
-    }
+    const lw = Math.max(1, Math.round(S));
     c.strokeStyle = 'rgba(70,190,255,.45)'; c.lineWidth = lw; c.strokeRect(fx0 - lw / 2, fy0 - lw / 2, fx1 - fx0 + lw, fy1 - fy0 + lw);
+    mv.n = 0;
+  }
+  // ゆっくり動く線（走査線と、小さな計器の針）。前に描いた場所だけ下地から戻して描き直す → 毎フレームでも軽い
+  const mv = { n: 0, r: new Float32Array(24) };
+  function animateMargin(c, lay, Wp, Hp, S, time) {
+    if (!margin) return;
+    const fx0 = Math.round(lay.fx * S), fx1 = Math.round((lay.fx + lay.fw) * S), ms = margin.ms, u = lay.u * S, lw = Math.max(1, Math.round(S));
+    if (fx0 < 40 * u) return; // 縦長の配置では左右の余白がない
+    c.imageSmoothingQuality = 'low';
+    for (let i = 0; i < mv.n; i += 4) { const x = mv.r[i], y = mv.r[i + 1], w = mv.r[i + 2], h = mv.r[i + 3]; c.drawImage(margin, x * ms, y * ms, w * ms, h * ms, x, y, w, h); }
+    mv.n = 0; const keep = (x, y, w, h) => { x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y)); mv.r[mv.n++] = x; mv.r[mv.n++] = y; mv.r[mv.n++] = Math.ceil(w) + 1; mv.r[mv.n++] = Math.ceil(h) + 1; };
+    for (let k = 0; k < 2; k++) { // 走査線（左は下へ、右は上へ）
+      const y = Math.round(mod(time * 0.35 * (k ? -0.6 : 1) + k * Hp * 0.5, Hp)), x0 = k ? fx1 + 12 * u : 0, w = k ? Wp - x0 : fx0 - 12 * u;
+      c.fillStyle = 'rgba(120,190,255,.08)'; c.fillRect(x0, y, w, lw); keep(x0, y - 1, w, lw + 2);
+    }
+    for (const sx of [-1, 1]) { // 文字盤の中心で回る短い針と弧
+      const ax = sx < 0 ? fx0 * 0.18 : Wp - (Wp - fx1) * 0.18, ay = Hp * 0.72, a = time * 0.006 * sx, rr = 26 * u;
+      c.strokeStyle = 'rgba(140,210,255,.2)'; c.lineWidth = lw; c.beginPath(); c.arc(ax, ay, rr, a, a + 1.1); c.moveTo(ax, ay); c.lineTo(ax + Math.cos(a) * rr, ay + Math.sin(a) * rr); c.stroke();
+      c.beginPath(); c.arc(ax, ay, rr * 0.55, -a * 1.7, -a * 1.7 + 2.2); c.stroke(); keep(ax - rr - 2 * lw, ay - rr - 2 * lw, rr * 2 + 4 * lw, rr * 2 + 4 * lw);
+    }
   }
   function reset() { for (const e of cache.values()) freeEntry(e); cache.clear(); cur = null; }
-  return { draw, drawUpper, ensure: (a, l) => ensure(a, l, cur), bakeMargin, drawMargin, reset, get palette() { return cur && cur.pal; } };
+  return { draw, drawUpper, ensure: (a, l) => ensure(a, l, cur), bakeMargin, drawMargin, animateMargin, reset, get palette() { return cur && cur.pal; } };
 }

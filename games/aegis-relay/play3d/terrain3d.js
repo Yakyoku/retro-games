@@ -182,7 +182,7 @@ export function createTerrain(scrollG, clip, lights, decorMat, jobs, getOpts) {
     const loop = [];
     for (let j = 0; j < nR; j++) loop.push([pos[(j * cols) * 3] + 120, -pos[(j * cols) * 3 + 2] - HH, pos[(j * cols) * 3 + 1]]);
     for (let j = nR - 1; j >= 0; j--) loop.push([pos[(j * cols + M) * 3] + 120, -pos[(j * cols + M) * 3 + 2] - HH, pos[(j * cols + M) * 3 + 1]]);
-    const DEP = [0, 2.6, 7.5, 15, 26, 39, 53, 66], SHR = [1, 1.012, 0.955, 0.87, 0.72, 0.5, 0.24, 0.02], STR = [1.35, 1.1, 1.3, 0.9, 1.08, 0.74, 0.58, 0.42];
+    const DEP = [0, 2.6, 8, 17, 29, 43, 58, 72], SHR = [1, 1.012, 0.985, 0.94, 0.83, 0.62, 0.32, 0.02], STR = [1.35, 1.1, 1.3, 0.9, 1.08, 0.74, 0.58, 0.42];
     const NP = loop.length, NK = DEP.length, len = isl.wy1 - isl.wy0, a0 = isl.wy0 + len * 0.3, a1 = isl.wy1 - len * 0.3, cxs = (wy) => { const [L, R] = sp.span(clamp(wy, isl.wy0, isl.wy1)); return lerp((L + R) / 2, isl.cx, 0.4); };
     const cp = new Float32Array((NP + 1) * NK * 3), cc = new Float32Array((NP + 1) * NK * 3), cu = new Float32Array((NP + 1) * NK * 2);
     const side = _c.set(th.side).lerp(_c2.set(th.land), 0.5).multiplyScalar(1.7), sr = side.r, sg = side.g, sb = side.b; const soil = _c2.set(th.landHi).lerp(_c.set(th.land), 0.5), lr = soil.r * 1.6, lg = soil.g * 1.6, lb = soil.b * 1.6;

@@ -57,8 +57,8 @@ function makeTile() {
       }
     },
     disc(k, x, y, r, style, alpha = 1) { T.at(k, x, y, r, (c, S) => { c.globalAlpha = alpha; c.fillStyle = typeof style === 'number' ? g255(style) : style; c.beginPath(); c.arc(0, 0, r * S, 0, 7); c.fill(); }); },
-    // 中心 v0 → 縁 v1 のぼかした円（高さ・発光など灰色の層に）
-    soft(k, x, y, r, v0, a0, v1 = v0, a1 = 0) { T.at(k, x, y, r, (c, S) => { const g = c.createRadialGradient(0, 0, 0, 0, 0, r * S); if (typeof v0 === 'number') { g.addColorStop(0, ga(v0, a0)); g.addColorStop(1, ga(v1, a1)); } else { g.addColorStop(0, v0); g.addColorStop(1, v1); } c.fillStyle = g; c.fillRect(-r * S, -r * S, 2 * r * S, 2 * r * S); }); },
+    // 中心 v0 → 縁 v1 のぼかした円（高さ・発光など灰色の層に）。色を文字列で渡すときは (中心の色, 縁の色)
+    soft(k, x, y, r, v0, a0, v1 = v0, a1 = 0) { T.at(k, x, y, r, (c, S) => { const g = c.createRadialGradient(0, 0, 0, 0, 0, r * S); if (typeof v0 === 'number') { g.addColorStop(0, ga(v0, a0)); g.addColorStop(1, ga(v1, a1)); } else { g.addColorStop(0, v0); g.addColorStop(1, a0); } c.fillStyle = g; c.fillRect(-r * S, -r * S, 2 * r * S, 2 * r * S); }); },
     rect(k, x, y, w, h, style, alpha = 1) { T.at(k, x + w / 2, y + h / 2, Math.max(w, h), (c, S) => { c.globalAlpha = alpha; c.fillStyle = typeof style === 'number' ? g255(style) : style; c.fillRect(-w / 2 * S, -h / 2 * S, w * S, h * S); }); },
   };
   return T;
@@ -78,30 +78,30 @@ const PAINT = {
     for (let i = 0; i < 26; i++) { const y = r(), amp = 0.004 + r() * 0.008, f = 2 + Math.floor(r() * 3), ph = r() * 6; const pts = []; for (let k = 0; k <= 32; k++) pts.push([k / 32, y + Math.sin((k / 32) * Math.PI * 2 * f + ph) * amp]); // 砂紋（横にひと回りして継ぎ目なし）
       T.line('a', pts, 0.004, 'rgba(255,255,255,.10)'); T.line('a', pts.map((p) => [p[0], p[1] + 0.006]), 0.004, 'rgba(0,0,0,.14)'); T.line('h', pts, 0.006, 0.62, 0.5); }
     for (let i = 0; i < 20; i++) { const x = r(), y = r(), rad = 0.018 + r() * r() * 0.075; // クレーター
-      T.soft('a', x, y, rad * 1.5, 'rgba(0,0,0,0)', 'rgba(0,0,0,0)'); T.disc('a', x, y, rad * 1.12, 'rgba(210,215,228,.30)'); T.disc('a', x, y, rad, 'rgba(34,36,46,.55)'); T.soft('a', x + rad * 0.2, y + rad * 0.2, rad * 0.9, 'rgba(150,156,172,.45)', 'rgba(150,156,172,0)');
+      T.disc('a', x, y, rad * 1.12, 'rgba(210,215,228,.30)'); T.disc('a', x, y, rad, 'rgba(34,36,46,.55)'); T.soft('a', x + rad * 0.2, y + rad * 0.2, rad * 0.9, 'rgba(150,156,172,.45)', 'rgba(150,156,172,0)');
       T.disc('h', x, y, rad * 1.15, 0.8, 0.9); T.soft('h', x, y, rad, 0.08, 1, 0.42, 1); T.disc('r', x, y, rad, 0.98); }
     for (let i = 0; i < 160; i++) { const x = r(), y = r(), s = 0.002 + r() * 0.005; T.disc('a', x, y, s, r() < 0.5 ? 'rgba(20,22,30,.5)' : 'rgba(200,205,220,.4)'); T.disc('h', x, y, s, 0.75, 0.8); }
     return { rough: 1, metal: 1, normal: 1.3, em: 0, emMode: 0, emColor: th.glow };
   },
   ice(T, r, th) { // 霜の環礁: 氷の亀裂、なめらかな氷面（映り込み）、霜
-    T.fill({ a: '#86b6cf', h: 0.5, e: 0, r: 0.22, m: 0.0 });
+    T.fill({ a: '#5f93b0', h: 0.5, e: 0, r: 0.3, m: 0.0 });
     T.noise('a', 'big', 1, 0.8, 'soft-light'); T.noise('h', 'big', 1, 0.35, 'overlay');
-    for (let i = 0; i < 16; i++) { const x = r(), y = r(), rad = 0.05 + r() * 0.12; T.soft('a', x, y, rad, 'rgba(235,250,255,.55)', 'rgba(235,250,255,0)'); T.soft('r', x, y, rad, 0.85, 0.9, 0.85, 0); T.soft('h', x, y, rad, 0.62, 0.7, 0.62, 0); } // 霜の積もったところ（ざらつく）
-    for (let i = 0; i < 9; i++) { const x = r(), y = r(), rad = 0.04 + r() * 0.08; T.soft('a', x, y, rad, 'rgba(20,70,110,.5)', 'rgba(20,70,110,0)'); T.soft('r', x, y, rad, 0.06, 1, 0.06, 0); }                                              // 深く澄んだ氷
+    for (let i = 0; i < 16; i++) { const x = r(), y = r(), rad = 0.05 + r() * 0.12; T.soft('a', x, y, rad, 'rgba(200,228,240,.5)', 'rgba(200,228,240,0)'); T.soft('r', x, y, rad, 0.85, 0.9, 0.85, 0); T.soft('h', x, y, rad, 0.62, 0.7, 0.62, 0); } // 霜の積もったところ（ざらつく）
+    for (let i = 0; i < 9; i++) { const x = r(), y = r(), rad = 0.04 + r() * 0.08; T.soft('a', x, y, rad, 'rgba(20,70,110,.5)', 'rgba(20,70,110,0)'); T.soft('r', x, y, rad, 0.12, 1, 0.12, 0); }                                              // 深く澄んだ氷
     const cr = []; for (let i = 0; i < 11; i++) crack(r, r(), r(), r() * 6.28, 0.3 + r() * 0.35, 9, cr);
     for (const p of cr) { T.line('a', p, 0.006, 'rgba(240,252,255,.55)'); T.line('a', p, 0.0022, 'rgba(18,52,84,.9)'); T.line('h', p, 0.006, 0.18, 0.9); T.line('e', p, 0.004, 0.5, 0.6, 0.01); T.line('r', p, 0.007, 0.7); }
     T.noise('a', 'fine', 4, 0.25, 'overlay');
-    for (let i = 0; i < 260; i++) T.disc('a', r(), r(), 0.0012 + r() * 0.002, 'rgba(255,255,255,.75)');
+    for (let i = 0; i < 260; i++) T.disc('a', r(), r(), 0.0012 + r() * 0.002, 'rgba(255,255,255,.6)');
     return { rough: 1, metal: 1, normal: 1.6, em: 0.55, emMode: 0, emColor: '#7fe0ff' };
   },
   ember(T, r, th) { // 燠の段丘: 焦げた岩、脈動して光る溶岩の筋
     T.fill({ a: '#3d2a26', h: 0.55, e: 0, r: 0.9, m: 0.03 });
     T.noise('a', 'big', 1, 0.9, 'overlay'); T.noise('a', 'fine', 4, 0.6, 'overlay'); T.noise('h', 'big', 1, 0.7, 'overlay'); T.noise('h', 'fine', 4, 0.5, 'overlay');
     for (let i = 0; i < 28; i++) { const x = r(), y = r(), rad = 0.03 + r() * 0.08; T.soft('a', x, y, rad, 'rgba(150,84,52,.4)', 'rgba(150,84,52,0)'); T.soft('h', x, y, rad, 0.8, 0.5, 0.8, 0); }
-    const cr = []; for (let i = 0; i < 9; i++) crack(r, r(), r(), r() * 6.28, 0.35 + r() * 0.4, 10, cr);
-    for (const p of cr) { T.line('a', p, 0.03, 'rgba(10,4,4,.55)'); T.line('h', p, 0.022, 0.15, 0.8); T.line('e', p, 0.02, 0.35, 0.5, 0.02); T.line('e', p, 0.007, 1.0, 1); T.line('a', p, 0.008, '#ff7a28'); T.line('a', p, 0.003, '#ffe08a'); T.line('r', p, 0.012, 0.3); }
+    const cr = []; for (let i = 0; i < 6; i++) crack(r, r(), r(), r() * 6.28, 0.3 + r() * 0.35, 9, cr);
+    for (const p of cr) { T.line('a', p, 0.026, 'rgba(10,4,4,.6)'); T.line('h', p, 0.02, 0.15, 0.8); T.line('e', p, 0.014, 0.22, 0.5, 0.012); T.line('e', p, 0.0045, 1.0, 1); T.line('a', p, 0.006, '#e8601c'); T.line('a', p, 0.002, '#ffd070'); T.line('r', p, 0.01, 0.3); }
     for (let i = 0; i < 12; i++) { const x = r(), y = r(), rad = 0.008 + r() * 0.016; T.soft('e', x, y, rad * 2.4, 1, 0.9, 1, 0); T.disc('a', x, y, rad, '#ff8a30'); T.disc('h', x, y, rad * 1.5, 0.2); } // 溶岩だまり
-    return { rough: 1, metal: 1, normal: 2.6, em: 2.6, emMode: 1, emColor: '#ff6a20' };
+    return { rough: 1, metal: 1, normal: 2.4, em: 1.7, emMode: 1, emColor: '#ff6a20' };
   },
   mech(T, r, th) { // 歯車の残骸: 金属板、配管、排気口、点滅する灯
     T.fill({ a: '#525e60', h: 0.5, e: 0, r: 0.5, m: 0.85 });
@@ -117,9 +117,9 @@ const PAINT = {
       for (let k = 0; k < 4; k++) { const q = (k + 0.5) / 4; const a = horiz ? [[q, p - w * 0.7], [q, p + w * 0.7]] : [[p - w * 0.7, q], [p + w * 0.7, q]]; T.line('a', a, 0.007, '#39403f'); T.line('h', a, 0.007, 1); } }
     for (let i = 0; i < 6; i++) { const x = (Math.floor(r() * N) + 0.5) * cs, y = (Math.floor(r() * N) + 0.5) * cs; // 排気口
       T.disc('a', x, y, 0.036, '#22282a'); T.disc('h', x, y, 0.036, 0.25); for (let k = -2; k <= 2; k++) { T.rect('a', x - 0.026, y + k * 0.012 - 0.003, 0.052, 0.006, '#58635f'); T.rect('h', x - 0.026, y + k * 0.012 - 0.003, 0.052, 0.006, 0.6); } T.soft('e', x, y, 0.03, 0.25, 0.8, 0.25, 0); }
-    for (let i = 0; i < 22; i++) { const x = (Math.floor(r() * N * 4) + 0.5) * cs / 4, y = (Math.floor(r() * N * 4) + 0.5) * cs / 4; T.disc('a', x, y, 0.006, '#c8ffe6'); T.soft('e', x, y, 0.022, 1, 1, 1, 0); T.disc('e', x, y, 0.007, 1); } // 灯
+    for (let i = 0; i < 22; i++) { const x = (Math.floor(r() * N * 4) + 0.5) * cs / 4, y = (Math.floor(r() * N * 4) + 0.5) * cs / 4; T.disc('a', x, y, 0.005, '#c8ffe6'); T.soft('e', x, y, 0.013, 0.7, 1, 0.7, 0); T.disc('e', x, y, 0.005, 1); } // 灯
     T.noise('a', 'big', 1, 0.5, 'soft-light'); T.noise('a', 'fine', 4, 0.3, 'overlay'); T.noise('r', 'fine', 2, 0.4, 'overlay');
-    return { rough: 1, metal: 1, normal: 2.4, em: 2.4, emMode: 2, emColor: '#7dffc8' };
+    return { rough: 1, metal: 1, normal: 2.4, em: 1.8, emMode: 2, emColor: '#7dffc8' };
   },
   moss(T, r, th) { // 苔の穹窿: 苔と草、水面のきらめき
     T.fill({ a: '#3f5a36', h: 0.5, e: 0, r: 0.95, m: 0.0 });
@@ -153,13 +153,13 @@ const PAINT = {
       T.at('a', x, y, rad, (c, S) => { poly(c, S); const g = c.createLinearGradient(-rad * S, -rad * S, rad * S, rad * S); g.addColorStop(0, `rgb(${52 + t},${46 + t},${74 + t})`); g.addColorStop(1, `rgb(${14 + t / 3},${12 + t / 3},${22 + t / 3})`); c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(180,160,230,.22)'; c.lineWidth = 1.2; c.stroke(); });
       T.at('h', x, y, rad, (c, S) => { poly(c, S); const g = c.createLinearGradient(-rad * S, 0, rad * S, 0); g.addColorStop(0, g255(hv)); g.addColorStop(1, g255(hv - 0.25)); c.fillStyle = g; c.fill(); });
       T.at('r', x, y, rad, (c, S) => { poly(c, S); c.fillStyle = g255(rv); c.fill(); }); }
-    const cr = []; for (let i = 0; i < 8; i++) crack(r, r(), r(), r() * 6.28, 0.35 + r() * 0.4, 9, cr);
-    for (const p of cr) { T.line('a', p, 0.012, 'rgba(60,20,110,.6)'); T.line('a', p, 0.004, '#c99cff'); T.line('e', p, 0.02, 0.3, 0.6, 0.02); T.line('e', p, 0.005, 1); T.line('h', p, 0.01, 0.15, 0.8); }
+    const cr = []; for (let i = 0; i < 5; i++) crack(r, r(), r(), r() * 6.28, 0.3 + r() * 0.35, 8, cr);
+    for (const p of cr) { T.line('a', p, 0.01, 'rgba(60,20,110,.6)'); T.line('a', p, 0.003, '#b78cf0'); T.line('e', p, 0.012, 0.2, 0.5, 0.01); T.line('e', p, 0.0035, 1); T.line('h', p, 0.01, 0.15, 0.8); }
     T.noise('a', 'fine', 4, 0.25, 'overlay'); T.noise('h', 'big', 1, 0.3, 'overlay');
-    return { rough: 1, metal: 1, normal: 2.6, em: 2.4, emMode: 1, emColor: '#a060ff' };
+    return { rough: 1, metal: 1, normal: 2.6, em: 1.6, emMode: 1, emColor: '#a060ff' };
   },
   zenith(T, r, th) { // 天頂の玉座: 白い大理石、光の紋章
-    T.fill({ a: '#c8cce4', h: 0.5, e: 0, r: 0.28, m: 0.0 });
+    T.fill({ a: '#9a9fbe', h: 0.5, e: 0, r: 0.36, m: 0.0 });
     T.noise('a', 'big', 1, 0.5, 'soft-light');
     const cr = []; for (let i = 0; i < 14; i++) crack(r, r(), r(), r() * 6.28, 0.4 + r() * 0.5, 12, cr);
     for (const p of cr) { T.line('a', p, 0.012, 'rgba(110,120,180,.16)'); T.line('a', p, 0.003, 'rgba(70,80,140,.45)'); }                    // 大理石の筋
@@ -170,7 +170,7 @@ const PAINT = {
       for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.2832; const p = [[x + Math.cos(a) * 0.05 * s, y + Math.sin(a) * 0.05 * s], [x + Math.cos(a) * 0.115 * s, y + Math.sin(a) * 0.115 * s]]; T.line('a', p, 0.004, '#eef4ff'); T.line('e', p, 0.004, 1); }
       const st = []; for (let k = 0; k <= 4; k++) { const a = -1.5708 + (k * 2 / 4) * 6.2832 * 0.8; st.push([x + Math.cos(a) * 0.1 * s, y + Math.sin(a) * 0.1 * s]); } }
     T.noise('a', 'fine', 4, 0.18, 'overlay'); T.noise('h', 'fine', 4, 0.18, 'overlay'); T.noise('r', 'big', 1, 0.35, 'overlay');
-    return { rough: 1, metal: 1, normal: 1.5, em: 1.5, emMode: 0, emColor: '#bcd0ff' };
+    return { rough: 1, metal: 1, normal: 1.5, em: 1.1, emMode: 0, emColor: '#bcd0ff' };
   },
 };
 

@@ -69,9 +69,15 @@ export function freeCanvas(cv) { if (!cv) return; mem.px -= cv.width * cv.height
 // ── 時間分割の仕事 ──
 // add(key, generator) で積み、run(ms) で予算ぶんだけ進める。finish(key) はその場で最後までやる
 export function createJobs() {
-  const q = [];
+  const q = [], stats = {}; // stats: 仕事の種類ごとの回数・合計時間・1 回ぶん（1 区切り）の最長時間（計測用）
+  function* timed(key, gen) {
+    const kind = String(key).split(':')[0], st = stats[kind] || (stats[kind] = { n: 0, ms: 0, maxStep: 0 }); let r;
+    do { const t0 = performance.now(); r = gen.next(); const d = performance.now() - t0; st.ms += d; if (d > st.maxStep) st.maxStep = d; if (!r.done) yield; } while (!r.done);
+    st.n++;
+  }
   return {
-    add(key, gen, front = false) { const j = { key, gen, done: false }; if (front) q.unshift(j); else q.push(j); return j; },
+    stats,
+    add(key, gen, front = false) { const j = { key, gen: timed(key, gen), done: false }; if (front) q.unshift(j); else q.push(j); return j; },
     has(key) { return q.some((j) => j.key === key); },
     cancel(pred) { for (let i = q.length - 1; i >= 0; i--) if (pred(q[i].key)) q.splice(i, 1); },
     finish(key) { const i = q.findIndex((j) => j.key === key); if (i < 0) return; const j = q[i]; q.splice(i, 1); while (!j.gen.next().done); },

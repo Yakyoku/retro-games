@@ -96,7 +96,7 @@ export function drawFeature(env, f, x, y) {
       const r = f.r, big = f.t === 'crest', col = big ? [235, 240, 255] : glow;
       const path = (cc) => {
         cc.beginPath(); cc.arc(x, y, r, 0, TAU); cc.moveTo(x + r * 0.72, y); cc.arc(x, y, r * 0.72, 0, TAU);
-        const n = big ? 8 : [3, 4, 6, 5][f.v], st = big ? 3 : f.v === 3 ? 2 : 1;
+        const n = big ? 8 : [3, 4, 6, 8][f.v], st = big ? 3 : f.v === 3 ? 3 : 1;
         for (let k = 0; k <= n; k++) { const a = f.rot + (k * st * TAU) / n, px = x + Math.cos(a) * r * 0.72, py = y + Math.sin(a) * r * 0.72; k ? cc.lineTo(px, py) : cc.moveTo(px, py); }
         for (let k = 0; k < (big ? 16 : 8); k++) { const a = f.rot + (k * TAU) / (big ? 16 : 8); cc.moveTo(x + Math.cos(a) * r * 1.08, y + Math.sin(a) * r * 1.08); cc.lineTo(x + Math.cos(a) * r * 1.25, y + Math.sin(a) * r * 1.25); }
       };

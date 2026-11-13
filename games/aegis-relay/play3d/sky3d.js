@@ -43,7 +43,7 @@ const BODIES = [
   { az: -36, el: -16, r: 10.0, a: 0x3a1410, b: 0x120606, atm: 0xff7a40, band: 0.0, ring: 0, glow: 0xff5a1a },  // 燠: 溶岩の星
   { az: 32, el: -12, r: 8.0, a: 0x6f8a86, b: 0x2a3838, atm: 0x9cffd0, band: 0.2, ring: 0, glow: 0x7dffc8 },    // 歯車: 人工の星（格子の灯）
   { az: -30, el: -14, r: 10.5, a: 0x4f8a50, b: 0x1d4a6a, atm: 0xc8ffb0, band: 0.15, ring: 0, glow: 0x000000 }, // 苔: 緑と海の星
-  { az: 35, el: -15, r: 12.0, a: 0xe8c070, b: 0x8a5a20, atm: 0xffe6a0, band: 1.0, ring: 1, glow: 0x000000 },   // 黄金: 縞の巨星
+  { az: 36, el: -13, r: 10.0, a: 0xe8c070, b: 0x8a5a20, atm: 0xffe6a0, band: 1.0, ring: 1, glow: 0x000000 },   // 黄金: 縞の巨星
   { az: -34, el: -13, r: 9.5, a: 0x2a2038, b: 0x0c0814, atm: 0xc090ff, band: 0.0, ring: 0, glow: 0xa060ff },   // 黒曜: 紫の裂け目
   { az: 0, el: 24, r: 13.0, a: 0xe8ecff, b: 0x8088c8, atm: 0xffffff, band: 0.6, ring: 1, glow: 0x000000 },     // 天頂: 正面上の白い星
 ];
@@ -84,7 +84,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
 
   // ── 天球の星（動かない。瞬きだけ）。明るい星には十字の光条 ──
   const starMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: shared.time, uPx: { value: 600 } }, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: shared.time, uPx: { value: 600 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `attribute vec4 aS; attribute vec3 color; varying vec3 vC; varying float vBig; uniform float uTime, uPx;
       void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
         float tw = 0.72 + 0.28 * sin(uTime * aS.y + aS.z); vBig = aS.w;
@@ -135,7 +135,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         #include <colorspace_fragment>
       }` });
   const planet = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), planetMat); planet.renderOrder = -18; planet.frustumCulled = false; skyG.add(planet);
-  const haloMat = new THREE.ShaderMaterial({ uniforms: { uAtm: planetMat.uniforms.uAtm, uL: planetMat.uniforms.uL, uGain: planetMat.uniforms.uGain }, side: THREE.BackSide, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+  const haloMat = new THREE.ShaderMaterial({ uniforms: { uAtm: planetMat.uniforms.uAtm, uL: planetMat.uniforms.uL, uGain: planetMat.uniforms.uGain }, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: planetMat.vertexShader,
     fragmentShader: `uniform vec3 uAtm, uL; uniform float uGain; varying vec3 vN; varying vec3 vV; varying vec3 vP;
       void main(){ vec3 n = normalize(vN); float f = pow(max(dot(-n, vV), 0.0), 3.5); float lit = smoothstep(-0.4, 0.5, dot(n, uL));
@@ -144,11 +144,11 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         #include <colorspace_fragment>
       }` });
   const halo = new THREE.Mesh(planet.geometry, haloMat); halo.renderOrder = -17; halo.frustumCulled = false; skyG.add(halo);
-  const ringMat = new THREE.ShaderMaterial({ uniforms: { uA: planetMat.uniforms.uA, uGain: planetMat.uniforms.uGain }, side: THREE.DoubleSide, transparent: true, depthWrite: false, depthTest: false,
+  const ringMat = new THREE.ShaderMaterial({ uniforms: { uA: planetMat.uniforms.uA, uGain: planetMat.uniforms.uGain }, side: THREE.DoubleSide, transparent: true, depthWrite: false,
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `uniform vec3 uA; uniform float uGain; varying vec2 vUv;
-      void main(){ float r = length(vUv - 0.5) * 2.0; float a = smoothstep(0.56, 0.6, r) * (1.0 - smoothstep(0.96, 1.0, r)); a *= 0.35 + 0.4 * sin(r * 90.0) * sin(r * 37.0) + 0.25 * step(0.72, r) * step(r, 0.76) ;
-        gl_FragColor = vec4(uA * 0.9 * uGain, clamp(a, 0.0, 0.8));
+      void main(){ float r = length(vUv - 0.5) * 2.0; float a = smoothstep(0.56, 0.6, r) * (1.0 - smoothstep(0.96, 1.0, r)); a *= 0.3 + 0.16 * sin(r * 140.0) + 0.12 * sin(r * 53.0 + 1.0); a *= 1.0 - 0.75 * smoothstep(0.73, 0.745, r) * (1.0 - smoothstep(0.765, 0.78, r));
+        gl_FragColor = vec4(uA * 0.55 * uGain, clamp(a * 0.75, 0.0, 0.45));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }` });
@@ -162,13 +162,13 @@ export function createSky(renderer, stage, board, clip, getOpts) {
     planet.position.set(Math.sin(az) * Math.cos(el) * D, 1.2 + Math.sin(el) * D, -Math.cos(az) * Math.cos(el) * D); planet.scale.setScalar(B.r);
     planet.rotation.set(0.3, area * 1.3, 0.2);
     halo.position.copy(planet.position); halo.scale.setScalar(B.r * 1.16);
-    ring.visible = !!B.ring; ring.position.copy(planet.position); ring.scale.setScalar(B.r * 2.3); ring.rotation.set(0.42, 0, 0.3 * Math.sign(B.az || 1));
+    ring.visible = !!B.ring; ring.position.copy(planet.position); ring.scale.setScalar(B.r * 1.95); ring.rotation.set(0.42, 0, 0.3 * Math.sign(B.az || 1));
     moon.position.copy(planet.position).add(new THREE.Vector3(-Math.sign(B.az || 1) * B.r * 1.5, B.r * 1.0, 6)); moon.scale.setScalar(B.r * 0.17);
     u.uA.value.copy(hueShift(B.a, loop)); u.uB.value.copy(hueShift(B.b, loop)); u.uAtm.value.copy(hueShift(B.atm, loop)); u.uGlowC.value.set(B.glow); u.uBand.value = B.band; u.uSeed.value = area * 0.37 + 0.11;
   }
 
   // ── 遠くの出来事（流れ星・遠方の閃光）──
-  const evMat = new THREE.ShaderMaterial({ uniforms: { uK: { value: 0 }, uMode: { value: 0 } }, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  const evMat = new THREE.ShaderMaterial({ uniforms: { uK: { value: 0 }, uMode: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `uniform float uK, uMode; varying vec2 vUv;
       void main(){ vec2 p = vUv - 0.5; float a;

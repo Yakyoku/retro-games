@@ -8,6 +8,7 @@ import { makeMaterial } from './materials.js';
 import { TAU, lerp, clamp, smooth, rng, hexRgb, mix3, css, fbm, makeCanvas, freeCanvas } from './util.js';
 import { drawRuin, drawFeature } from './terrain-detail.js';
 
+const EMF = { glyph: 1, crest: 1, plinth: 1, crystal: 1, road: 1, vent: 1, inlay: 1, medal: 1 }; // 発光の層にも描く細部
 const W = FIELD.W, H = FIELD.H, STRIP = 40, CLIFF_MAX = 34, RPAD = 2, PAD = 2;
 
 export function createTerrain(R) {
@@ -207,11 +208,19 @@ export function createTerrain(R) {
     const sc = K / RK; c.imageSmoothingQuality = 'high';
     c.drawImage(tmpB, 0, 0, rw, rh, 0, PAD - RPAD * sc, rw * sc, rh * sc); c.drawImage(tmpA, 0, 0, rw, rh, 0, PAD - RPAD * sc, rw * sc, rh * sc);
     let em = null, ec = null, EK = 0;
-    const hasEm = m.feats.some((f) => (f.t === 'glyph' || f.t === 'crest' || f.t === 'plinth' || f.t === 'crystal' || f.t === 'road' || f.t === 'vent') && f.wy + f.r > s.w0 && f.wy - f.r < w1) || imE;
-    if (hasEm) {
-      EK = Math.round(STRIP * Math.min(RK, 3)) / STRIP; em = makeCanvas(Math.ceil(wU * EK), STRIP * EK); ec = em.getContext('2d');
+    // 発光の層。素材が光らないテーマでは、光るもの（紋様・導線・結晶など）がある横の範囲だけを持つ（加算で重ねる面積を減らす）
+    let ex0 = 1e9, ex1 = -1e9;
+    if (imE) { ex0 = x0; ex1 = m.x1; }
+    else for (const f of m.feats) {
+      if (!EMF[f.t] || f.wy + f.r < s.w0 || f.wy - f.r > w1) continue;
+      if (f.t === 'road') { for (let i = 1; i < f.pts.length; i++) { const a = f.pts[i - 1], b = f.pts[i]; if (Math.max(a[1], b[1]) < s.w0 - 3 || Math.min(a[1], b[1]) > w1 + 3) continue; ex0 = Math.min(ex0, a[0] - 4, b[0] - 4); ex1 = Math.max(ex1, a[0] + 4, b[0] + 4); } }
+      else { const rr = f.t === 'inlay' ? (f.hz ? f.len / 2 + 3 : 3) : f.r * 1.5; ex0 = Math.min(ex0, f.x - rr); ex1 = Math.max(ex1, f.x + rr); }
+    }
+    if (ex1 > ex0) {
+      ex0 = Math.max(x0, Math.floor(ex0)); ex1 = Math.min(m.x1, Math.ceil(ex1));
+      EK = Math.round(STRIP * Math.min(RK, 3)) / STRIP; em = makeCanvas(Math.ceil((ex1 - ex0) * EK), STRIP * EK); ec = em.getContext('2d');
       if (imE) { ce.clearRect(0, 0, tmpE.width, rh); ce.putImageData(imE, 0, 0); ec.drawImage(tmpE, 0, RPAD, rw, rh - RPAD * 2, 0, 0, rw * EK / RK, STRIP * EK); }
-      ec.setTransform(EK, 0, 0, EK, -x0 * EK, 0); ec.lineCap = 'round'; ec.lineJoin = 'round';
+      ec.setTransform(EK, 0, 0, EK, -ex0 * EK, 0); ec.lineCap = 'round'; ec.lineJoin = 'round';
     }
     yield;
     // ベクターの細部（上面だけに切り抜く。崖の下の結晶は切り抜かない）
@@ -231,7 +240,7 @@ export function createTerrain(R) {
       c.restore();
     }
     for (const f of feats) if (f.cliff) drawFeature(env, f, f.x, Y(f.wy));
-    s.cv = cv; s.c = c; s.em = em; s.EK = EK; s.ready = true;
+    s.cv = cv; s.c = c; s.em = em; s.EK = EK; s.ex0 = ex0; s.ready = true;
     for (const q of scorches) stamp(s, q);
   }
 
@@ -275,7 +284,7 @@ export function createTerrain(R) {
   }
   function drawEmissive(c, sc, time) {
     c.globalCompositeOperation = 'lighter'; c.globalAlpha = (0.62 + 0.38 * Math.sin(time * 0.045)) * (mat.emA || 1);
-    for (const s of vis) if (s.em) { const m = metas[s.mi]; c.drawImage(s.em, m.x0, sc - s.w1, s.em.width / s.EK, STRIP); }
+    for (const s of vis) if (s.em) c.drawImage(s.em, s.ex0, sc - s.w1, s.em.width / s.EK, STRIP);
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
   }
   return { setArea, reset, dropCanvases, update, draw, drawEmissive, scorch, landAlpha, get metas() { return metas; }, get count() { return strips.size; },

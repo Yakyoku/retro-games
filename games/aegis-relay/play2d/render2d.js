@@ -27,7 +27,7 @@ export function createRenderer2D(canvas, app) {
   const A = createAtlas(R); definePlayer(A); defineEnemies(A); defineGround(A);
   const sky = createBackdrop(R), terrain = createTerrain(R), fx = createFx(R, A), actors = createActors(R, A, fx, terrain);
   let lay = null, dpr = 1, rs = 1, S = 1, frameNo = 0, marginDirty = true;
-  let time = 0, lastDef = null, lastSc = 0, lastAlpha = 0, lastTick = -1, attract = null;
+  let time = 0, mtime = 0, lastDef = null, lastSc = 0, lastAlpha = 0, lastTick = -1, attract = null;
   let vignette = null, scan = null, scanK = 0, bl0 = null, bl1 = null, bl2 = null, bl3 = null, bloomOn = true;
   const F = { g: null, a: 0, time: 0, dt: 0, sc: 0, ppx: 0, ppy: 0 }, sh = { x: 0, y: 0 };
 
@@ -64,7 +64,7 @@ export function createRenderer2D(canvas, app) {
     lay = layout; dpr = window.devicePixelRatio || 1; rs = qualityScale(); S = dpr * rs;
     canvas.width = Math.max(1, Math.round(lay.w * S)); canvas.height = Math.max(1, Math.round(lay.h * S));
     const K = lay.u * S, low = app.settings.quality === 'light';
-    bloomOn = !low && !(app.settings.quality === 'auto' && auto.level >= 2);
+    bloomOn = !low && !(app.settings.quality === 'auto' && auto.level >= 1); // 自動画質が 1 段でも下がったら、にじみを先に切る
     if (Math.abs(K - R.K) > 1e-6 || low !== R.low) {
       R.K = K; R.low = low;
       fx.clear(); A.invalidate(); terrain.dropCanvases(); sky.reset();
@@ -123,7 +123,7 @@ export function createRenderer2D(canvas, app) {
     let g = app.game;
     if (!playing && g) { alpha = lastAlpha; } else lastAlpha = alpha;   // ポーズ中は最後の補間位置のまま止める
     const fdt = g && !playing ? 0 : Math.min(dt, 0.05);                 // ポーズ中は演出も止める
-    time += fdt;
+    time += fdt; mtime += Math.min(dt, 0.05);
     // 重い焼き込みを少しずつ進める（導入中・タイトルでは多めに）
     R.jobs.run(!g || g.phase === 'intro' ? 7 : 3.5);
 
@@ -150,8 +150,9 @@ export function createRenderer2D(canvas, app) {
     c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     const Wp = canvas.width, Hp = canvas.height;
     const ox = lay.fx * S, oy = lay.fy * S, fw = lay.fw * S, fh = lay.fh * S, K = R.K;
-    // 盤面の外は数フレームに 1 回だけ描き直す（動く線はゆっくりなので足りる）
-    if (marginDirty || (frameNo % 4 === 0 && !R.skip.margin)) { sky.drawMargin(c, lay, Wp, Hp, S, time * 60); marginDirty = false; }
+    // 盤面の外は変わったときだけ全部描く。ふだんは動く線のところだけ描き直す
+    if (marginDirty) { sky.drawMargin(c, lay, Wp, Hp, S, time * 60); marginDirty = false; }
+    else if (!R.skip.margin && !(frameNo & 1)) sky.animateMargin(c, lay, Wp, Hp, S, mtime * 60);
 
     // 盤面
     fx.shakeOffset(sh, app.settings.shake);
@@ -173,7 +174,11 @@ export function createRenderer2D(canvas, app) {
     c.restore(); c.save(); c.beginPath(); c.rect(ox, oy, fw, fh); c.clip();
     if (bloomOn && !R.skip.bloom) bloom(c, Math.round(ox), Math.round(oy), Math.round(fw), Math.round(fh));
     c.setTransform(K, 0, 0, K, ox, oy);
-    if (!R.low && !R.skip.vig) { c.imageSmoothingQuality = 'low'; c.drawImage(vignette, 0, 0, W, H); }
+    if (!R.low && !R.skip.vig) { // 周辺減光: 中央は完全に透明なので、上下左右の帯だけ描く
+      c.imageSmoothingQuality = 'low'; const vw = vignette.width, vh = vignette.height, ty = 0.22, tx = 0.2;
+      c.drawImage(vignette, 0, 0, vw, vh * ty, 0, 0, W, H * ty); c.drawImage(vignette, 0, vh * (1 - ty), vw, vh * ty, 0, H * (1 - ty), W, H * ty);
+      c.drawImage(vignette, 0, vh * ty, vw * tx, vh * (1 - 2 * ty), 0, H * ty, W * tx, H * (1 - 2 * ty)); c.drawImage(vignette, vw * (1 - tx), vh * ty, vw * tx, vh * (1 - 2 * ty), W * (1 - tx), H * ty, W * tx, H * (1 - 2 * ty));
+    }
     c.setTransform(K, 0, 0, K, R.bx, R.by);
     if (g) { actors.drawBullets(c, g, F, app.settings.hitbox); c.setTransform(K, 0, 0, K, R.bx, R.by); if (app.settings.hitbox) actors.drawHitboxes(c, g); }
     fx.drawPops(c);
@@ -202,11 +207,11 @@ export function createRenderer2D(canvas, app) {
     const fs = 12 * S, lines = [`FPS ${(1 / Math.max(1e-3, auto.med)).toFixed(1)}  出力 ${Math.round(lay.w * dpr)}×${Math.round(lay.h * dpr)}  内部 ${canvas.width}×${canvas.height}  倍率 ${rs.toFixed(2)}`,
       `描画 ${auto.costMed.toFixed(1)}ms  焼き ${(mem.px * 4 / 1048576).toFixed(0)}MB  帯 ${terrain.count}  仕事 ${R.jobs.pending}  粒 ${fx.count}  にじみ ${bloomOn ? 'on' : 'off'}`,
       g ? `敵 ${g.enemies.length} 弾 ${g.bullets.length} 地上 ${g.ground.size} scroll ${g.scroll.toFixed(0)}/${g.def.coreWy}` : ''];
-    c.fillStyle = '#04060d'; c.fillRect(0, 0, Math.min(lay.fx * S - 4, 46 * fs), (8 + lines.length * 16) * S);
+    c.fillStyle = '#04060d'; c.fillRect(0, 0, Math.min(lay.fx * S > 40 ? lay.fx * S - 4 : canvas.width, 46 * fs), (8 + lines.length * 16) * S);
     c.font = `${fs}px monospace`; c.fillStyle = '#9cffd0'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
     lines.forEach((l, i) => c.fillText(l, 10 * S, (20 + i * 16) * S));
   }
 
   return { resize, frame, onEvents, _R: R, _A: A,
-    get stats() { return { fps: 1 / Math.max(1e-3, auto.med), w: canvas.width, h: canvas.height, rs, out: [Math.round(lay.w * dpr), Math.round(lay.h * dpr)], cost: auto.costMed, bakedMB: mem.px * 4 / 1048576, strips: terrain.count, jobs: R.jobs.pending, parts: fx.count, bloom: bloomOn, level: auto.level }; } };
+    get stats() { return { fps: 1 / Math.max(1e-3, auto.med), w: canvas.width, h: canvas.height, rs, out: [Math.round(lay.w * dpr), Math.round(lay.h * dpr)], cost: auto.costMed, bakedMB: mem.px * 4 / 1048576, bake: R.jobs.stats, strips: terrain.count, jobs: R.jobs.pending, parts: fx.count, bloom: bloomOn, level: auto.level }; } };
 }

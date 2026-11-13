@@ -19,7 +19,7 @@ games/sky-climber/
 ├── fonts/         Noto Sans JP を使う文字だけに絞ったもの（OFL）、tools/make-font.py で生成
 ├── gallery.html   キャラクター設定資料（回して見る・姿勢と表情）
 ├── src/render/models/   骨格入りキャラクターのモデル（tools/build-characters.mjs で生成）
-├── docs/          REFERENCES（参照資料と未確認事項）・SOUND（音イベント表）・CHARACTER（設定資料と改善 30 項目）
+├── docs/          REFERENCES（参照資料と未確認事項）・SOUND（音）・CHARACTER（キャラクター）・BACKGROUND（背景）— 各改善 30 項目
 └── tests/         node --test（core 28・direct 7）
 ```
 - 保存名: localStorage の `skyclimber-yk.v1.*`（他作品と分離）
@@ -51,6 +51,13 @@ games/sky-climber/
   あわせて、低い画面（スマートフォンの横向き）で操作ボタンが画面外に出る配置を直し、タッチでは「届いたらつかむ」を既定にした（設定で変更可）
 - 2026-11-12（2 回目の依頼）キャラクターを作り直し: 距離場（SDF）＋Surface Nets で素材ごとの滑らかな層を作り、骨格とスキンウェイトを付けた一体モデルを
   tools/build-characters.mjs でオフライン生成（src/render/models/*.json・*.bin が制作元データ）。動きは src/render/rig.js のばねで滑らかに。30 項目は docs/CHARACTER.md
+
+- 2026-11-13（3 回目の依頼）背景・キャラクター・サウンドを大幅刷新（各 30 項目）。3 分野を同じ作業ツリーで並行に進めた（背景とサウンドはこのセッションのフォーク、キャラクターは本体。ファイルの担当を分けて衝突を避けた）
+  - キャラクター第 3 版: 写実寄り（7.3 頭身・顔の造作・眼窩と眼球・表情の変形ターゲット・焼き込みの陰・装備）。docs/CHARACTER.md
+  - 背景: 空と雲・画面効果（HDR・ブルーム・色調整。WebXR と「軽量」では使わない）・遠景ビルのシェーダー・道路と車・天気・室内の家具など。docs/BACKGROUND.md
+  - サウンド第 3 版: OfflineAudioContext で作るステム分けのモダン音源（適応型音楽・残響・素材別の効果音）。レトロ音源は設定で残した。docs/SOUND.md
+  - 確認: テスト 39 件・check OK・統合ビルドを headless Chromium で起動（トップ・練習壁で登攀・例外なし・曲の再生開始）・IWER で VR 開始〜つかんで引き上げ〜一時停止（例外なし）。
+    ソフトウェア描画では 1 フレームが非常に遅く（棟の読み込み直後は十数秒）、fps と読み込み時間は実機で要確認。音は解析のみで聴いていない
 
 ## 調整値（推奨初期設定。原作の数値ではない）— src/core/config.js
 - 残機 3（現在の挑戦分を含む）・再保持の猶予 0.35 秒・命中後 1 秒は追加の保持解除なし・落下演出 0.9 秒＋暗転 0.45 秒

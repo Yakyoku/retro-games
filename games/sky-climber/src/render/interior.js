@@ -30,7 +30,7 @@ export function makeInteriorMaterial({ winW, winH, sillH, theme }) {
       varying vec3 vLocal; varying vec3 vCam; varying vec4 vRoom; varying float vDist;
       const float W = ${winW.toFixed(3)}; const float H = ${winH.toFixed(3)}; const float SILL = ${sillH.toFixed(3)};
       vec3 pal(float t) { return 0.55 + 0.35 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + t)); }
-      float hash(float n) { return fract(sin(n) * 43758.5453); }
+      float hash(float n) { n = fract(n * 0.1031); n *= n + 33.33; n *= n + n; return fract(n); }   // sin を使わない（画素ごとにぶれない）
       void main() {
         vec3 ro = vLocal, rd = normalize(vLocal - vCam);
         float seed = floor(vRoom.x * 1023.0 + 0.5) / 1023.0;   // 補間の誤差で乱数が画素ごとに変わらないよう丸める

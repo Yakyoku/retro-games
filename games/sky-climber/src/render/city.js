@@ -121,9 +121,10 @@ function makeFacadeMaterial(theme, s) {
     fragmentShader: `
       uniform vec3 uSunDir, uSun, uAmb, uSky, uFogColor; uniform float uFogD, uLit, uTime;
       varying vec3 vL; varying vec3 vNl; varying vec3 vN; varying vec3 vSize; varying vec4 vInfo; varying float vDist; varying vec3 vW;
-      float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      // 桁落ちに強い乱数（sin を使わない）。大きな引数の sin は GPU ごと・画素ごとに値がぶれて、窓の中に点々が出る
+      float h(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
       void main(){
-        vec3 n = normalize(vN); float seed = floor(vInfo.x * 255.0 + 0.5) / 255.0;   // 補間のわずかな誤差で乱数が画素ごとに変わらないよう丸める
+        vec3 n = normalize(vN); float sI = floor(vInfo.x * 250.0 + 0.5); float seed = sI / 250.0 + 0.002;   // 種は 1/250 刻みで渡し、四捨五入で受ける（補間の誤差で画素ごとに変わらない）   // 補間のわずかな誤差で乱数が画素ごとに変わらないよう丸める
         vec3 wall = mix(vec3(0.62, 0.64, 0.68), vec3(0.78, 0.7, 0.6), vInfo.z) * vInfo.w;
         vec3 col; vec3 em = vec3(0.0);
         float diff = max(dot(n, uSunDir), 0.0);
@@ -134,14 +135,14 @@ function makeFacadeMaterial(theme, s) {
           float u = (abs(vNl.x) > 0.5 ? vL.z * vSize.z : vL.x * vSize.x), v = vL.y * vSize.y;
           float style = vInfo.y;
           vec2 cell = vec2(mix(2.6, 3.6, fract(seed * 7.3)), mix(3.1, 3.6, fract(seed * 3.1)));
-          vec2 g = vec2(u, v) / cell; vec2 id = floor(g), f = fract(g);
+          vec2 g = vec2(u, v) / cell + 0.0007; vec2 id = floor(g), f = fract(g);
           vec2 aa = fwidth(g) * 1.5;
           float wx = smoothstep(0.12 - aa.x, 0.12 + aa.x, f.x) * (1.0 - smoothstep(0.88 - aa.x, 0.88 + aa.x, f.x));
           float wy = smoothstep(0.24 - aa.y, 0.24 + aa.y, f.y) * (1.0 - smoothstep(0.82 - aa.y, 0.82 + aa.y, f.y));
           float win = style < 0.33 ? wx * wy : style < 0.66 ? wy : max(wx * wy, 0.9) * step(0.04, f.x) * step(0.05, f.y); // 個別窓／横連窓／ガラス張り
           float lod = clamp(max(aa.x, aa.y) * 1.3, 0.0, 1.0);        // 遠くは平均にとかす（ちらつき防止）
           win = mix(win, 0.45, lod);
-          float r1 = h(id + seed * 57.0), r2 = h(id * 1.7 + seed * 13.0);
+          float r1 = h(id + vec2(sI, sI * 3.0)), r2 = h(id + vec2(sI * 5.0 + 17.0, sI + 41.0));
           // 窓ガラス: 空の反射（上の階ほど明るい）＋太陽のきらめき
           float fres = 0.35 + 0.65 * pow(1.0 - abs(dot(n, normalize(cameraPosition - vW))), 3.0);
           vec3 glass = mix(vec3(0.07, 0.1, 0.14), uSky * (0.55 + 0.5 * r2), fres) + uSun * pow(max(dot(reflect(-uSunDir, n), normalize(cameraPosition - vW)), 0.0), 40.0) * 0.8;
@@ -196,7 +197,7 @@ export class City {
 
     // ---- 遠景ビル（項目 18・19）: 段々のビル・塔屋つき。1 回の描画 ----
     const boxes = [];
-    const push = (x, y, z, w, h, d, ry, info) => boxes.push({ x, y, z, w, h, d, ry, info });
+    const push = (x, y, z, w, h, d, ry, info) => boxes.push({ x, y, z, w, h, d, ry, info: [Math.round(info[0] * 249) / 250, info[1], info[2], info[3]] });
     const nB = Math.round(260 * density);
     this.beaconPos = [];
     let tries = 0;

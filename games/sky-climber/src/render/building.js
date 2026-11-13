@@ -121,7 +121,7 @@ export class BuildingView {
     this.interiorMat = makeInteriorMaterial({ winW: WIN.w, winH: WIN_H, sillH: WIN.y0, theme });
     const quad = new THREE.PlaneGeometry(WIN.w, WIN_H);
     const room = new Float32Array(n * 4);
-    for (let i = 0; i < n; i++) { const w = wins[i]; room.set([w.room, theme === 'night' ? (w.lit ? 1 : 0) : theme === 'dusk' ? (w.lit && w.room > 0.4 ? 1 : 0) : (w.lit && w.room > 0.8 ? 1 : 0), w.curtain / 3, w.style / 5], i * 4); }
+    for (let i = 0; i < n; i++) { const w = wins[i]; room.set([Math.round(w.room * 1023) / 1023, theme === 'night' ? (w.lit ? 1 : 0) : theme === 'dusk' ? (w.lit && w.room > 0.4 ? 1 : 0) : (w.lit && w.room > 0.8 ? 1 : 0), w.curtain / 3, w.style / 5], i * 4); }
     quad.setAttribute('aRoom', new THREE.InstancedBufferAttribute(room, 4));
     this.rooms = new THREE.InstancedMesh(quad, this.interiorMat, n); this.group.add(this.rooms);
     // 固定のガラス（開いている窓は上半分に引き上げた戸が重なる）と、動くガラス戸

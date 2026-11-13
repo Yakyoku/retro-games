@@ -7,6 +7,7 @@ export const DEFAULTS = {
   v: SAVE_VERSION,
   difficulty: 'hard',
   quality: 'auto',
+  display: 'pixel', dither: true, scanlines: false,   // 2D の表示（ドット絵・網点・走査線）
   audio: { music: 0.75, sfx: 0.85, ambient: 0.5, muteMusic: false, muteSfx: false, muteAmbient: false },
   controls: { leftHanded: false, keys: null, pad: null, touchScale: 1, rumble: true },
   vr: { scale: 1.0, distance: 1.6, height: 0, seated: false, quality: 'balanced' },

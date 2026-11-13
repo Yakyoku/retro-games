@@ -42,14 +42,17 @@ export function knightPose(p, time) {
     P.armF = [lerp(1.4, 2.6, k), -0.2]; P.armB = [lerp(-1, 2.2, k), -0.2]; P.head = lerp(-0.3, -0.6, k); P.cape = 1.6;
   } else {
     const br = Math.sin(time * 2.2);
-    P.bob = 0.012 * br; P.armF = [0.15 + 0.03 * br, -0.35]; P.armB = [-0.08, -0.25]; P.legF = [0.08, 0.05]; P.legB = [-0.08, 0.05]; P.cape = 0.25 + 0.05 * br;
+    P.bob = 0.012 * br;
+    // 待機: 数秒ごとに辺りを見回し、鎧がないときは寒さに震える
+    const look = Math.sin(time * 0.45); P.head = look > 0.85 ? -(look - 0.85) * 2.2 : look < -0.9 ? (look + 0.9) * 2.5 : 0;
+    if (!p.armor) { P.bob += Math.sin(time * 38) * 0.006; P.legF[1] += 0.12 + Math.sin(time * 38) * 0.04; P.legB[1] += 0.12 - Math.sin(time * 38) * 0.04; P.armF = [0.5, -1.6]; P.armB = [0.4, -1.5]; } P.armF = [0.15 + 0.03 * br, -0.35]; P.armB = [-0.08, -0.25]; P.legF = [0.08, 0.05]; P.legB = [-0.08, 0.05]; P.cape = 0.25 + 0.05 * br;
   }
   if (p.landT > 0 && st !== 'crouch') { const k = p.landT / 0.12; P.hipY -= 0.08 * k; P.legF[1] += 0.5 * k; P.legB[1] += 0.5 * k; P.squash = 1 - 0.05 * k; }
   if (throwK > 0 && !P.climb) {
     // 投げ: 前の腕を後ろから前へ振り抜く（0.14 秒）。発射の瞬間が振り抜きの頂点
     const k = 1 - throwK;
-    P.armF = [lerp(2.4, 1.4, ease(k * 2)), lerp(-1.6, -0.1, ease(k * 1.6))];
-    P.lean += 0.12 * (1 - k);
+    P.armF = [lerp(2.9, 1.35, ease(k * 2)), lerp(-1.9, -0.05, ease(k * 1.6))]; // 大きく振りかぶってから振り抜く
+    P.lean += 0.18 * (1 - k) - 0.06 * k;
   }
   if (p.turnT > 0) P.lean -= 0.15 * (p.turnT / 0.08);
   P.plume = Math.sin(time * 5) * 0.08 + (st === 'run' ? 0.3 : 0) + (st === 'jump' ? -0.3 : 0);

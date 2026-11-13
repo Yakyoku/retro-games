@@ -14,7 +14,7 @@ class CastleSynth extends AudioWorkletProcessor {
       case 'init': sy.setPatches(m.patches); sy.setSamples(m.samples); this.songs = m.songs; this.sfx = m.sfx; break;
       case 'song': sy.playSong(m.id ? this.songs[m.id] : null, { fadeIn: m.fadeIn }); break;
       case 'fade': sy.fadeOut(m.sec || 1.0); break;
-      case 'sfx': sy.playSfx(this.sfx[m.id]); break;
+      case 'sfx': sy.playSfx(this.sfx[m.id], undefined, m.tr || 0); break;
       case 'vol': if (m.music != null) sy.musicVol = m.music; if (m.sfx != null) sy.sfxVol = m.sfx; break;
       case 'stopAll': sy.playSong(null); sy.sfx.length = 0; for (let c = 0; c < sy.fm.length; c++) sy.keyOff(c); for (let c = 0; c < sy.psg.length; c++) sy.psgOff(c); break;
     }

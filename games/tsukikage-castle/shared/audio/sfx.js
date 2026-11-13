@@ -25,7 +25,7 @@ export const SFX = {
   bossBoom: pcm(9, [[0, 'pcm', 'boom', 0, 1.0], [40, 'pcm', 'boom', -3, 0.9], [90, 'pcm', 'rumble', 0, 0.9]], 220),
   // プレイヤー
   armorBreak: fm(8, [[0, 'on', 88, P.SFX_CLANG, 0.6, -24], [3, 'on', 76, P.SFX_CLANG, 0.6, -36], [9, 'on', 64, P.SFX_CLANG, 0.5, -40], [22, 'off']], 40),
-  armorCrunch: pcm(8, [[0, 'pcm', 'crunch', 3, 0.8]], 30),
+  armorCrunch: pcm(8, [[0, 'pcm', 'crunch', 3, 0.8], [6, 'pcm', 'ring', 0, 0.55]], 90),
   hurtSq: sq(7, [[0, 'on', 88, 1, 0.6, -90], [14, 'off']], 20),
   land: pcm(0, [[0, 'pcm', 'tom', 10, 0.18]], 6),
   pitFall: sq(6, [[0, 'on', 84, 0, 0.5, -40], [60, 'off']], 70),
@@ -51,7 +51,7 @@ export const SFX = {
   jet: pcm(2, [[0, 'pcm', 'noise', -3, 0.5]], 40),
   // ボス
   warn: sq(6, [[0, 'on', 93, 2, 0.4, 0], [5, 'off'], [9, 'on', 93, 2, 0.4, 0], [14, 'off']], 20),
-  roar: fm(7, [[0, 'on', 36, P.SFX_ROAR, 0.75, -3], [70, 'off']], 90),
+  roar: fm(7, [[0, 'on', 36, P.SFX_ROAR, 0.75, -3], [12, 'on', 31, P.SFX_ROAR, 0.7, -2], [80, 'off']], 100),
   slash: fm(5, [[0, 'on', 60, P.SFX_THROW, 0.55, -60], [10, 'off']], 16),
   zapBig: fm(6, [[0, 'on', 55, P.SFX_ZAP, 0.5, 30], [30, 'off']], 40),
   gate: pcm(7, [[0, 'pcm', 'rumble', 0, 0.85]], 120),

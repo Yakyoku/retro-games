@@ -81,6 +81,11 @@ export class GameApp {
     const items = [
       vol('music', '曲（BGM）'), vol('sfx', '効果音'), vol('ambient', '環境音'),
       { label: () => `画質: ${qn[this.save.quality]}`, adj: (d) => { this.save.quality = qs[(qs.indexOf(this.save.quality) + d + 4) % 4]; this.persist(); this.renderer && this.renderer.setQuality(this.save.quality); } },
+      ...(this.variant === '2d' ? [
+        { label: () => `表示: ${this.save.display === 'smooth' ? 'なめらか（高精細）' : 'ドット絵（アーケード）'}`, adj: () => { this.save.display = this.save.display === 'smooth' ? 'pixel' : 'smooth'; this.persist(); this.renderer && this.renderer.resize(); } },
+        { label: () => `網点（色数を絞った質感）: ${this.save.dither === false ? 'オフ' : 'オン'}`, adj: () => { this.save.dither = this.save.dither === false; this.persist(); } },
+        { label: () => `走査線: ${this.save.scanlines ? 'オン' : 'オフ'}`, adj: () => { this.save.scanlines = !this.save.scanlines; this.persist(); } },
+      ] : []),
       { label: () => `左利き（タッチの左右を入れ替え・Quest は左手で操作）: ${this.save.controls.leftHanded ? 'オン' : 'オフ'}`, adj: () => { this.save.controls.leftHanded = !this.save.controls.leftHanded; this.persist(); this.renderer && this.renderer.onControls && this.renderer.onControls(); } },
       { label: () => `振動（対応機器のみ）: ${this.save.controls.rumble ? 'オン' : 'オフ'}`, adj: () => { this.save.controls.rumble = this.input.rumbleOn = !this.save.controls.rumble; this.persist(); } },
       { label: 'キーボードの割り当て', act: () => this.openKeys(from) },
@@ -133,9 +138,9 @@ export class GameApp {
       { label: 'タイトルへ戻る', act: () => this.toTitle() },
     ], { back: () => this.resume() });
   }
-  pause() { if (this.screen !== 'play') return; this.openPause(); this.audio.sfx('pause'); this.input.releaseAll(); }
-  resume() { this.screen = 'play'; this.menu = null; this.acc = 0; this.input.releaseAll(); this.audio.resume(); }
-  toTitle() { if (this.g) this.recordHi(); this.openTitle(); }
+  pause() { if (this.screen !== 'play') return; this.openPause(); this.audio.sfx('pause'); this.audio.setPaused(true); this.input.releaseAll(); }
+  resume() { this.screen = 'play'; this.menu = null; this.acc = 0; this.input.releaseAll(); this.audio.resume(); this.audio.setPaused(false); }
+  toTitle() { if (this.g) this.recordHi(); this.audio.setPaused(false); this.openTitle(); }
   recordHi() { const d = this.diff; if (this.g && this.g.score > this.save.hi[d]) { this.save.hi[d] = this.g.score; this.persist(); } }
 
   // ---------------------------------------------------------------- ゲーム
@@ -153,6 +158,10 @@ export class GameApp {
     for (const e of evs) {
       if (e.type === 'stageStart') { this.renderer.setStage(g); this.audio.ambient(g.def.theme); if (g.stageIndex > this.save.reached[this.diff]) { this.save.reached[this.diff] = g.stageIndex; this.persist(); } }
       if (e.type === 'armorBreak') this.input.rumble(140, 0.7);
+      if (e.type === 'enemyDie') this.hitstop = Math.max(this.hitstop || 0, e.strong ? 0.07 : 0.04);
+      if (e.type === 'bossHit' && e.weak) this.hitstop = Math.max(this.hitstop || 0, 0.035);
+      if (e.type === 'bossDie') this.hitstop = 0.28;
+      if (e.type === 'armorBreak') this.hitstop = Math.max(this.hitstop || 0, 0.09);
       const WN = { lance: '槍', dagger: '短剣', axe: '斧', torch: '火炎' };
       if (e.type === 'weaponGet') this.notice = { msg: `${WN[e.weapon]}を手に入れた`, t: 2.2 };
       if (e.type === 'armorGet') this.notice = { msg: '鎧をまとった', t: 2.2, col: '#bcd8ff' };
@@ -194,6 +203,7 @@ export class GameApp {
     if ((m.ok || m.pause || m.back) && !this.started) this.unlock();
     if (this.screen === 'play' && this.g) {
       if (m.pause) { this.pause(); this.input.endFrame(); return; }
+      if (this.hitstop > 0) { this.hitstop -= dt; this.input.endFrame(); return; } // 当てた瞬間のわずかな静止（手応え）
       if (!this.hold) {
         this.acc = Math.min(this.acc + dt, TICK * 8); // 大きく遅れたら追いつこうとしない（処理落ち時に一気に進めない）
         let n = 0;

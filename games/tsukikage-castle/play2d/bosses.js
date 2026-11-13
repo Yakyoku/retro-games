@@ -20,6 +20,7 @@ function stars(ctx, x, y, time) { for (let i = 0; i < 4; i++) { const a = time *
 export function drawBossNew(ctx, b, time) {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (b.st === 'dying') { const d = Math.min(1, b.deadT / 2.4); ctx.globalAlpha = 1 - d * 0.85; ctx.translate(Math.sin(time * 50) * 0.08 * d, -d * 0.6); ctx.rotate(d * 0.25); }
+  const br = 1 + Math.sin(time * 1.8 + (b.x0 || 0)) * 0.018; ctx.scale(1 / Math.sqrt(br), br); // 呼吸
   ART[b.type](ctx, b, time);
   if (b.hitT > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = `rgba(255,255,255,${(b.hitT / 0.1) * 0.65})`; ctx.fillRect(-5, -3, 10, 10); ctx.globalCompositeOperation = 'source-over'; }
   ctx.globalAlpha = 1;

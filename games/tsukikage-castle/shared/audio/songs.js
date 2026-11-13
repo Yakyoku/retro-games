@@ -52,6 +52,11 @@ const DRUM = {
   none: 'r1',
 };
 const bars = (list) => list.join(' ');
+// 8 小節ごとの区切りに入れるフィル（タムの連打からクラッシュ）。16 分 × 14 ＋ 8 分 = 1 小節
+const FILL = 'l16 S S T T S S T T K r S S S S C8';
+const drumLine = (pat, n) => Array.from({ length: n }, (_, i) => ((i + 1) % 8 === 0 ? FILL : DRUM[pat])).join(' ');
+// 対旋律がない曲には、和音の 3 度と 5 度を行き来する 2 分音符の対旋律を自動で付ける（厚みと動き）
+const autoCounter = (pr) => pr.map((c, i) => `${n(c.v[(i % 2) + 1] + 12, 2)} ${n(c.v[2 - (i % 2)] + 12, 2)}`).join(' ');
 const each = (pr, fn) => pr.map(fn).join(' ');
 
 function song(def) {
@@ -61,14 +66,14 @@ function song(def) {
     `t${def.tempo} @${def.bassP ?? P.SLAP_BASS} v${def.bassV ?? 13} q6 ${def.intro || ''} L ` + each(pr, BASS[def.bass]),
     `@${def.padP ?? P.TOMB_BRASS} v${def.padV ?? 9} q${def.padQ ?? 5} ${def.intro || ''} L ` + each(pr, (c) => STAB[def.stab](c, 1)),
     `@${def.padP ?? P.TOMB_BRASS} v${def.padV ?? 9} q${def.padQ ?? 5} ${def.intro || ''} L ` + each(pr, (c) => STAB[def.stab](c, 2)),
-    def.counter ? `@${def.counterP ?? P.GHOST_LEAD} v${def.counterV ?? 9} q7 D4 ${def.intro || ''} L ${def.counter}` : null,
+    `@${def.counter ? def.counterP ?? P.GHOST_LEAD : P.GHOST_LEAD} v${def.counter ? def.counterV ?? 9 : 6} q7 D4 ${def.intro || ''} L ${def.counter || autoCounter(pr)}`,
   ];
   const psg = [
-    `@${def.leadP ?? 0} v${def.leadV ?? 12} q7 ${def.intro || ''} L ${bars(B)}`,
+    `@${def.leadP ?? 0} v${def.leadV ?? 12} q7 y3 ${def.intro || ''} L ${bars(B)}`, // 旋律に拍子の合った短いエコー
     def.arp ? `@${def.arpP ?? 1} v${def.arpV ?? 8} q5 ${def.intro || ''} L ` + each(pr, ARP[def.arp]) : null,
   ];
   const pcm = [
-    def.drum ? `v${def.drumV ?? 12} ${def.intro ? def.intro : ''} L ${rep(DRUM[def.drum], pr.length)}` : null,
+    def.drum ? `v${def.drumV ?? 12} ${def.intro ? def.intro : ''} L ${drumLine(def.drum, pr.length)}` : null,
     def.perc ? `v10 ${def.intro || ''} L ${def.perc}` : null,
   ];
   return compileSong({ id: def.id, title: def.title, tempo: def.tempo, fm, psg, pcm, loopBars: pr.length, barsSrc: B });

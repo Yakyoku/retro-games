@@ -267,12 +267,16 @@ export function createTerrain(scrollG, clip, lights, decorMat, jobs, getOpts) {
     group.userData.ready = true;
   }
 
+  // シェーダーの準備用（M10）: 地表・崖・飾り・滝の材質を持つ小さな三角形。world が準備のフレームだけ表示する
+  const warmG = new THREE.Group(); warmG.visible = false; warmG.position.set(0, -9000, 0); scrollG.add(warmG);
+  { const mk = (mat, extra) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0.01, 0, 0, 0, 0, 0.01], 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3)); g.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2)); if (extra) extra(g); const m = new THREE.Mesh(g, mat); m.frustumCulled = false; warmG.add(m); };
+    mk(topMat); mk(cliffMat); mk(decorMat, (g) => g.setAttribute('aMat', new THREE.Float32BufferAttribute([0, 0.5, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0.5, 0.5, 0], 4))); mk(fallMat, (g) => g.setAttribute('aSeed', new THREE.Float32BufferAttribute([0, 0, 0], 1))); }
   function disposeArea(a) { if (!a) return; for (const g of a.groups) { scrollG.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); } }
   function applyTheme(t, theme) {
     const old = themeTex; themeTex = t;
     topMat.map = t.map; topMat.normalMap = t.normalMap; topMat.roughnessMap = t.mask; topMat.metalnessMap = t.mask; topMat.normalScale.set(t.params.normal, t.params.normal);
     const U = topMat.userData.U; U.uEm.value = t.params.em; U.uEmCol.value.set(t.params.emColor); U.uEmMode.value = t.params.emMode;
-    const first = !old; topMat.needsUpdate = first;
+    const first = !old; topMat.needsUpdate = first; if (first && api.onFirstTheme) api.onFirstTheme();
     if (old) { old.map.dispose(); old.normalMap.dispose(); old.mask.dispose(); }
     const sh = SHAPE[theme]; fallMat.uniforms.uCol.value.set(sh.fall[0]); fallMat.uniforms.uP.value.set(sh.fall[1], sh.fall[2], sh.fall[3]);
   }
@@ -294,7 +298,7 @@ export function createTerrain(scrollG, clip, lights, decorMat, jobs, getOpts) {
   }
 
   const api = {
-    uScroll, topMat, cliffMat,
+    uScroll, topMat, cliffMat, warmG, onFirstTheme: null,
     // エリアの地形を作り始める（前のエリアは、新しいテクスチャができた時点で入れ替える）
     request(def, areaIdx, near = 0) {
       gen++; jobs.clear('terrain');

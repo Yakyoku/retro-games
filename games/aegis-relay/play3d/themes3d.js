@@ -127,7 +127,7 @@ const PAINT = {
     for (let i = 0; i < 150; i++) { const x = r(), y = r(), rad = 0.012 + r() * 0.04, t = r(); const col = t < 0.4 ? '104,150,74' : t < 0.75 ? '62,104,52' : '150,178,96'; // 苔のかたまり
       T.soft('a', x, y, rad, `rgba(${col},.75)`, `rgba(${col},0)`); T.soft('h', x, y, rad, 0.85, 0.5, 0.6, 0); }
     for (let i = 0; i < 7; i++) { const x = r(), y = r(), rad = 0.035 + r() * 0.06; // 水たまり（暗く、なめらか、きらめく）
-      for (let k = 0; k < 4; k++) { const ox = (r() - 0.5) * rad, oy = (r() - 0.5) * rad, rr = rad * (0.6 + r() * 0.5); T.disc('a', x + ox, y + oy, rr * 1.12, 'rgba(120,140,92,.5)'); T.disc('a', x + ox, y + oy, rr, '#123a40'); T.disc('h', x + ox, y + oy, rr * 1.1, 0.22); T.disc('r', x + ox, y + oy, rr, 0.05); T.disc('e', x + ox, y + oy, rr, 0.22); }
+      for (let k = 0; k < 4; k++) { const ox = (r() - 0.5) * rad, oy = (r() - 0.5) * rad, rr = rad * (0.6 + r() * 0.5); T.disc('a', x + ox, y + oy, rr * 1.12, 'rgba(120,140,92,.5)'); T.disc('a', x + ox, y + oy, rr, '#123a40'); T.disc('h', x + ox, y + oy, rr * 1.1, 0.22); T.disc('r', x + ox, y + oy, rr, 0.07); T.disc('e', x + ox, y + oy, rr, 0.03); }
       for (let k = 0; k < 14; k++) { const a = r() * 6.28, d = r() * rad * 0.9; T.disc('e', x + Math.cos(a) * d, y + Math.sin(a) * d, 0.0035, 1); T.disc('a', x + Math.cos(a) * d, y + Math.sin(a) * d, 0.0025, 'rgba(210,255,240,.8)'); } }
     for (let i = 0; i < 900; i++) { const x = r(), y = r(), a = r() * 6.28, l = 0.004 + r() * 0.008; T.line('a', [[x, y], [x + Math.cos(a) * l, y + Math.sin(a) * l]], 0.0016, r() < 0.5 ? 'rgba(190,225,130,.55)' : 'rgba(30,60,30,.5)'); } // 草
     for (let i = 0; i < 40; i++) { const x = r(), y = r(); T.disc('a', x, y, 0.004, r() < 0.5 ? '#f4f0c0' : '#ffd0e8'); T.soft('e', x, y, 0.008, 0.6, 1, 0.6, 0); } // 小さな花

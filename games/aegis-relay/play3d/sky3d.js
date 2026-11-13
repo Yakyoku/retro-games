@@ -71,17 +71,32 @@ export function createSky(renderer, stage, board, clip, getOpts) {
       }` });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(90, 32, 20), domeMat); dome.renderOrder = -20; dome.frustumCulled = false; skyG.add(dome);
   const hueShift = (hex, loop, mul = 1) => { const c = new THREE.Color(hex); if (loop) c.offsetHSL((loop * 0.11) % 1, 0, 0); return c.multiplyScalar(mul); };
-  function bake(area, loop) {
+  // 焼くのは重い（全天 200 万画素 × ノイズ数十回）ので、裏の描画先へ 8 本の帯に分けて 1 フレーム 1 本ずつ描き、終わったら差し替える（M10）。
+  // 最初の 1 回だけは、空が何もない状態を見せないよう一度に焼く。
+  let rtBack = null, bakeGen = null;
+  const makeRT = (W) => { const t = new THREE.WebGLRenderTarget(W, W / 2, { depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, generateMipmaps: false, wrapS: THREE.RepeatWrapping }); t.texture.colorSpace = THREE.SRGBColorSpace; return t; };
+  function* bakeSteps(area, loop, strips) {
     const lite = getOpts().lite, W = lite ? 1024 : 2048;
-    if (!rt || rt.width !== W) { rt?.dispose(); rt = new THREE.WebGLRenderTarget(W, W / 2, { depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter, generateMipmaps: false, wrapS: THREE.RepeatWrapping }); rt.texture.colorSpace = THREE.SRGBColorSpace; }
+    if (!rtBack || rtBack.width !== W) { rtBack?.dispose(); rtBack = makeRT(W); }
     const th = THEMES[AREAS[area].theme], u = bakeMat.uniforms;
-    u.uC0.value.copy(hueShift(th.sky[0], loop, 0.9)); u.uC1.value.copy(hueShift(th.sky[1], loop, 1.5)); u.uC2.value.copy(hueShift(th.sky[2], loop, 1.9));
-    u.uC3.value.copy(hueShift(th.glow, loop, 0.16)); u.uSeed.value.set(area * 7.3 + 1.1 + loop * 3.7, area * 3.1 + 4.2, area * 5.7 + 9.3);
-    const prev = renderer.getRenderTarget(), xr = renderer.xr.enabled; renderer.xr.enabled = false;
-    renderer.setRenderTarget(rt); renderer.render(bakeScene, bakeCam); renderer.setRenderTarget(prev); renderer.xr.enabled = xr;
+    const c0 = hueShift(th.sky[0], loop, 0.9), c1 = hueShift(th.sky[1], loop, 1.5), c2 = hueShift(th.sky[2], loop, 1.9), c3 = hueShift(th.glow, loop, 0.16);
+    for (let i = 0; i < strips; i++) {
+      u.uC0.value.copy(c0); u.uC1.value.copy(c1); u.uC2.value.copy(c2); u.uC3.value.copy(c3); u.uSeed.value.set(area * 7.3 + 1.1 + loop * 3.7, area * 3.1 + 4.2, area * 5.7 + 9.3);
+      const x0 = Math.floor((i * W) / strips), x1 = Math.floor(((i + 1) * W) / strips);
+      rtBack.scissorTest = strips > 1; rtBack.scissor.set(x0, 0, x1 - x0, W / 2);
+      const prev = renderer.getRenderTarget(), xr = renderer.xr.enabled, ac = renderer.autoClear; renderer.xr.enabled = false; renderer.autoClear = false;
+      renderer.setRenderTarget(rtBack); renderer.render(bakeScene, bakeCam); renderer.setRenderTarget(prev); renderer.xr.enabled = xr; renderer.autoClear = ac;
+      if (i < strips - 1) yield;
+    }
+    const t = rt; rt = rtBack; rtBack = t;         // 差し替え
     domeMat.uniforms.tSky.value = rt.texture;
   }
+  function bake(area, loop) {
+    if (!rt) { const g = bakeSteps(area, loop, 1); while (!g.next().done); bakeGen = null; }
+    else bakeGen = bakeSteps(area, loop, 8);
+  }
 
+  const liteAware = []; // [形, 数]: 軽量画質では半分だけ描く
   // ── 天球の星（動かない。瞬きだけ）。明るい星には十字の光条 ──
   const starMat = new THREE.ShaderMaterial({
     uniforms: { uTime: shared.time, uPx: { value: 600 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -98,7 +113,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         #include <colorspace_fragment>
       }` });
   {
-    const r = rng(77), n = getOpts().lite ? 1400 : 2600, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), aS = new Float32Array(n * 4);
+    const r = rng(77), n = 2600, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), aS = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
       const u = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - u * u), rad = 80;
       pos[i * 3] = Math.cos(a) * s * rad; pos[i * 3 + 1] = u * rad; pos[i * 3 + 2] = Math.sin(a) * s * rad;
@@ -106,7 +121,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
       col[i * 3] = b * (tcol < 0.25 ? 0.72 : tcol > 0.8 ? 1.0 : 0.95); col[i * 3 + 1] = b * (tcol < 0.25 ? 0.84 : tcol > 0.8 ? 0.8 : 0.95); col[i * 3 + 2] = b * (tcol < 0.25 ? 1.0 : tcol > 0.8 ? 0.6 : 0.95);
       aS[i * 4] = big ? 1.5 + r() * 0.9 : 0.16 + r() * r() * 0.3; aS[i * 4 + 1] = 0.6 + r() * 3.2; aS[i * 4 + 2] = r() * 6.28; aS[i * 4 + 3] = big ? 1 : 0;
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4));
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4)); liteAware.push([g, n]);
     const pts = new THREE.Points(g, starMat); pts.frustumCulled = false; pts.renderOrder = -19; skyG.add(pts);
     const vp = new THREE.Vector4();
     pts.onBeforeRender = (rn, sc, cam) => { rn.getCurrentViewport(vp); starMat.uniforms.uPx.value = vp.w * 0.5 * cam.projectionMatrix.elements[5]; };
@@ -156,14 +171,19 @@ export function createSky(renderer, stage, board, clip, getOpts) {
   const ring = new THREE.Mesh(ringGeo, ringMat); ring.renderOrder = -16; ring.frustumCulled = false; skyG.add(ring);
   // 月（小さい 2 つ目の天体）
   const moon = new THREE.Mesh(planet.geometry, planetMat); moon.renderOrder = -18; moon.frustumCulled = false; skyG.add(moon);
+  let bodyArea = 0, bodyXr = null;
+  // 通常画面では画面の上の隅に、VR では戦域の横・目の高さ近くに置く（VR で戦域の真後ろに重ならないように）
+  function placeBody(xr) {
+    const B = BODIES[bodyArea % BODIES.length], sgn = Math.sign(B.az) || 1;
+    const az = THREE.MathUtils.degToRad(xr ? (B.az ? sgn * 52 : 0) : B.az), el = THREE.MathUtils.degToRad(xr ? (B.az ? 4 : 30) : B.el), D = 60;
+    planet.position.set(Math.sin(az) * Math.cos(el) * D, 1.2 + Math.sin(el) * D, -Math.cos(az) * Math.cos(el) * D); planet.scale.setScalar(B.r);
+    halo.position.copy(planet.position); halo.scale.setScalar(B.r * 1.16);
+    ring.visible = !!B.ring; ring.position.copy(planet.position); ring.scale.setScalar(B.r * 1.95); ring.rotation.set(0.42, 0, 0.3 * sgn);
+    moon.position.copy(planet.position); moon.position.x += -sgn * B.r * 1.5; moon.position.y += B.r * 1.0; moon.position.z += 6; moon.scale.setScalar(B.r * 0.17);
+  }
   function setBody(area, loop) {
     const B = BODIES[area % BODIES.length], u = planetMat.uniforms;
-    const az = THREE.MathUtils.degToRad(B.az), el = THREE.MathUtils.degToRad(B.el), D = 60;
-    planet.position.set(Math.sin(az) * Math.cos(el) * D, 1.2 + Math.sin(el) * D, -Math.cos(az) * Math.cos(el) * D); planet.scale.setScalar(B.r);
-    planet.rotation.set(0.3, area * 1.3, 0.2);
-    halo.position.copy(planet.position); halo.scale.setScalar(B.r * 1.16);
-    ring.visible = !!B.ring; ring.position.copy(planet.position); ring.scale.setScalar(B.r * 1.95); ring.rotation.set(0.42, 0, 0.3 * Math.sign(B.az || 1));
-    moon.position.copy(planet.position).add(new THREE.Vector3(-Math.sign(B.az || 1) * B.r * 1.5, B.r * 1.0, 6)); moon.scale.setScalar(B.r * 0.17);
+    bodyArea = area; planet.rotation.set(0.3, area * 1.3, 0.2); placeBody(!!bodyXr);
     u.uA.value.copy(hueShift(B.a, loop)); u.uB.value.copy(hueShift(B.b, loop)); u.uAtm.value.copy(hueShift(B.atm, loop)); u.uGlowC.value.set(B.glow); u.uBand.value = B.band; u.uSeed.value = area * 0.37 + 0.11;
   }
 
@@ -220,13 +240,13 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         float n2 = texture2D(tNoise, q * 1.3 + vec2(0.5, uTime * 0.002)).r;
         float gas = smoothstep(0.38, 0.75, n);
         vec3 col = mix(uC1 * 0.5, uC1, gas) + uC2 * pow(gas, 3.0) * 0.8; col *= 1.0 - 0.6 * smoothstep(0.5, 0.75, n2);
-        vec2 e = abs(vUv - 0.5) * 2.0; float fade = (1.0 - smoothstep(0.55, 1.0, e.x)) * (1.0 - smoothstep(0.6, 1.0, e.y));
+        vec2 e = abs(vUv - 0.5) * 2.0; float fade = (1.0 - smoothstep(0.5, 0.98, e.x)) * (1.0 - smoothstep(0.55, 0.98, e.y));
         gl_FragColor = vec4(col, fade * (0.35 + 0.65 * gas));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         #include <dithering_fragment>
       }` });
-  const deepGeo = new THREE.PlaneGeometry(HW * 2.6, HH * 2.6); deepGeo.rotateX(-Math.PI / 2);
+  const deepGeo = new THREE.PlaneGeometry(HW * 2, HH * 2); // 盤面と同じ大きさ（クリップ面で切れる前に、縁のぼかしで消えるように） deepGeo.rotateX(-Math.PI / 2);
   const deep = new THREE.Mesh(deepGeo, deepMat); deep.position.y = -170; deep.renderOrder = -6; deep.frustumCulled = false; win.add(deep);
 
   // 雲・霧（下の層と上の薄い層）
@@ -241,12 +261,12 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         vec2 q = vec2(vW.x + uTime * 1.5, vW.z - uScroll * uSpeed) / uScale;
         float n = texture2D(tNoise, q).r * 0.65 + texture2D(tNoise, q * 2.1 + vec2(uTime * 0.004, 0.0)).g * 0.35;
         float a = smoothstep(0.5, 0.82, n);
-        vec2 e = abs(vUv - 0.5) * 2.0; a *= (1.0 - smoothstep(0.7, 1.0, e.x)) * (1.0 - smoothstep(0.7, 1.0, e.y));
+        vec2 e = abs(vUv - 0.5) * 2.0; a *= (1.0 - smoothstep(0.62, 0.98, e.x)) * (1.0 - smoothstep(0.66, 0.98, e.y));
         gl_FragColor = vec4(uCol * (0.55 + 0.6 * n), a * uAlpha);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }` });
-  const cgeo = new THREE.PlaneGeometry(HW * 2.3, HH * 2.3); cgeo.rotateX(-Math.PI / 2);
+  const cgeo = new THREE.PlaneGeometry(HW * 2, HH * 2); cgeo.rotateX(-Math.PI / 2);
   const cloudLo = new THREE.Mesh(cgeo, cloudMat(0.62, 0.62, -58, 330)); cloudLo.position.y = -58; cloudLo.renderOrder = -4; cloudLo.frustumCulled = false; win.add(cloudLo);
   const cloudHi = new THREE.Mesh(cgeo, cloudMat(1.35, 0.16, 33, 420)); cloudHi.position.y = 33; cloudHi.renderOrder = 12; cloudHi.frustumCulled = false; win.add(cloudHi);
 
@@ -278,7 +298,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
   const vp = new THREE.Vector4();
   const setPx = (mat) => (rn, sc, cam) => { rn.getCurrentViewport(vp); mat.uniforms.uPx.value = vp.w * 0.5 * cam.projectionMatrix.elements[5] * scaleOf(); };
   {
-    const r = rng(5), n = getOpts().lite ? 420 : 800, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), aS = new Float32Array(n * 4);
+    const r = rng(5), n = 801, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), aS = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
       const layer = i % 3, y = [-70, -115, -165][layer], sp = [0.42, 0.24, 0.1][layer];
       pos[i * 3] = (r() * 2 - 1) * HW * 1.3; pos[i * 3 + 1] = y + (r() - 0.5) * 24; pos[i * 3 + 2] = (r() * 2 - 1) * HH * 1.3;
@@ -286,7 +306,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
       col[i * 3] = b * (tcol < 0.3 ? 0.7 : tcol > 0.8 ? 1.0 : 0.95); col[i * 3 + 1] = b * (tcol < 0.3 ? 0.85 : tcol > 0.8 ? 0.82 : 0.95); col[i * 3 + 2] = b * (tcol < 0.3 ? 1.0 : tcol > 0.8 ? 0.62 : 0.95);
       aS[i * 4] = big ? 2.6 + r() * 1.6 : [0.9, 0.7, 0.55][layer] * (0.6 + r() * 0.8); aS[i * 4 + 1] = 0.8 + r() * 3.5; aS[i * 4 + 2] = r() * 6.28; aS[i * 4 + 3] = sp;
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4));
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4)); liteAware.push([g, n]);
     const pts = new THREE.Points(g, wsMat); pts.frustumCulled = false; pts.renderOrder = -5; pts.onBeforeRender = setPx(wsMat); win.add(pts);
   }
 
@@ -296,7 +316,7 @@ export function createSky(renderer, stage, board, clip, getOpts) {
     for (let i = 0; i < p.count; i++) { const key = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`; let k = seen.get(key); if (k == null) { k = 0.72 + r() * 0.5; seen.set(key, k); } p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.7, p.getZ(i) * k); }
     rockGeo.computeVertexNormals(); }
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x2a2c38, roughness: 1, metalness: 0, flatShading: true, clippingPlanes: clip, envMapIntensity: 0.25 });
-  const RN = getOpts().lite ? 12 : 22;
+  const RN = 22;
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, RN); rocks.frustumCulled = false; rocks.renderOrder = -3; win.add(rocks);
   const rockD = []; { const r = rng(21); for (let i = 0; i < RN; i++) rockD.push({ x: (r() * 2 - 1) * HW * 1.15, y: -52 - r() * 85, z: r(), s: 4 + r() * r() * 16, rx: r() * 6, ry: r() * 6, w: (r() - 0.5) * 0.3 }); }
   const dm = new THREE.Object3D();
@@ -333,9 +353,9 @@ export function createSky(renderer, stage, board, clip, getOpts) {
         #include <colorspace_fragment>
       }` });
   {
-    const r = rng(31), n = getOpts().lite ? 110 : 240, pos = new Float32Array(n * 3), aS = new Float32Array(n * 4);
+    const r = rng(31), n = 240, pos = new Float32Array(n * 3), aS = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) { pos[i * 3] = (r() * 2 - 1) * HW; pos[i * 3 + 1] = r() * 46; pos[i * 3 + 2] = (r() * 2 - 1) * HH; aS[i * 4] = r(); aS[i * 4 + 1] = r(); aS[i * 4 + 2] = r() * 6.28; }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4));
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aS', new THREE.BufferAttribute(aS, 4)); liteAware.push([g, n]);
     const pts = new THREE.Points(g, ambMat); pts.frustumCulled = false; pts.renderOrder = 13; pts.onBeforeRender = setPx(ambMat); win.add(pts);
   }
 
@@ -354,16 +374,20 @@ export function createSky(renderer, stage, board, clip, getOpts) {
       const A = AMB[AREAS[area].theme]; ambMat.uniforms.uCol.value.set(A.c); ambMat.uniforms.uV.value.set(A.vy, A.vz, A.sway, 0); ambMat.uniforms.uP.value.set(A.size, A.tw, A.a);
       return true;
     },
-    frame(dt, scroll, gain, run) {
+    frame(dt, scroll, gain, run, xr) {
       uScroll.value = scroll;
+      if (bodyXr !== !!xr) { bodyXr = !!xr; placeBody(bodyXr); }
+      if (bakeGen && bakeGen.next().done) bakeGen = null;   // 星雲の焼き直しを 1 フレームに 1 帯ずつ
       domeMat.uniforms.uGain.value = gain; planetMat.uniforms.uGain.value = gain;
-      cloudHi.visible = !getOpts().lite;
-      for (let i = 0; i < RN; i++) { const d = rockD[i]; const sp = 0.25 + (d.y + 140) / 90 * 0.3; const range = HH * 2.5; const z = ((d.z * range + scroll * sp) % range) - range / 2;
+      const lite = getOpts().lite;
+      cloudHi.visible = !lite; rocks.count = lite ? 12 : RN;
+      for (let i = 0; i < liteAware.length; i++) liteAware[i][0].setDrawRange(0, lite ? liteAware[i][1] >> 1 : liteAware[i][1]);
+      for (let i = 0; i < rocks.count; i++) { const d = rockD[i]; const sp = 0.25 + (d.y + 140) / 90 * 0.3; const range = HH * 2.5; const z = ((d.z * range + scroll * sp) % range) - range / 2;
         dm.position.set(d.x, d.y, z); dm.rotation.set(d.rx + shared.time.value * d.w, d.ry, 0); dm.scale.setScalar(d.s); dm.updateMatrix(); rocks.setMatrixAt(i, dm.matrix); }
       rocks.instanceMatrix.needsUpdate = true;
       farEvents(run ? dt : 0);
     },
-    dispose() { rt?.dispose(); },
+    dispose() { rt?.dispose(); rtBack?.dispose(); },
   };
   return api;
 }

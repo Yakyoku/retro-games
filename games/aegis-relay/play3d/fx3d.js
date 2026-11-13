@@ -49,7 +49,7 @@ void main() {
     float heat = clamp(v * 1.3 + (1.0 - t) * 0.55 - 0.15, 0.0, 1.0);
     vec3 ramp = mix(vec3(0.45, 0.05, 0.01), vec3(1.0, 0.36, 0.05), smoothstep(0.0, 0.4, heat));
     ramp = mix(ramp, vec3(1.0, 0.8, 0.32), smoothstep(0.35, 0.75, heat)); ramp = mix(ramp, vec3(1.0), smoothstep(0.75, 1.0, heat));
-    col = ramp * col * (1.0 + 1.6 * heat);
+    col = ramp * col * (1.0 + 0.7 * heat);
   } else if (kind < 2.5) {          // 2: 煙
     vec2 q = vUv * 0.45 + vec2(seed * 0.53, seed * 0.29);
     float n = texture2D(tNoise, q + vec2(0.0, -t * 0.08)).r;
@@ -202,17 +202,17 @@ export function createFx(board, clip, debrisGeo, hullMat, getOpts) {
     // 多段の爆発（C21）: 閃光 → 火球 → 破片 → 煙 → 衝撃波。big は連鎖
     explode(x, y, z, r, big, tint, o = {}) {
       const q = getOpts(), lite = q.lite, n = (k) => (lite ? Math.ceil(k * 0.5) : k);
-      const sz = r * (big ? 1.5 : 1.15);
-      spawn(0, x, y + 1, z, 0, 0, 0, big ? 0.22 : 0.14, sz * 6 * (0.5 + 0.5 * q.flash), sz * 9, 0xfff4d8, 0.9 * (0.3 + 0.7 * q.flash), 1, 0);            // 閃光
-      for (let i = 0; i < n(big ? 7 : 3); i++) { const a = R() * 6.283, d = R() * sz * 0.55; spawn(1, x + Math.cos(a) * d, y + R() * 3, z + Math.sin(a) * d, Math.cos(a) * 14, 8 + R() * 14, Math.sin(a) * 14, 0.42 + R() * 0.38, sz * 1.5, sz * 2.9, 0xffffff, 1, 1, 1.6, 0, 0, i * 0.025); }
+      const sz = r * (big ? 1.35 : 1.1);
+      spawn(0, x, y + 1, z, 0, 0, 0, big ? 0.16 : 0.11, sz * 3.2, sz * 4.6, 0xfff0d0, 0.55 * (0.25 + 0.75 * q.flash), 1, 0);                                 // 閃光
+      for (let i = 0; i < n(big ? 7 : 3); i++) { const a = R() * 6.283, d = R() * sz * 0.5; spawn(1, x + Math.cos(a) * d, y + R() * 3, z + Math.sin(a) * d, Math.cos(a) * 12, 8 + R() * 12, Math.sin(a) * 12, 0.42 + R() * 0.38, sz * 1.0, sz * 2.1, 0xffffff, 0.95, 0.45, 1.6, 0, 0, i * 0.025); } // 火球
       if (big) for (let i = 0; i < n(6); i++) { const a = R() * 6.283, d = sz * (0.5 + R() * 1.0), dl = 0.12 + i * 0.085; // 連鎖
-        spawn(0, x + Math.cos(a) * d, y + 2, z + Math.sin(a) * d, 0, 0, 0, 0.1, sz * 3, sz * 4, 0xfff0c8, 0.7 * q.flash, 1, 0, 0, 0, dl);
-        spawn(1, x + Math.cos(a) * d, y + R() * 4, z + Math.sin(a) * d, 0, 10, 0, 0.4 + R() * 0.3, sz * 0.9, sz * 1.9, 0xffffff, 1, 1, 1.5, 0, 0, dl); }
-      for (let i = 0; i < n(big ? 5 : 2); i++) { const a = R() * 6.283, d = R() * sz * 0.5; spawn(2, x + Math.cos(a) * d, y + 2, z + Math.sin(a) * d, Math.cos(a) * 8, 10 + R() * 10, Math.sin(a) * 8, 0.9 + R() * 0.7, sz * 1.4, sz * 3.2, 0x3a3038, 0.5, 0, 1.2, 0, 0, 0.12 + R() * 0.2); } // 煙
-      api.sparks(x, y, z, n(big ? 26 : 12), big ? 150 : 100, 0xffd9a0, big ? 0.6 : 0.42, big ? 2.2 : 1.6);
-      spawn(4, x, y, z, 0, 0, 0, big ? 0.6 : 0.36, sz * 1.5, sz * (big ? 11 : 7), 0xffe2b8, 0.75, 1, 0, 0, -1);                                             // 衝撃波
+        spawn(0, x + Math.cos(a) * d, y + 2, z + Math.sin(a) * d, 0, 0, 0, 0.09, sz * 1.6, sz * 2.4, 0xffe8c0, 0.45 * q.flash, 1, 0, 0, 0, dl);
+        spawn(1, x + Math.cos(a) * d, y + R() * 4, z + Math.sin(a) * d, 0, 10, 0, 0.4 + R() * 0.3, sz * 0.7, sz * 1.5, 0xffffff, 0.95, 0.45, 1.5, 0, 0, dl); }
+      for (let i = 0; i < n(big ? 5 : 2); i++) { const a = R() * 6.283, d = R() * sz * 0.5; spawn(2, x + Math.cos(a) * d, y + 2, z + Math.sin(a) * d, Math.cos(a) * 8, 10 + R() * 10, Math.sin(a) * 8, 0.9 + R() * 0.7, sz * 1.2, sz * 2.6, 0x3a3038, 0.5, 0, 1.2, 0, 0, 0.12 + R() * 0.2); } // 煙
+      api.sparks(x, y, z, n(big ? 26 : 12), big ? 150 : 100, 0xffc880, big ? 0.6 : 0.42, big ? 2.0 : 1.5);
+      spawn(4, x, y, z, 0, 0, 0, big ? 0.55 : 0.34, sz * 1.5, sz * (big ? 9 : 6), 0xffb070, 0.45, 1, 0, 0, -1);                                                // 衝撃波
       debris(x, y, z, n(big ? 12 : 5), big ? 85 : 60, big ? 1.5 : 1.0, tint ?? 0xb8c0cc);
-      light(x, y, z, 0xffb060, big ? 2.6 : 1.5, sz * (big ? 9 : 6));
+      light(x, y, z, 0xffa050, big ? 1.0 : 0.55, sz * (big ? 8 : 6));
       if (o.scorchWy != null) addScorch(x, o.scorchWy, sz * (big ? 3.4 : 2.6));
     },
     // 1 フレームぶん進めて、fx 層へ書き出す（begin 済みの fx に追記する）

@@ -48,7 +48,7 @@ export function createWorld3D(renderer, app) {
       fragmentShader: 'varying vec3 vP; void main(){ vec3 d = normalize(vP); float h = d.y * 0.5 + 0.5; vec3 c = mix(vec3(0.02, 0.025, 0.06), vec3(0.16, 0.2, 0.36), pow(h, 1.5)); c += vec3(0.25, 0.1, 0.32) * pow(max(0.0, dot(d, normalize(vec3(0.6, 0.2, -0.7)))), 3.0); gl_FragColor = vec4(c, 1.0); }' });
     env.add(new THREE.Mesh(new THREE.SphereGeometry(20, 24, 16), skyM));
     const strip = (x, y, z, w, h, d, c, i) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(i) })); m.position.set(x, y, z); m.lookAt(0, 0, 0); env.add(m); };
-    strip(-8, 9, -5, 10, 1.6, 0.2, 0xfff2dc, 22); strip(-3, 11, 4, 1.2, 8, 0.2, 0xffffff, 12); strip(9, 3, 7, 7, 1.0, 0.2, 0x58b8ff, 14); strip(6, 8, -8, 5, 0.7, 0.2, 0xcfe4ff, 9); strip(0, -9, 0, 9, 9, 0.2, 0x1a2440, 2);
+    strip(-8, 9, -5, 9, 1.2, 0.2, 0xfff2dc, 7); strip(-3, 11, 4, 1.0, 7, 0.2, 0xffffff, 4.5); strip(9, 3, 7, 7, 1.0, 0.2, 0x58b8ff, 6); strip(6, 8, -8, 5, 0.7, 0.2, 0xcfe4ff, 4); strip(0, -9, 0, 9, 9, 0.2, 0x1a2440, 2);
     const pm = new THREE.PMREMGenerator(renderer); const rtEnv = pm.fromScene(env, 0.035); scene.environment = rtEnv.texture; pm.dispose();
     env.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
   }
@@ -61,6 +61,7 @@ export function createWorld3D(renderer, app) {
   const sky = createSky(renderer, stage, board, clip, getOpts);
   const terrain = createTerrain(scrollG, clip, fx.lights, decorMat, jobs, getOpts);
   const bezel = createFrame(board, scene, frameMat);
+  terrain.onFirstTheme = () => { warmN = 3; }; // 地表のテクスチャが初めてそろったら、その組み合わせのシェーダーも先に用意する
 
   // ── 物体 ──
   const airDef = airKinds(), gndDef = groundKinds();
@@ -114,8 +115,8 @@ export function createWorld3D(renderer, app) {
           const h = e.ground ? 5 : AIR_H, big = !!e.big, core = e.type === 'core';
           const wy = e.ground ? e.wy : (overLandFn(g, e.x, e.y) ? g.scroll - e.y : null);
           fx.explode(x, h, z, e.r || 8, big, TINT[e.type], { scorchWy: wy });
-          if (core) { for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU, d = 14 + (i % 3) * 9; fx.spawn(1, x + Math.cos(a) * d, 8 + i, z + Math.sin(a) * d, 0, 14, 0, 0.7, 16, 40, 0xffffff, 1, 1, 1.2, 0, 0, 0.15 + i * 0.12); fx.spawn(0, x + Math.cos(a) * d, 10, z + Math.sin(a) * d, 0, 0, 0, 0.14, 60, 90, 0xfff0d0, 0.8 * opts.flash, 1, 0, 0, 0, 0.15 + i * 0.12); }
-            fx.spawn(4, x, 6, z, 0, 0, 0, 1.1, 20, 420, 0xffc8e6, 0.9, 1, 0, 0, -1); fx.spawn(4, x, 6, z, 0, 0, 0, 1.5, 10, 300, 0xffffff, 0.7, 1, 0, 0, -1, 0.25); fx.debris(x, 10, z, 30, 130, 2.2, 0x8f98a8); fx.light(x, 10, z, 0xff9ad0, 5, 260); shake(1); }
+          if (core) { for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU, d = 14 + (i % 3) * 9; fx.spawn(1, x + Math.cos(a) * d, 8 + i, z + Math.sin(a) * d, 0, 14, 0, 0.7, 16, 40, 0xffffff, 1, 0.45, 1.2, 0, 0, 0.15 + i * 0.12); fx.spawn(0, x + Math.cos(a) * d, 10, z + Math.sin(a) * d, 0, 0, 0, 0.12, 40, 60, 0xfff0d0, 0.45 * opts.flash, 1, 0, 0, 0, 0.15 + i * 0.12); }
+            fx.spawn(4, x, 6, z, 0, 0, 0, 1.1, 20, 420, 0xffc8e6, 0.9, 1, 0, 0, -1); fx.spawn(4, x, 6, z, 0, 0, 0, 1.5, 10, 300, 0xffffff, 0.7, 1, 0, 0, -1, 0.25); fx.debris(x, 10, z, 30, 130, 2.2, 0x8f98a8); fx.light(x, 10, z, 0xff9ad0, 1.6, 240); shake(1); }
           else if (big) shake(0.5);
           break;
         }
@@ -124,13 +125,13 @@ export function createWorld3D(renderer, app) {
         case 'dock': dockFx.t = 0; break;
         case 'partnerFree': fx.sparks(x, 8, z, opts.lite ? 10 : 22, 80, 0xffd98a, 0.6, 1.8); fx.spawn(0, x, 8, z, 0, 0, 0, 0.4, 20, 46, 0xffd98a, 0.8, 1, 0); fx.spawn(4, x, 4, z, 0, 0, 0, 0.5, 6, 60, 0xffd98a, 0.8, 1, 0, 0, -1); break;
         case 'twinAppear': for (let s = -1; s <= 1; s += 2) fx.spawn(4, s * (HW - 6), AIR_H, 70 - HH, 0, 0, 0, 0.7, 4, 46, 0xff4fa8, 0.8, 1, 0, 0, 0); break;
-        case 'twinLocked': fx.spawn(0, x, AIR_H, z, 0, 0, 0, 0.3, 60, 110, 0xff9fd2, 0.9 * opts.flash, 1, 0); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.6, 8, 120, 0xff4fa8, 0.9, 1, 0, 0, -1); fx.sparks(x, AIR_H, z, 16, 110, 0xff9fd2, 0.5, 1.8); shake(0.35); break;
+        case 'twinLocked': fx.spawn(0, x, AIR_H, z, 0, 0, 0, 0.3, 50, 90, 0xff9fd2, 0.6 * opts.flash, 1, 0); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.6, 8, 120, 0xff4fa8, 0.9, 1, 0, 0, -1); fx.sparks(x, AIR_H, z, 16, 110, 0xff9fd2, 0.5, 1.8); shake(0.35); break;
         case 'twinBreak': fx.sparks(x, AIR_H, z, opts.lite ? 20 : 44, 170, 0xff9fd2, 0.9, 2.2); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.8, 8, 190, 0xffd0ea, 0.9, 1, 0, 0, -1); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.8, 4, 120, 0xff4fa8, 0.9, 1, 0, 0, -1, 0.12); break;
         case 'chainStep': fx.sparks(x, 5, z, 8, 60, 0x7ff3ff, 0.4, 1.5); fx.spawn(4, x, 3, z, 0, 0, 0, 0.35, 4, 30 + e.n * 4, e.n >= 5 ? 0xffe08a : 0x7ff3ff, 0.8, 1, 0, 0, -1); break;
-        case 'chainBonus': fx.sparks(x, 6, z, opts.lite ? 20 : 46, 150, 0xffe08a, 0.9, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 4, z, 0, 0, 0, 0.8, 6, 110 + i * 60, i ? 0x7ff3ff : 0xffe08a, 0.85, 1, 0, 0, -1, i * 0.12); fx.light(x, 6, z, 0x7ff3ff, 2.5, 160); break;
+        case 'chainBonus': fx.sparks(x, 6, z, opts.lite ? 20 : 46, 150, 0xffe08a, 0.9, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 4, z, 0, 0, 0, 0.8, 6, 110 + i * 60, i ? 0x7ff3ff : 0xffe08a, 0.85, 1, 0, 0, -1, i * 0.12); fx.light(x, 6, z, 0x7ff3ff, 1.0, 160); break;
         case 'chainFail': fx.spawn(2, x, 6, z, 0, 8, 0, 0.7, 10, 22, 0x70303c, 0.6, 0, 1); break;
         case 'sigilPing': fx.sparks(x, 4, z, 6, 40, 0xffffff, 0.35, 1.3); fx.spawn(4, x, 2.5, z, 0, 0, 0, 0.35, 3, 26, 0xffffff, 0.7, 1, 0, 0, -1); break;
-        case 'sigil': fx.sparks(x, 5, z, opts.lite ? 24 : 50, 130, 0xffffff, 1.0, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 3, z, 0, 0, 0, 0.9, 5, 90 + i * 70, 0xffffff, 0.85, 1, 0, 0, -1, i * 0.14); fx.spawn(0, x, 14, z, 0, 30, 0, 0.9, 30, 70, 0xdde8ff, 0.8 * opts.flash, 1, 0.5); fx.light(x, 6, z, 0xffffff, 3, 150); break;
+        case 'sigil': fx.sparks(x, 5, z, opts.lite ? 24 : 50, 130, 0xffffff, 1.0, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 3, z, 0, 0, 0, 0.9, 5, 90 + i * 70, 0xffffff, 0.85, 1, 0, 0, -1, i * 0.14); fx.spawn(0, x, 14, z, 0, 30, 0, 0.9, 30, 70, 0xdde8ff, 0.8 * opts.flash, 1, 0.5); fx.light(x, 6, z, 0xffffff, 1.1, 150); break;
         case 'dive': fx.spawn(0, x, AIR_H, z, 0, 0, 0, 0.18, 26, 12, 0xff5070, 0.8, 1, 0); break;
         case 'score': pop(x, z, (e.label ? e.label + ' ' : '') + e.pts, e.pts >= 1000 ? '#ffd166' : '#e8eefc', e.pts >= 1000); break;
         case 'extend': pop(g.player.x - HW, g.player.y - HH - 20, 'EXTEND +1', '#8affc1', true); fx.spawn(4, g.player.x - HW, AIR_H, g.player.y - HH, 0, 0, 0, 0.7, 6, 80, 0x8affc1, 0.9, 1, 0, 0, -1); break;
@@ -201,15 +202,17 @@ export function createWorld3D(renderer, app) {
 
     // 最初の数フレームは全種類を 1 体ずつ（見えない大きさで）描き、シェーダーを先に用意させる（M08・M10）
     const warming = warmN > 0;
-    if (warming) { if (warmN === 3) warmT0 = performance.now(); warmN--; if (warmN === 0) stats.warmMs = performance.now() - warmT0;
+    terrain.warmG.visible = warming;
+    if (warming) { if (warmN === 3) warmT0 = performance.now(); warmN--; if (warmN === 0) stats.warmMs = Math.max(stats.warmMs, performance.now() - warmT0);
       for (const t in air) { air[t].add(0, -9000, 0, 0, 0, 0, 0.001); airDef[t].pose(air[t], dummyObj, dummyE, T); air[t].fx(0, 0, 0, 0); }
       for (const t in gnd) { gnd[t].add(0, -9000, 0, 0, 0, 0, 0.001); gndDef[t].pose(gnd[t], dummyObj, dummyG, T); gnd[t].fx(0, 0, 0, 0); }
-      fx.ground.put(0, -9000, 0, 1, 0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, -1); fx.fx.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.top.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.debris(0, -9000, 0, 1, 0, 0.001, 0xffffff); }
+      fx.ground.put(0, -9000, 0, 1, 0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, -1); fx.fx.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.top.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.debris(0, -9000, 0, 1, 0, 0.001, 0xffffff);
+      if (!pops[0].on) { const s0 = popPool[0]; if (!s0.material.map) s0.material.map = textTexture('0', '#e8eefc'); s0.position.set(0, -9000, 0); s0.visible = true; } }
 
     // 何を描くか: ゲーム中はその状態、タイトルではエリア 1 の大陸をゆっくり流す
     let def, area, loop, sc;
     if (g) { def = g.def; area = g.area; loop = g.loop; sc = lerp(g.pscroll ?? g.scroll - TUNING.scroll / 60, g.scroll, alpha); if (g.scroll < (g.pscroll ?? 0)) sc = g.scroll; }
-    else { if (!attractDef) attractDef = genArea(0); def = attractDef; area = 0; loop = 0; sc = 150 + ((T * 14) % (def.len - 700)); }
+    else { if (!attractDef) attractDef = genArea(0); def = attractDef; area = 0; loop = 0; sc = 430 + ((T * 14) % (def.len - 1000)); } // 最初から島が見える位置で始める
     const key2 = area + ':' + loop;
     if (curDef !== def || curKey !== key2) { curKey = key2; setArea(def, area, loop, sc); }
     scrollG.position.z = sc;
@@ -222,7 +225,7 @@ export function createWorld3D(renderer, app) {
     warp.k = damp(warp.k, wantWarp, wantWarp ? 2.5 : 4, dt); warp.flash *= Math.exp(-3.5 * k);
     if (warp.k > 0.02) { const n = opts.lite ? 30 : 64; for (let i = 0; i < n; i++) { const hx = Math.sin(i * 12.9898) * 43758.5453, hy = Math.sin(i * 78.233) * 12543.123, fx1 = hx - Math.floor(hx), fy1 = hy - Math.floor(hy); const zz = ((fx1 * 977 + T * (700 + fy1 * 600)) % (HH * 2.6)) - HH * 1.3; fx.fx.put((fy1 * 2 - 1) * HW, -30 + fx1 * 70, zz, 1.2 + fy1, 0.6, 0.85, 1.0, warp.k * (0.35 + 0.5 * fx1), 3, 0, 0, 1, 0, 0, -1, 40 + fy1 * 50); } }
     if (warp.flash > 0.02) fx.fx.put(0, 10, 0, 620, 0.8, 0.9, 1.0, warp.flash * 0.5 * (0.3 + 0.7 * opts.flash), 0, 0, 0, 1);
-    sky.frame(dt, sc, 1 + warp.k * 0.5 + warp.flash * 0.8, running || title);
+    sky.frame(dt, sc, 1 + warp.k * 0.5 + warp.flash * 0.8, running || title, xr);
     fx.update(dt, running || title, sc);
 
     if (!g) { attract(xr); finish(); return; }
@@ -290,9 +293,9 @@ export function createWorld3D(renderer, app) {
       // 噴射炎・回転の残像・発光のにじみ
       const J = JETS[ty];
       if (J) { const boost = ty === 'diver' && !e.telegraph && e.t > (e.tele || 0) ? 2.4 : e.leave ? 2 : 1; for (let j = 0; j < J.length; j++) { const q = J[j]; jetPut(x, y, z, st.yaw, q[0], q[1], q[2], q[3] * (boost > 1 ? 1.3 : 1), q[4] * boost, q[5], 0.95); } }
-      if (ty === 'weaver') fx.fx.put(x, y + 0.4, z, 20, 0.62, 1, 0.79, 0.28, 9, 0, st.spin, 1, 0, 0, 0, -1);
-      else if (ty === 'slicer') fx.fx.put(x, y + 0.2, z, 19, 1, 0.7, 0.37, 0.4, 9, 0, st.spin * 1.6, 1, 0, 0, 0, -1);
-      else if (ty === 'spinner') fx.fx.put(x, y, z, 15, 0.35, 0.82, 1, 0.5, 0, 0, 0, 1);
+      if (ty === 'weaver') fx.fx.put(x, y + 0.4, z, 20, 0.62, 1, 0.79, 0.14, 9, 0, st.spin, 1, 0, 0, 0, -1);
+      else if (ty === 'slicer') fx.fx.put(x, y + 0.2, z, 19, 1, 0.7, 0.37, 0.2, 9, 0, st.spin * 1.6, 1, 0, 0, 0, -1);
+      else if (ty === 'spinner') fx.fx.put(x, y, z, 14, 0.35, 0.82, 1, 0.35, 0, 0, 0, 1);
       else if (ty === 'twinM') fx.fx.put(x, y + 3, z, 26, 1, 0.31, 0.66, 0.5, 0, 0, 0, 1);
       if (fired && (ty === 'gunner' || ty === 'lancer')) { fx.spawn(0, x + Math.sin(st.yaw) * 14, y, z + Math.cos(st.yaw) * 14, 0, 0, 0, 0.09, 13, 5, ty === 'gunner' ? 0xd0a0ff : 0xffd98a, 0.9, 1, 0); }
       if (e.telegraph) { const bl = 0.5 + 0.5 * Math.sin(T * 30); fx.top.put(x, y, z, 30, 1, 0.31, 0.44, 0.45 + 0.5 * bl, 8, 0.06, 0, 1); fx.fx.put(x, y, z, 30, 1, 0.2, 0.3, 0.3 * bl, 0, 0, 0, 1); }
@@ -315,7 +318,7 @@ export function createWorld3D(renderer, app) {
     // 合体（C08・C09）: 引き寄せ → 閃光 → 装着 → 衝撃波の輪 → 金色の粒
     if (dockFx.t < 2) {
       const before = dockFx.t; dockFx.t += k;
-      if (before < 0.22 && dockFx.t >= 0.22) { fx.spawn(0, ppx, py, ppz, 0, 0, 0, 0.22, 70, 110, 0xfff0c0, 0.9 * (0.3 + 0.7 * opts.flash), 1, 0); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.55, 8, 120, 0xffd166, 0.9, 1, 0, 0, -1); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.7, 4, 70, 0xffffff, 0.7, 1, 0, 0, -1, 0.08); fx.sparks(ppx, py, ppz, opts.lite ? 14 : 30, 120, 0xffd98a, 0.8, 2.0); fx.light(ppx, py, ppz, 0xffd166, 2.2, 120); }
+      if (before < 0.22 && dockFx.t >= 0.22) { fx.spawn(0, ppx, py, ppz, 0, 0, 0, 0.2, 50, 80, 0xfff0c0, 0.6 * (0.3 + 0.7 * opts.flash), 1, 0); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.55, 8, 120, 0xffd166, 0.9, 1, 0, 0, -1); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.7, 4, 70, 0xffffff, 0.7, 1, 0, 0, -1, 0.08); fx.sparks(ppx, py, ppz, opts.lite ? 14 : 30, 120, 0xffd98a, 0.8, 2.0); fx.light(ppx, py, ppz, 0xffd166, 0.9, 120); }
     }
     const dk = p.docked ? clamp(dockFx.t / 0.22, 0, 1) : 0, de = 1 - (1 - dk) * (1 - dk) * (1 - dk);
     relayR.visible = relayL.visible = p.docked;
@@ -364,7 +367,7 @@ export function createWorld3D(renderer, app) {
     bState.forEach(lostBullet);
 
     // ── 点数の文字（拡大しながら出て、浮かんで消える。M28）──
-    for (let i = 0; i < POPMAX; i++) { const q = pops[i], s = popPool[i]; if (!q.on) { s.visible = false; continue; } q.t += k; if (q.t > 1) { q.on = false; s.visible = false; continue; }
+    for (let i = 0; i < POPMAX; i++) { const q = pops[i], s = popPool[i]; if (!q.on) { s.visible = warming && i === 0; continue; } q.t += k; if (q.t > 1) { q.on = false; s.visible = false; continue; }
       if (s.material.map !== q.tex) { s.material.map = q.tex; s.material.needsUpdate = true; }
       const inK = clamp(q.t / 0.12, 0, 1), sc2 = (q.big ? 64 : 44) * (0.6 + 0.4 * (1 - (1 - inK) * (1 - inK)) + 0.12 * Math.sin(inK * PI));
       s.visible = true; s.material.opacity = q.t < 0.66 ? 1 : 1 - (q.t - 0.66) / 0.34; s.scale.set(sc2, sc2 / 4, 1); s.position.set(q.x, AIR_H + 14 + q.t * 16, q.z); }
@@ -372,6 +375,7 @@ export function createWorld3D(renderer, app) {
   }
   const pState = { roll: 0, pitch: 0, thr: 0 };
   const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const dropB = (rec) => { freeB.push(rec); };
   const sweepE = (st, id) => { if (st.stamp !== stamp) { eState.delete(id); freeE.push(st); } };
   const sweepG = (st, id) => { if (st.stamp !== stamp) { gState.delete(id); freeG.push(st); } };
   function finish() {
@@ -389,12 +393,13 @@ export function createWorld3D(renderer, app) {
     const cr = Math.cos(roll), sr = Math.sin(roll);
     for (let s = -1; s <= 1; s += 2) { const X = px + s * 2.5 * cr, Y = py + s * 2.5 * sr; fx.fx.put(X, Y, pz + 13.3, 3.4, 0.25, 0.62, 1, 0.95, 6, 0, s * 1.7, 1, 0, 0, 1, 3.6); fx.fx.put(X, Y, pz + 14, 9, 0.3, 0.7, 1, 0.6, 0, 0, 0, 1); fx.fx.put(px + s * 14.1 * cr, py + s * 14.1 * sr, pz + 8.6, 0.8, 0.6, 0.9, 1, 0.42, 3, 0, 0, 1, 0, 0, 1, 22); }
     fx.ground.put(px + 6, -1.2, pz + 7, 30, 0, 0, 0, 0.45, 13, 0, 0, 0, 0, 0, 0, -1);
-    for (let i = 0; i < POPMAX; i++) popPool[i].visible = false;
+    for (let i = 0; i < POPMAX; i++) popPool[i].visible = warmN > 0 && i === 0 && !!popPool[0].material.map;
+    if (bState.size) { bState.forEach(dropB); bState.clear(); }
     eState.forEach(sweepE); gState.forEach(sweepG);
   }
 
   return {
-    scene, stage, board, frame, bezel, onEvents, recenter: doRecenter, placeBoard, K, stats, jobs,
+    scene, stage, board, frame, bezel, onEvents, recenter: doRecenter, placeBoard, K, stats, jobs, kinds: { air, gnd },
     // 画質や XR の切り替えのあとに呼ぶ: 次の数フレームで全シェーダーを用意し直す
     warm() { warmN = 3; },
     // 通常画面の揺れ（m 単位の小さなずれ）。VR では使わない

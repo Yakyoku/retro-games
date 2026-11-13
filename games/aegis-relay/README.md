@@ -29,8 +29,8 @@
 ```
 games/aegis-relay/
 ├── index.html          入口（サイトごとに 2D だけ / 3D だけを表示、相互リンク）
-├── play2d/             2D 版（Canvas 2D。機体・地形はベクターで描き、表示倍率に合わせて描き直す）
-├── play3d/             3D 版（three.js r187＋WebXR。通常画面と VR）
+├── play2d/             2D 版（Canvas 2D。陰影つきの機体、高さから陰影を計算した地形、星雲・惑星・視差）
+├── play3d/             3D 版（three.js r187＋WebXR。PBR、通常画面は MSAA＋ブルーム）
 ├── shared/             2D・3D 共通: ルール（rules.js・sim.js・area-gen.js）、画面の流れ（app.js）、入力、保存、音源・曲、HTML の HUD とメニュー
 ├── fonts/              M PLUS 1p（OFL）
 ├── tests/              node --test（ルール・音の予約）
@@ -70,6 +70,7 @@ Netlify の 2 サイト（netlify-sites.json）は、環境変数 `GAME=aegis-re
 ## 資料
 
 - [docs/SPEC.md](docs/SPEC.md) 仕様書（採用値・独自調整・未確認事項）
+- [docs/UPGRADE.md](docs/UPGRADE.md) 品質向上の 120 項目と実装結果（詳細は docs/upgrade/）
 - [docs/SOUND.md](docs/SOUND.md) 音イベント対応表・音源一覧・検証結果
 - [docs/ASSETS.md](docs/ASSETS.md) 素材と音の出典・ライセンス
 - [docs/TESTS.md](docs/TESTS.md) テスト結果・測定条件・修正記録・実機確認の有無

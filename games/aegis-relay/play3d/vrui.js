@@ -21,12 +21,12 @@ export function createVrUI(scene, stage, app) {
   const menu = panel(0.66, 0.66, 1400, 1400); stage.add(menu.mesh);
   let hudKey = '', menuKey = '', rects = [], menuBtn = null;
 
+  const _far = new THREE.Vector3();
   function place(world) {
-    // HUD: 戦域の奥の縁の少し上。メニュー: 正面・目の少し下
+    // HUD: 戦域の奥の縁の少し上。メニュー: 正面・目の少し下（毎フレーム呼ぶので、オブジェクトを作らない）
     const c = world.boardCorners();
-    const far = c[0].clone().add(c[1]).multiplyScalar(0.5);
-    const local = stage.worldToLocal(far.clone());
-    hud.mesh.position.set(local.x, local.y + 0.16, local.z - 0.02); hud.mesh.rotation.set(-0.15, 0, 0);
+    _far.copy(c[0]).add(c[1]).multiplyScalar(0.5); stage.worldToLocal(_far);
+    hud.mesh.position.set(_far.x, _far.y + 0.16, _far.z - 0.02); hud.mesh.rotation.set(-0.15, 0, 0);
     menu.mesh.position.set(0, 1.08 + app.settings.vrHeight * 0.5, -0.78); menu.mesh.rotation.set(-0.12, 0, 0);
   }
 

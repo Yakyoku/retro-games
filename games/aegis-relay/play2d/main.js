@@ -26,7 +26,7 @@ const app = createApp({
 });
 window.__app = app; window.__input = input; // 自動検証用
 ui = createDomUI(uiRoot, app, { titleHint: '↑↓ で選び Enter / Z / A ボタン / タップで決定' });
-renderer = createRenderer2D(canvas, app);
+renderer = createRenderer2D(canvas, app); window.__renderer = renderer; // 自動検証用（描画コストの計測）
 const touch = installTouch(uiRoot, input, app);
 
 function layout() { const lay = computeLayout(innerWidth, innerHeight); ui.place(lay); renderer.resize(lay); ui.menu(); }

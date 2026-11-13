@@ -1,356 +1,407 @@
 // AEGIS RELAY — 3D の戦域（通常画面と VR で同じ）
 // 盤面の論理座標 (x, y) → 戦域の (X = x-120, Z = y-160)。地上は Y=0、空の物体は Y=AIR_H。
-// 判定は sim.js の 2 次元座標だけ。ここでの高さ・揺れ・傾きは見た目だけで、判定には入らない。
-// 戦域は盤面の長方形で切り抜く（クリップ面）→「宇宙を覗く窓の中のジオラマ」。星空と奈落は切らない。
+// 判定は sim.js の 2 次元座標だけ。ここでの高さ・揺れ・傾き・押し戻しは見た目だけで、判定には入らない。
+// 戦域は盤面の長方形で切り抜く（クリップ面）→「宇宙を覗く窓の中のジオラマ」。天球と枠は切らない。
+// 構成: util3d（道具・材質）/ models3d（機体・標的）/ fx3d（爆発・光）/ sky3d（宇宙）/ terrain3d＋themes3d（大陸）/ frame3d（枠）
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FIELD, THEMES, AREAS, TUNING, COLORS } from '../shared/rules.js';
-import { islandSpanAt } from '../shared/area-gen.js';
-import { makePlayer, makePartner, makeAir, makeGround, makeRuinGeometry, materials } from './models3d.js';
+import { buildArea as genArea } from '../shared/area-gen.js';
+import { HW, HH, AIR_H, lerp, clamp, damp, smooth, Kind, makeHullMaterial, makeJobs, shared } from './util3d.js';
+import { playerGeos, partnerGeos, airKinds, groundKinds, debrisGeo } from './models3d.js';
+import { createFx } from './fx3d.js';
+import { createSky } from './sky3d.js';
+import { createTerrain } from './terrain3d.js';
+import { createFrame } from './frame3d.js';
 
-export const AIR_H = 20;
-const HW = FIELD.W / 2, HH = FIELD.H / 2;
+export { AIR_H };
 const K = 1.2 / FIELD.W; // 1 単位 = 5mm（盤面の幅 1.2m）
-const lerp = (a, b, t) => a + (b - a) * t;
-function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const PI = Math.PI, TAU = PI * 2;
+const angDamp = (cur, target, rate, dt) => { let d = target - cur; d -= Math.round(d / TAU) * TAU; return cur + d * (1 - Math.exp(-rate * dt)); };
+// 敵の色（破片・爆発の色あい）と噴射口（機体の座標。+z が前なので噴射は -z へ）
+const TINT = { scout: 0x9fb2d6, weaver: 0x2f9f68, slicer: 0xf58a3c, gunner: 0x8558d6, spinner: 0xdff4ff, diver: 0xe03a5a, lancer: 0xddd2a6, twinL: 0x6f7ad8, twinR: 0x6f7ad8, twinM: 0x6f7ad8, turret: 0x8f98a8, bunker: 0x8f98a8, dock: 0xffc94a, panel: 0x6ff0ff, core: 0xff4fa8 };
+const JETS = { scout: [[0, 0, -9.3, 1.9, 9, 0xff9a50]], gunner: [[5.6, 0, -10.6, 2.0, 8, 0xb070ff], [-5.6, 0, -10.6, 2.0, 8, 0xb070ff]], diver: [[1.25, -0.1, -10.7, 1.8, 9, 0xff6a80], [-1.25, -0.1, -10.7, 1.8, 9, 0xff6a80]], lancer: [[1.9, 0, -15.2, 2.5, 12, 0xffc070], [-1.9, 0, -15.2, 2.5, 12, 0xffc070]] };
+const _col = new THREE.Color();
+const rgb = (hex) => { _col.set(hex); return _col; };
 
 export function createWorld3D(renderer, app) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x02030a);
+  scene.background = new THREE.Color(0x010207);
   const stage = new THREE.Group(); scene.add(stage);          // 再センタリングで動かす
   const board = new THREE.Group(); stage.add(board);          // 戦域（拡大縮小・傾き）
   const scrollG = new THREE.Group(); board.add(scrollG);      // 地形（スクロール）
   renderer.localClippingEnabled = true;
   const clip = [new THREE.Plane(), new THREE.Plane(), new THREE.Plane(), new THREE.Plane()];
-  const M = materials();
-  for (const m of Object.values(M)) m.clippingPlanes = clip;
+  const opts = { lite: false, flash: 1 };
+  const getOpts = () => { opts.lite = app.settings.quality === 'light'; opts.flash = app.settings.flash; return opts; };
+  getOpts();
+  const jobs = makeJobs();
+  const stats = { warmMs: 0, buildMs: 0, bakeMs: 0 };
 
-  // 光
-  scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x1a1626, 1.1));
-  const sun = new THREE.DirectionalLight(0xfff0dd, 2.2); sun.position.set(-1, 2, 0.6); scene.add(sun);
-  const rim = new THREE.DirectionalLight(0x6fc8ff, 0.8); rim.position.set(1, 0.5, -1.5); scene.add(rim);
-
-  // 星空（切らない）
+  // ── 光（C01）: 左上からの主光＋右下からの青い縁光＋空の色の環境光。stage の下に置き、再センタリングしても盤面との向きを保つ ──
+  const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x1a1626, 0.7); stage.add(hemi);
+  const key = new THREE.DirectionalLight(0xfff0dd, 2.3); key.position.set(-1.1, 1.9, -0.7); stage.add(key); stage.add(key.target);
+  const rim = new THREE.DirectionalLight(0x58b8ff, 1.1); rim.position.set(1.2, 0.5, 1.3); stage.add(rim); stage.add(rim.target);
+  // 環境の映り込み（C03）: 星雲色の空に帯状の光を置いた小さな部屋を作り、PMREM に焼く（金属に鋭いハイライトの帯が入る）
   {
-    const r = rng(3), n = 2500, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      const u = r() * 2 - 1, a = r() * Math.PI * 2, rad = 60 + r() * 20, s = Math.sqrt(1 - u * u);
-      pos.set([Math.cos(a) * s * rad, u * rad, Math.sin(a) * s * rad], i * 3);
-      const b = 0.4 + r() * 0.6; col.set([b * (0.8 + r() * 0.2), b * 0.9, b], i * 3);
-    }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, sizeAttenuation: true })));
-  }
-  // 奈落の星雲（盤面の下。遅くスクロールして奥行きを出す）
-  const abyssTex = new THREE.CanvasTexture(document.createElement('canvas'));
-  abyssTex.wrapS = abyssTex.wrapT = THREE.RepeatWrapping; abyssTex.colorSpace = THREE.SRGBColorSpace;
-  const abyss = new THREE.Mesh(new THREE.PlaneGeometry(FIELD.W * 1.0, FIELD.H * 1.0), new THREE.MeshBasicMaterial({ map: abyssTex, clippingPlanes: clip }));
-  abyss.rotation.x = -Math.PI / 2; abyss.position.y = -90; board.add(abyss);
-  function paintAbyss(area) {
-    const th = THEMES[AREAS[area].theme]; const cv = document.createElement('canvas'); cv.width = 512; cv.height = 1024; const c = cv.getContext('2d');
-    const gr = c.createLinearGradient(0, 0, 0, 1024); gr.addColorStop(0, th.sky[0]); gr.addColorStop(0.5, th.sky[1]); gr.addColorStop(1, th.sky[0]); c.fillStyle = gr; c.fillRect(0, 0, 512, 1024);
-    const r = rng(area * 31 + 1);
-    for (let i = 0; i < 40; i++) { const x = r() * 512, y = r() * 1024, rad = 60 + r() * 200; for (const oy of [0, -1024, 1024]) { const g2 = c.createRadialGradient(x, y + oy, 0, x, y + oy, rad); g2.addColorStop(0, th.sky[2] + '66'); g2.addColorStop(1, '#00000000'); c.fillStyle = g2; c.fillRect(x - rad, y + oy - rad, rad * 2, rad * 2); } }
-    for (let i = 0; i < 900; i++) { c.fillStyle = `rgba(255,255,255,${0.2 + r() * 0.6})`; c.fillRect(r() * 512, r() * 1024, 1.2, 1.2); }
-    abyssTex.image = cv; abyssTex.needsUpdate = true;
+    const env = new THREE.Scene();
+    const skyM = new THREE.ShaderMaterial({ side: THREE.BackSide, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'varying vec3 vP; void main(){ vec3 d = normalize(vP); float h = d.y * 0.5 + 0.5; vec3 c = mix(vec3(0.02, 0.025, 0.06), vec3(0.16, 0.2, 0.36), pow(h, 1.5)); c += vec3(0.25, 0.1, 0.32) * pow(max(0.0, dot(d, normalize(vec3(0.6, 0.2, -0.7)))), 3.0); gl_FragColor = vec4(c, 1.0); }' });
+    env.add(new THREE.Mesh(new THREE.SphereGeometry(20, 24, 16), skyM));
+    const strip = (x, y, z, w, h, d, c, i) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(i) })); m.position.set(x, y, z); m.lookAt(0, 0, 0); env.add(m); };
+    strip(-8, 9, -5, 10, 1.6, 0.2, 0xfff2dc, 22); strip(-3, 11, 4, 1.2, 8, 0.2, 0xffffff, 12); strip(9, 3, 7, 7, 1.0, 0.2, 0x58b8ff, 14); strip(6, 8, -8, 5, 0.7, 0.2, 0xcfe4ff, 9); strip(0, -9, 0, 9, 9, 0.2, 0x1a2440, 2);
+    const pm = new THREE.PMREMGenerator(renderer); const rtEnv = pm.fromScene(env, 0.035); scene.environment = rtEnv.texture; pm.dispose();
+    env.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
   }
 
-  // 戦域の枠（光る細い線）
-  {
-    const mat = new THREE.MeshBasicMaterial({ color: 0x2ec5ff, transparent: true, opacity: 0.55 });
-    const t = 0.8, y = 0;
-    for (const [x, z, w, d] of [[0, -HH, FIELD.W, t], [0, HH, FIELD.W, t], [-HW, 0, t, FIELD.H], [HW, 0, t, FIELD.H]]) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, t, d), mat); m.position.set(x, y - 30, z); board.add(m); }
-    for (const [x, z] of [[-HW, -HH], [HW, -HH], [-HW, HH], [HW, HH]]) { const m = new THREE.Mesh(new THREE.BoxGeometry(t, 60, t), mat); m.position.set(x, 0, z); board.add(m); }
-  }
+  // ── 材質（全部で 4 つ: 機体・標的 / 飾り（遺跡など）/ 枠 / キャノピー）──
+  const hullMat = makeHullMaterial(clip), decorMat = makeHullMaterial(clip, { side: THREE.DoubleSide, env: 0.6 }), frameMat = makeHullMaterial(null, { env: 0.8 });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x7fd8ff, metalness: 0.2, roughness: 0.04, transparent: true, opacity: 0.34, envMapIntensity: 2.4, clippingPlanes: clip, depthWrite: false });
 
-  // ── 地形 ──
-  let builtArea = -1;
-  const islandMats = {};
-  function topTexture(th) {
-    const cv = document.createElement('canvas'); cv.width = cv.height = 512; const c = cv.getContext('2d');
-    c.fillStyle = th.land; c.fillRect(0, 0, 512, 512);
-    const r = rng(th.land.length * 97);
-    for (let i = 0; i < 900; i++) { const x = r() * 512, y = r() * 512, s = 2 + r() * 14; c.fillStyle = r() < 0.5 ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.07)'; c.beginPath(); c.arc(x, y, s, 0, 7); c.fill(); }
-    for (let i = 0; i < 90; i++) { const x = r() * 512, y = r() * 512, s = 6 + r() * 20; c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, s, 0, 7); c.stroke(); c.fillStyle = 'rgba(0,0,0,.15)'; c.fill(); }
-    const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(1 / 150, 1 / 150);
+  const fx = createFx(board, clip, debrisGeo(), hullMat, getOpts);
+  const sky = createSky(renderer, stage, board, clip, getOpts);
+  const terrain = createTerrain(scrollG, clip, fx.lights, decorMat, jobs, getOpts);
+  const bezel = createFrame(board, scene, frameMat);
+
+  // ── 物体 ──
+  const airDef = airKinds(), gndDef = groundKinds();
+  const air = {}, gnd = {};
+  for (const t in airDef) air[t] = new Kind(airDef[t].parts, hullMat, airDef[t].cap, board, 4);
+  for (const t in gndDef) gnd[t] = new Kind(gndDef[t].parts, hullMat, gndDef[t].cap, board, 0);
+  const PG = playerGeos();
+  const player = new THREE.Group(); board.add(player);
+  const pBody = new THREE.Mesh(PG.body, hullMat), pGlass = new THREE.Mesh(PG.glass, glassMat), relayR = new THREE.Mesh(PG.relayR, hullMat), relayL = new THREE.Mesh(PG.relayL, hullMat);
+  for (const m of [pBody, relayR, relayL]) { m.renderOrder = 5; m.frustumCulled = false; player.add(m); } pGlass.renderOrder = 6; pGlass.frustumCulled = false; player.add(pGlass);
+  const QG = partnerGeos();
+  const partner = new THREE.Group(); board.add(partner);
+  const qBody = new THREE.Mesh(QG.body, hullMat), qRing1 = new THREE.Mesh(QG.ring1, hullMat), qRing2 = new THREE.Mesh(QG.ring2, hullMat);
+  for (const m of [qBody, qRing1, qRing2]) { m.renderOrder = 5; m.frustumCulled = false; partner.add(m); }
+
+  // 点数の文字（板。同じ文字のテクスチャは使い回し、古いものは捨てる）
+  const popTex = new Map(); const popPool = []; const pops = []; const POPMAX = 8;
+  for (let i = 0; i < POPMAX; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, clippingPlanes: clip })); s.renderOrder = 30; s.visible = false; board.add(s); popPool.push(s); pops.push({ on: false, x: 0, z: 0, t: 0, big: false, tex: null }); }
+  function textTexture(text, color) {
+    const k = text + color; const hit = popTex.get(k); if (hit) { popTex.delete(k); popTex.set(k, hit); return hit; }
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const c = cv.getContext('2d');
+    c.font = "800 72px 'AR Sans', sans-serif"; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 12; c.lineJoin = 'round'; c.strokeStyle = 'rgba(0,0,0,.85)'; c.strokeText(text, 256, 64); c.fillStyle = color; c.fillText(text, 256, 64);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+    popTex.set(k, t);
+    if (popTex.size > 40) { const old = popTex.keys().next().value; const ot = popTex.get(old); if (!pops.some((p) => p.on && p.tex === ot)) { ot.dispose(); popTex.delete(old); } }
     return t;
   }
-  function matsFor(theme) {
-    if (islandMats[theme]) return islandMats[theme];
-    const th = THEMES[theme];
-    return (islandMats[theme] = {
-      top: new THREE.MeshStandardMaterial({ map: topTexture(th), color: 0xffffff, roughness: 0.92, metalness: 0.05, clippingPlanes: clip }),
-      side: new THREE.MeshStandardMaterial({ color: th.side, roughness: 0.95, metalness: 0.05, clippingPlanes: clip }),
-      under: new THREE.MeshStandardMaterial({ color: new THREE.Color(th.side).multiplyScalar(0.6), roughness: 1, flatShading: true, clippingPlanes: clip }),
-      ruin: new THREE.MeshStandardMaterial({ color: th.ruin, roughness: 0.85, metalness: 0.1, clippingPlanes: clip }),
-    });
-  }
-  function islandShape(isl, shrink = 1) {
-    const s = new THREE.Shape(); const n = isl.left.length;
-    const cxs = (x) => (x - 120 - (isl.cx - 120)) * shrink + (isl.cx - 120);
-    const midWy = (isl.wy0 + isl.wy1) / 2; const wys = (wy) => (wy - midWy) * (0.92 + 0.08 * shrink) + midWy;
-    for (let i = 0; i < n; i++) { const wy = wys(isl.wy0 + i * isl.step); const x = cxs(isl.left[i]); i ? s.lineTo(x, -wy - HH) : s.moveTo(x, -wy - HH); }
-    for (let i = n - 1; i >= 0; i--) { const wy = wys(isl.wy0 + i * isl.step); s.lineTo(cxs(isl.right[i]), -wy - HH); }
-    return s;
-  }
-  function buildArea(g) {
-    while (scrollG.children.length) { const c = scrollG.children.pop(); c.geometry?.dispose(); }
-    const theme = AREAS[g.area].theme, mt = matsFor(theme);
-    for (const isl of g.def.islands) {
-      const top = new THREE.ExtrudeGeometry(islandShape(isl), { depth: 12, bevelEnabled: true, bevelThickness: 1.5, bevelSize: 1.5, bevelSegments: 2, curveSegments: 2 });
-      top.rotateX(Math.PI / 2); top.translate(0, -1.5, 0); // 上面が Y≈0
-      scrollG.add(new THREE.Mesh(top, [mt.top, mt.side]));
-      for (const [sh, y, d] of [[0.78, -13.5, 16], [0.5, -29, 18], [0.22, -46, 14]]) {
-        const u = new THREE.ExtrudeGeometry(islandShape(isl, sh), { depth: d, bevelEnabled: false, curveSegments: 2 });
-        u.rotateX(Math.PI / 2); u.translate(0, y, 0); scrollG.add(new THREE.Mesh(u, mt.under));
-      }
-      if (isl.ruins.length) {
-        const geos = isl.ruins.map((r) => { const ge = makeRuinGeometry(r.kind, r.s); ge.rotateY(r.rot); ge.translate(r.x - 120, 0, -r.wy - HH); return ge.index ? ge.toNonIndexed() : ge; });
-        scrollG.add(new THREE.Mesh(mergeGeometries(geos), mt.ruin));
-      }
-    }
-    paintAbyss(g.area);
-    builtArea = g.area;
-    for (const m of groundMeshes.values()) board.remove(m); groundMeshes.clear();
-  }
+  let popHead = 0;
+  function pop(x, z, text, color, big) { const p = pops[popHead]; popHead = (popHead + 1) % POPMAX; p.on = true; p.x = x; p.z = z; p.t = 0; p.big = big; p.tex = textTexture(text, color); }
 
-  // ── 物体のプール ──
-  const player = makePlayer(); board.add(player);
-  const partner = makePartner(); board.add(partner);
-  const airPools = {}; const groundMeshes = new Map();
-  function airFrom(type, i) {
-    const pool = airPools[type] || (airPools[type] = []);
-    while (pool.length <= i) { const m = makeAir(type); board.add(m); pool.push(m); }
-    return pool[i];
-  }
-  // 弾（暗い縁 → 桃色 → 白い芯。奥行きテストを切り、地形や敵に隠れない）
-  const MAXB = 420;
-  const sph = new THREE.SphereGeometry(1, 10, 8);
-  const mk = (color, opacity, depth = false) => { const m = new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, depthTest: depth, depthWrite: false }); m.clippingPlanes = clip; return m; };
-  const bOuter = new THREE.InstancedMesh(sph, mk(0x14000c, 0.8), MAXB), bMid = new THREE.InstancedMesh(sph, mk(COLORS.enemyBullet, 1), MAXB), bCore = new THREE.InstancedMesh(sph, mk(0xffffff, 1), MAXB);
-  [bOuter, bMid, bCore].forEach((m, i) => { m.renderOrder = 20 + i; m.frustumCulled = false; board.add(m); });
-  const shotGeo = new THREE.CylinderGeometry(1, 1, 12, 8); shotGeo.rotateX(Math.PI / 2);
-  const shotMat = new THREE.MeshBasicMaterial({ color: COLORS.playerShot, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }); shotMat.clippingPlanes = clip;
-  const shots = new THREE.InstancedMesh(shotGeo, shotMat, 40); shots.frustumCulled = false; shots.renderOrder = 15; board.add(shots);
-  const shadowGeo = new THREE.CircleGeometry(1, 20); shadowGeo.rotateX(-Math.PI / 2);
-  const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false }); shadowMat.clippingPlanes = clip;
-  const shadows = new THREE.InstancedMesh(shadowGeo, shadowMat, 120); shadows.frustumCulled = false; board.add(shadows);
-  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }); flashMat.clippingPlanes = clip;
-  const flashes = new THREE.InstancedMesh(sph, flashMat, 80); flashes.frustumCulled = false; flashes.renderOrder = 12; board.add(flashes);
-  // 予告の輪（ダイバー・ジェミニ・支援機・コアの耐久）
-  const ringGeo = new THREE.TorusGeometry(1, 0.06, 6, 40); ringGeo.rotateX(Math.PI / 2);
-  const ringPool = []; function ringAt(i, color) { while (ringPool.length <= i) { const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, clippingPlanes: clip })); m.renderOrder = 11; board.add(m); ringPool.push(m); } const r = ringPool[i]; r.material.color.set(color); r.visible = true; return r; }
-  // 光の粒（爆発・火花）: 1 回の描画で最大 1600 個
-  const PMAX = 1600;
-  const pGeo = new THREE.BufferGeometry();
-  const pPos = new Float32Array(PMAX * 3), pCol = new Float32Array(PMAX * 3), pSize = new Float32Array(PMAX), pAlpha = new Float32Array(PMAX);
-  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
-  pGeo.setAttribute('size', new THREE.BufferAttribute(pSize, 1)); pGeo.setAttribute('alpha', new THREE.BufferAttribute(pAlpha, 1));
-  const pMat = new THREE.ShaderMaterial({
-    uniforms: { pxScale: { value: 600 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying vec3 vC; varying float vA; uniform float pxScale;
-      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(size * pxScale / -mv.z, 1.0, 96.0); vC = color; vA = alpha; }`,
-    fragmentShader: `varying vec3 vC; varying float vA; void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); gl_FragColor = vec4(vC * a * vA, a * vA); }`,
-  });
-  const points = new THREE.Points(pGeo, pMat); points.frustumCulled = false; points.renderOrder = 14; board.add(points);
-  const vp = new THREE.Vector4();
-  points.onBeforeRender = (r, s, cam) => { r.getCurrentViewport(vp); pMat.uniforms.pxScale.value = vp.w * 0.5 * cam.projectionMatrix.elements[5] * board.scale.x; };
-  const parts = [];
-  // 点数の文字（板）
-  const popTex = new Map(); const popPool = []; const pops = [];
-  function textTexture(text, color) {
-    const key = text + color; if (popTex.has(key)) return popTex.get(key);
-    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const c = cv.getContext('2d');
-    c.font = "800 72px 'AR Sans', sans-serif"; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 12; c.strokeStyle = 'rgba(0,0,0,.85)'; c.strokeText(text, 256, 64); c.fillStyle = color; c.fillText(text, 256, 64);
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; if (popTex.size > 120) popTex.clear(); popTex.set(key, t); return t;
-  }
+  // ── 個体ごとの描画用の状態（向きのばね・回転・損傷の煙など）。使い回す ──
+  const eState = new Map(), gState = new Map(), freeE = [], freeG = [];
+  const newE = () => ({ stamp: 0, age: 0, vis: 0, yaw: 0, roll: 0, spin: 0, phase: 0, kick: 0, fold: 0, deploy: 0, recoil: 0, pf: 0, smoke: 0, x: 0, z: 0 });
+  const newG = () => ({ stamp: 0, aim: 0, recoil: 0, open: 0, shell1: 1, shell2: 1, s1: 1, s2: 1, hurt: 0, pf: 0, phase: 0, smoke: 0, x: 0, z: 0 });
+  const dummyE = newE(), dummyG = newG(), dummyObj = { hp: 1, hp0: 1, t: 0 };
+  let stamp = 0;
+  const bState = new Map(), freeB = [];
 
   // ── できごと → 演出 ──
-  const C = (hex) => new THREE.Color(hex);
-  function burst(x, y, h, n, color, spd, life, size) {
-    const col = C(color);
-    for (let i = 0; i < n && parts.length < PMAX; i++) { const a = Math.random() * Math.PI * 2, e = (Math.random() - 0.3) * 1.4, v = spd * (0.3 + Math.random() * 0.7); parts.push({ x, y: h, z: y, vx: Math.cos(a) * v, vy: e * v * 0.6, vz: Math.sin(a) * v, life, max: life, size: size * (0.6 + Math.random() * 0.8), c: col }); }
-  }
-  const rings = [];
+  const sh = { amp: 0, t: 0 };                                  // 画面の揺れ（通常画面だけ。main.js が読む）
+  const shake = (a) => { sh.amp = Math.max(sh.amp, a); sh.t = 0; };
+  const dockFx = { t: 9 }, muzzle = { t: 9 }, warp = { k: 0, flash: 0 }, respawnFx = { t: 9 };
+  let overLandFn = () => false;
   function onEvents(evs, g) {
-    const lite = app.settings.quality === 'light';
-    const n = (k) => (lite ? Math.ceil(k / 2) : k);
     for (const e of evs) {
-      const x = e.x - HW, z = e.y - HH, h = e.ground ? 4 : AIR_H;
+      const x = e.x - HW, z = e.y - HH;
       switch (e.t) {
-        case 'hit': burst(x, z, e.air ? AIR_H : 4, n(5), 0xfff6c0, 50, 12, 2.5); break;
-        case 'kill': burst(x, z, h, n(e.big ? 60 : 24), e.big ? 0xffa060 : 0xffe0a0, e.big ? 110 : 70, e.big ? 46 : 28, e.big ? 9 : 5); burst(x, z, h, n(e.big ? 20 : 8), 0xff6030, 25, 40, e.big ? 22 : 12); rings.push({ x, z, h, r: 2, max: e.big ? 40 : 18, t: 0, life: e.big ? 30 : 18, c: 0xffd0a0 }); break;
-        case 'die': burst(x, z, AIR_H, n(90), 0xbfefff, 130, 60, 6); burst(x, z, AIR_H, n(20), 0x2ec5ff, 30, 60, 22); rings.push({ x, z, h: AIR_H, r: 2, max: 56, t: 0, life: 40, c: 0x9ff4ff }); break;
-        case 'dock': rings.push({ x: e.x - HW, z: e.y - HH, h: AIR_H, r: 24, max: 2, t: 0, life: 26, c: 0xffd166 }); burst(x, z, AIR_H, n(30), 0xffd166, 60, 30, 4); break;
-        case 'partnerFree': burst(x, z, 6, n(24), 0xffd166, 45, 30, 4); break;
-        case 'twinBreak': burst(x, z, AIR_H, n(60), 0xff9fd2, 120, 50, 6); break;
-        case 'twinLocked': rings.push({ x: 0, z: 70 - HH, h: AIR_H, r: 4, max: 42, t: 0, life: 30, c: 0xff4fa8 }); break;
-        case 'chainStep': burst(x, z, 4, n(10), 0x7ff3ff, 40, 20, 3.5); break;
-        case 'chainBonus': burst(x, z, 4, n(70), 0x7ff3ff, 110, 50, 5); break;
-        case 'sigilPing': burst(x, z, 3, n(6), 0xffffff, 25, 16, 3); break;
-        case 'sigil': burst(x, z, 4, n(80), 0xffffff, 100, 70, 5); rings.push({ x, z, h: 3, r: 2, max: 60, t: 0, life: 50, c: 0xffffff }); break;
-        case 'score': pops.push({ x, z, text: (e.label ? e.label + ' ' : '') + e.pts, color: e.pts >= 1000 ? '#ffd166' : '#e8eefc', t: 0, big: e.pts >= 1000 }); break;
-        case 'extend': pops.push({ x: g.player.x - HW, z: g.player.y - HH - 20, text: 'EXTEND +1', color: '#8affc1', t: 0, big: true }); break;
-        case 'chainFail': pops.push({ x, z, text: 'CHAIN BREAK', color: '#ff8fa3', t: 0 }); break;
+        case 'shot': muzzle.t = 0; break;
+        case 'hit': { const h = e.air ? AIR_H : 6; fx.sparks(x, h, z + 3, opts.lite ? 3 : 6, 70, 0xfff2c0, 0.28, 1.4); fx.spawn(0, x, h + 1, z + 3, 0, 0, 0, 0.1, 9, 4, 0xffffff, 0.8, 1, 0); if (e.id != null) { const st = eState.get(e.id); if (st) st.kick = 1; } break; }
+        case 'kill': {
+          const h = e.ground ? 5 : AIR_H, big = !!e.big, core = e.type === 'core';
+          const wy = e.ground ? e.wy : (overLandFn(g, e.x, e.y) ? g.scroll - e.y : null);
+          fx.explode(x, h, z, e.r || 8, big, TINT[e.type], { scorchWy: wy });
+          if (core) { for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU, d = 14 + (i % 3) * 9; fx.spawn(1, x + Math.cos(a) * d, 8 + i, z + Math.sin(a) * d, 0, 14, 0, 0.7, 16, 40, 0xffffff, 1, 1, 1.2, 0, 0, 0.15 + i * 0.12); fx.spawn(0, x + Math.cos(a) * d, 10, z + Math.sin(a) * d, 0, 0, 0, 0.14, 60, 90, 0xfff0d0, 0.8 * opts.flash, 1, 0, 0, 0, 0.15 + i * 0.12); }
+            fx.spawn(4, x, 6, z, 0, 0, 0, 1.1, 20, 420, 0xffc8e6, 0.9, 1, 0, 0, -1); fx.spawn(4, x, 6, z, 0, 0, 0, 1.5, 10, 300, 0xffffff, 0.7, 1, 0, 0, -1, 0.25); fx.debris(x, 10, z, 30, 130, 2.2, 0x8f98a8); fx.light(x, 10, z, 0xff9ad0, 5, 260); shake(1); }
+          else if (big) shake(0.5);
+          break;
+        }
+        case 'die': fx.explode(x, AIR_H, z, 10, true, 0xe6ecf6, {}); fx.sparks(x, AIR_H, z, opts.lite ? 16 : 34, 170, 0x9ff4ff, 0.8, 2.2); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.7, 6, 150, 0x9ff4ff, 0.9, 1, 0, 0, -1); fx.debris(x, AIR_H, z, 8, 90, 1.6, 0xffc94a); shake(0.8); break;
+        case 'respawn': respawnFx.t = 0; break;
+        case 'dock': dockFx.t = 0; break;
+        case 'partnerFree': fx.sparks(x, 8, z, opts.lite ? 10 : 22, 80, 0xffd98a, 0.6, 1.8); fx.spawn(0, x, 8, z, 0, 0, 0, 0.4, 20, 46, 0xffd98a, 0.8, 1, 0); fx.spawn(4, x, 4, z, 0, 0, 0, 0.5, 6, 60, 0xffd98a, 0.8, 1, 0, 0, -1); break;
+        case 'twinAppear': for (let s = -1; s <= 1; s += 2) fx.spawn(4, s * (HW - 6), AIR_H, 70 - HH, 0, 0, 0, 0.7, 4, 46, 0xff4fa8, 0.8, 1, 0, 0, 0); break;
+        case 'twinLocked': fx.spawn(0, x, AIR_H, z, 0, 0, 0, 0.3, 60, 110, 0xff9fd2, 0.9 * opts.flash, 1, 0); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.6, 8, 120, 0xff4fa8, 0.9, 1, 0, 0, -1); fx.sparks(x, AIR_H, z, 16, 110, 0xff9fd2, 0.5, 1.8); shake(0.35); break;
+        case 'twinBreak': fx.sparks(x, AIR_H, z, opts.lite ? 20 : 44, 170, 0xff9fd2, 0.9, 2.2); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.8, 8, 190, 0xffd0ea, 0.9, 1, 0, 0, -1); fx.spawn(4, x, AIR_H, z, 0, 0, 0, 0.8, 4, 120, 0xff4fa8, 0.9, 1, 0, 0, -1, 0.12); break;
+        case 'chainStep': fx.sparks(x, 5, z, 8, 60, 0x7ff3ff, 0.4, 1.5); fx.spawn(4, x, 3, z, 0, 0, 0, 0.35, 4, 30 + e.n * 4, e.n >= 5 ? 0xffe08a : 0x7ff3ff, 0.8, 1, 0, 0, -1); break;
+        case 'chainBonus': fx.sparks(x, 6, z, opts.lite ? 20 : 46, 150, 0xffe08a, 0.9, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 4, z, 0, 0, 0, 0.8, 6, 110 + i * 60, i ? 0x7ff3ff : 0xffe08a, 0.85, 1, 0, 0, -1, i * 0.12); fx.light(x, 6, z, 0x7ff3ff, 2.5, 160); break;
+        case 'chainFail': fx.spawn(2, x, 6, z, 0, 8, 0, 0.7, 10, 22, 0x70303c, 0.6, 0, 1); break;
+        case 'sigilPing': fx.sparks(x, 4, z, 6, 40, 0xffffff, 0.35, 1.3); fx.spawn(4, x, 2.5, z, 0, 0, 0, 0.35, 3, 26, 0xffffff, 0.7, 1, 0, 0, -1); break;
+        case 'sigil': fx.sparks(x, 5, z, opts.lite ? 24 : 50, 130, 0xffffff, 1.0, 2.2); for (let i = 0; i < 3; i++) fx.spawn(4, x, 3, z, 0, 0, 0, 0.9, 5, 90 + i * 70, 0xffffff, 0.85, 1, 0, 0, -1, i * 0.14); fx.spawn(0, x, 14, z, 0, 30, 0, 0.9, 30, 70, 0xdde8ff, 0.8 * opts.flash, 1, 0.5); fx.light(x, 6, z, 0xffffff, 3, 150); break;
+        case 'dive': fx.spawn(0, x, AIR_H, z, 0, 0, 0, 0.18, 26, 12, 0xff5070, 0.8, 1, 0); break;
+        case 'score': pop(x, z, (e.label ? e.label + ' ' : '') + e.pts, e.pts >= 1000 ? '#ffd166' : '#e8eefc', e.pts >= 1000); break;
+        case 'extend': pop(g.player.x - HW, g.player.y - HH - 20, 'EXTEND +1', '#8affc1', true); fx.spawn(4, g.player.x - HW, AIR_H, g.player.y - HH, 0, 0, 0, 0.7, 6, 80, 0x8affc1, 0.9, 1, 0, 0, -1); break;
+        case 'areaStart': if (g.tick > 5) warp.flash = 1; break;
       }
     }
-    if (pops.length > 12) pops.splice(0, pops.length - 12);
   }
 
   // ── 戦域の置き場所 ──
   const recenter = { x: 0, y: 0, z: 0, yaw: 0 };
   function placeBoard(xr) {
     const s = app.settings;
-    const baseY = xr ? 0.72 : 0.72;
     stage.position.set(recenter.x, recenter.y, recenter.z); stage.rotation.set(0, recenter.yaw, 0);
     // VR: 幅 0.82m の戦域を、座った目の高さ（1.2m 基準）より 0.5m 下・1.2m 先に置く。通常画面は幅 1.2m（カメラが合わせる）
-    board.position.set(0, baseY + s.vrHeight, -(xr ? 1.2 : 1.05) * s.vrDist);
+    board.position.set(0, 0.72 + s.vrHeight, -(xr ? 1.2 : 1.05) * s.vrDist);
     board.rotation.set(s.vrTilt + (xr ? 0.2 : 0.12), 0, 0); // 奥を少し持ち上げて見やすく
     board.scale.setScalar(K * s.vrScale * (xr ? 0.68 : 1));
+    bezel.deck.visible = !!xr; bezel.deck.position.set(recenter.x, 0.002, recenter.z);
   }
+  const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _n = new THREE.Vector3();
   function doRecenter(xrCamera) {
     if (!xrCamera) { recenter.x = recenter.z = recenter.y = recenter.yaw = 0; return; }
-    const p = new THREE.Vector3(), q = new THREE.Quaternion(); xrCamera.getWorldPosition(p); xrCamera.getWorldQuaternion(q);
-    const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-    recenter.yaw = e.y; recenter.x = p.x; recenter.z = p.z; recenter.y = p.y - 1.2; // 目の高さ 1.2m を基準に
+    xrCamera.getWorldPosition(_p); xrCamera.getWorldQuaternion(_q);
+    _e.setFromQuaternion(_q, 'YXZ');
+    recenter.yaw = _e.y; recenter.x = _p.x; recenter.z = _p.z; recenter.y = _p.y - 1.2; // 目の高さ 1.2m を基準に
   }
-  const _m = new THREE.Matrix4();
+  const clipDefs = [[1, 0, 0, HW + 0.5], [-1, 0, 0, HW + 0.5], [0, 0, 1, HH + 0.5], [0, 0, -1, HH + 0.5]];
   function updateClip() {
     board.updateMatrixWorld(true);
-    const defs = [[1, 0, 0, HW + 0.5], [-1, 0, 0, HW + 0.5], [0, 0, 1, HH + 0.5], [0, 0, -1, HH + 0.5]];
-    defs.forEach(([x, y, z, c], i) => { clip[i].set(new THREE.Vector3(x, y, z), c); clip[i].applyMatrix4(board.matrixWorld); });
+    for (let i = 0; i < 4; i++) { const d = clipDefs[i]; clip[i].normal.set(d[0], d[1], d[2]); clip[i].constant = d[3]; clip[i].applyMatrix4(board.matrixWorld); }
+  }
+
+  // ── エリアの切り替え（空・光・地形）──
+  let curDef = null, curKey = '', attractDef = null;
+  const tA = new THREE.Color(), tB = new THREE.Color();
+  function setArea(def, area, loop, near) {
+    curDef = def;
+    const t0 = performance.now();
+    if (sky.setArea(area, loop)) stats.bakeMs = performance.now() - t0;
+    const th = THEMES[AREAS[area].theme];
+    // エリアごとの色調（B23）: 空の色と光の色を替える
+    hemi.color.set(th.sky[2]).lerp(tA.set(0xdfe8ff), 0.55); hemi.groundColor.set(th.sky[1]).multiplyScalar(0.8);
+    key.color.set(0xfff0dd).lerp(tA.set(th.landHi), 0.22); rim.color.set(0x7cc4ff).lerp(tA.set(th.glow), 0.3);
+    terrain.request(def, area, near);
+    fx.clearScorch();
   }
 
   // ── 1 フレーム ──
-  const dummy = new THREE.Object3D(), tmpC = new THREE.Color();
-  let time = 0;
+  let T = 0, warmN = 3, warmT0 = 0, trailAcc = 0, sigT = 0;
+  const twinA = { key: -1, x: 0, z: 0 };
+  const lostBullet = (rec, b) => { if (rec.stamp !== stamp) { if (Math.abs(rec.x) < HW - 3 && Math.abs(rec.z) < HH - 3 && gameRun) { fx.spawn(0, rec.x, AIR_H, rec.z, 0, 0, 0, 0.16, 9, 3, 0xff8fc8, 0.9, 1, 0); fx.spawn(4, rec.x, AIR_H, rec.z, 0, 0, 0, 0.18, 3, 10, 0xff4fa8, 0.7, 1, 0, 0, 0); } bState.delete(b); freeB.push(rec); } };
+  let gameRun = false;
+  const jetPut = (x, y, z, yaw, lx, ly, lz, w, len, hex, a) => { const c = Math.cos(yaw), s = Math.sin(yaw); const X = x + lx * c + lz * s, Z = z - lx * s + lz * c; rgb(hex); fx.fx.put(X, y + ly, Z, w, _col.r, _col.g, _col.b, a, 6, 0, X * 0.13 + Z * 0.07, 1, -s, 0, -c, len / w); fx.fx.put(X, y + ly, Z, w * 3.2, _col.r, _col.g, _col.b, 0.5 * a, 0, 0, 0, 1); };
+
   function frame(alpha, dt, xr) {
-    time += dt;
-    placeBoard(xr); updateClip();
-    const g = app.game;
-    // 光の粒・輪・文字は実時間で進む（ポーズ中は止める）
+    getOpts();
+    const g = app.game, title = !g;
     const running = app.screen === 'play';
-    const k = running ? dt * 60 : 0;
-    for (const p of parts) { p.x += p.vx * dt * (k ? 1 : 0); p.y += p.vy * dt * (k ? 1 : 0); p.z += p.vz * dt * (k ? 1 : 0); p.vx *= 0.96 ** k; p.vy *= 0.96 ** k; p.vz *= 0.96 ** k; p.life -= k; }
-    for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
-    for (let i = 0; i < PMAX; i++) {
-      const p = parts[i];
-      if (p) { pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = p.z; const a = p.life / p.max; pCol[i * 3] = p.c.r; pCol[i * 3 + 1] = p.c.g; pCol[i * 3 + 2] = p.c.b; pSize[i] = p.size * (0.5 + a); pAlpha[i] = a; }
-      else if (pAlpha[i] !== 0) { pAlpha[i] = 0; pSize[i] = 0; } else if (i > parts.length + 4) break;
-    }
-    for (const n of ['position', 'color', 'size', 'alpha']) pGeo.attributes[n].needsUpdate = true;
-    pGeo.setDrawRange(0, Math.min(PMAX, parts.length + 4));
+    gameRun = running;
+    const k = running || title ? dt : 0;   // ポーズ中は演出も止める
+    T += k; shared.time.value = T;
+    shared.glow.value = xr ? 1.15 : 1.0;   // XR はにじみ（ブルーム）がないので発光を少し上げ、光の板で補う
+    fx.halo.value = xr ? 1.0 : 0.6;
+    placeBoard(xr); updateClip();
+    stamp++;
+    fx.ground.begin(); fx.fx.begin(); fx.top.begin();
+    for (const t in air) air[t].begin(); for (const t in gnd) gnd[t].begin();
 
-    let ri = 0;
-    for (const r of rings) r.t += k;
-    for (let i = rings.length - 1; i >= 0; i--) if (rings[i].t >= rings[i].life) rings.splice(i, 1);
-    for (const r of rings) { const m = ringAt(ri++, r.c); const q = r.t / r.life; const rad = lerp(r.r, r.max, 1 - (1 - q) ** 2); m.position.set(r.x, r.h, r.z); m.scale.setScalar(rad); m.material.opacity = 1 - q; }
+    // 最初の数フレームは全種類を 1 体ずつ（見えない大きさで）描き、シェーダーを先に用意させる（M08・M10）
+    const warming = warmN > 0;
+    if (warming) { if (warmN === 3) warmT0 = performance.now(); warmN--; if (warmN === 0) stats.warmMs = performance.now() - warmT0;
+      for (const t in air) { air[t].add(0, -9000, 0, 0, 0, 0, 0.001); airDef[t].pose(air[t], dummyObj, dummyE, T); air[t].fx(0, 0, 0, 0); }
+      for (const t in gnd) { gnd[t].add(0, -9000, 0, 0, 0, 0, 0.001); gndDef[t].pose(gnd[t], dummyObj, dummyG, T); gnd[t].fx(0, 0, 0, 0); }
+      fx.ground.put(0, -9000, 0, 1, 0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, -1); fx.fx.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.top.put(0, -9000, 0, 1, 0, 0, 0, 0, 0); fx.debris(0, -9000, 0, 1, 0, 0.001, 0xffffff); }
 
-    if (!g) { for (let i = ri; i < ringPool.length; i++) ringPool[i].visible = false; attract(dt, xr); return; }
-    if (builtArea !== g.area || g.def !== lastDef) { lastDef = g.def; buildArea(g); }
-    const sc = g.scroll - (1 - alpha) * TUNING.scroll / 60;
+    // 何を描くか: ゲーム中はその状態、タイトルではエリア 1 の大陸をゆっくり流す
+    let def, area, loop, sc;
+    if (g) { def = g.def; area = g.area; loop = g.loop; sc = lerp(g.pscroll ?? g.scroll - TUNING.scroll / 60, g.scroll, alpha); if (g.scroll < (g.pscroll ?? 0)) sc = g.scroll; }
+    else { if (!attractDef) attractDef = genArea(0); def = attractDef; area = 0; loop = 0; sc = 150 + ((T * 14) % (def.len - 700)); }
+    const key2 = area + ':' + loop;
+    if (curDef !== def || curKey !== key2) { curKey = key2; setArea(def, area, loop, sc); }
     scrollG.position.z = sc;
-    abyss.material.map.offset.y = (sc * 0.0012) % 1;
+    const need = terrain.update(sc, def);
+    jobs.run(need ? 14 : warming ? 30 : (title ? 6 : 3.5));
+    if (terrain.building && terrain.building.done && terrain.building.ms) { stats.buildMs = terrain.building.ms; }
 
-    // 地上の標的
-    const seen = new Set();
+    // ワープ（B26）: エリアを抜ける前後に光の筋が流れる
+    const wantWarp = g && ((g.phase === 'clear' && g.phaseT > 70) || (g.phase === 'intro' && g.phaseT < 45 && g.tick > 60)) ? 1 : 0;
+    warp.k = damp(warp.k, wantWarp, wantWarp ? 2.5 : 4, dt); warp.flash *= Math.exp(-3.5 * k);
+    if (warp.k > 0.02) { const n = opts.lite ? 30 : 64; for (let i = 0; i < n; i++) { const hx = Math.sin(i * 12.9898) * 43758.5453, hy = Math.sin(i * 78.233) * 12543.123, fx1 = hx - Math.floor(hx), fy1 = hy - Math.floor(hy); const zz = ((fx1 * 977 + T * (700 + fy1 * 600)) % (HH * 2.6)) - HH * 1.3; fx.fx.put((fy1 * 2 - 1) * HW, -30 + fx1 * 70, zz, 1.2 + fy1, 0.6, 0.85, 1.0, warp.k * (0.35 + 0.5 * fx1), 3, 0, 0, 1, 0, 0, -1, 40 + fy1 * 50); } }
+    if (warp.flash > 0.02) fx.fx.put(0, 10, 0, 620, 0.8, 0.9, 1.0, warp.flash * 0.5 * (0.3 + 0.7 * opts.flash), 0, 0, 0, 1);
+    sky.frame(dt, sc, 1 + warp.k * 0.5 + warp.flash * 0.8, running || title);
+    fx.update(dt, running || title, sc);
+
+    if (!g) { attract(xr); finish(); return; }
     const p = g.player, ppx = lerp(p.px, p.x, alpha) - HW, ppz = lerp(p.py, p.y, alpha) - HH;
-    let fi = 0, si = 0;
+    const fireMul = Math.max(TUNING.loop.fireCapMul, 1 - g.loop * TUNING.loop.fireStep);
+
+    // ── 地上の標的 ──
     for (const o of g.ground.values()) {
-      if (o.type === 'sigil') {
-        if (o.hidden) { const ph = (g.tick + o.gid * 37) % TUNING.sigil.hintEvery; if (ph < 26) { const kk = Math.sin((ph / 26) * Math.PI); dummy.position.set(o.x - HW, 2, lerp(o.py, o.y, alpha) - HH); dummy.scale.setScalar(4 * kk + 0.5); dummy.updateMatrix(); flashes.setMatrixAt(fi++, dummy.matrix); } }
+      const x = o.x - HW, z = lerp(o.py, o.y, alpha) - HH;
+      if (o.type === 'sigil') { // 隠しシジル: ときどきかすかに光る
+        if (o.hidden) { const ph = (g.tick + o.gid * 37) % TUNING.sigil.hintEvery; if (ph < 30) { const kk = Math.sin((ph / 30) * PI); fx.fx.put(x, 3, z, 9 + 6 * kk, 1, 1, 1, 0.42 * kk, 0, 0, 0, 1); fx.fx.put(x, 2, z, 7 * kk + 1, 0.8, 0.9, 1, 0.5 * kk, 8, 0.08, 0, 1, 0, 0, 0, -1); } }
         continue;
       }
-      seen.add(o.gid);
-      let m = groundMeshes.get(o.gid);
-      if (!m) { m = makeGround(o.type); board.add(m); groundMeshes.set(o.gid, m); }
-      const x = o.x - HW, z = lerp(o.py, o.y, alpha) - HH;
-      m.position.set(x, 0, z);
-      const head = m.getObjectByName('head'); if (head) head.rotation.y = Math.atan2(ppx - x, ppz - z);
-      const spin = m.getObjectByName('spin'); if (spin) spin.rotation.y = time * 0.6;
-      if (o.type === 'dock') m.position.y = Math.sin(time * 3) * 0.6;
-      if (o.flash > 0 && fi < 80) { dummy.position.set(x, 5, z); dummy.scale.setScalar(o.r * 0.8 * (o.flash / 6)); dummy.updateMatrix(); flashes.setMatrixAt(fi++, dummy.matrix); }
-      if (o.type === 'core') { const hpMax = 40 + Math.min(24, g.loop * 8); const r = ringAt(ri++, 0xff4fa8); r.position.set(x, 9, z); r.scale.setScalar(27); r.material.opacity = 0.35 + 0.65 * (o.hp / hpMax); }
-      if (o.type === 'panel') { const ch = g.chains[o.chainId]; m.children[0].material = ch && ch.state === 'run' && o.chainIdx < ch.count ? M.panelLine : M.panel; }
+      let st = gState.get(o.gid); if (!st) { st = freeG.pop() || newG(); Object.assign(st, dummyG); st.phase = (o.gid * 0.618) % 1; st.aim = Math.atan2(ppx - x, ppz - z); st.pf = o.fireT; gState.set(o.gid, st); }
+      st.stamp = stamp; st.x = x; st.z = z;
+      const fired = o.fireT < st.pf; st.pf = o.fireT; st.recoil = fired ? 1 : st.recoil * Math.exp(-9 * k);
+      const hpK = o.hp / o.hp0, dmg = o.hp0 > 1 && hpK <= 0.5 ? 1 : 0, flash = clamp(o.flash / 6, 0, 1);
+      const K2 = gnd[o.type]; if (!K2) continue;
+      if (o.type === 'turret' || o.type === 'bunker') st.aim = angDamp(st.aim, Math.atan2(ppx - x, ppz - z), 6, k || 0);
+      let lit = 0, hgt = 6;
+      if (o.type === 'bunker') { const thr = 150 * fireMul; st.open = damp(st.open, o.fireT > thr - 50 || st.recoil > 0.3 ? 1 : 0, 7, k); hgt = 9; }
+      else if (o.type === 'dock') { st.open = damp(st.open, 0.12 + 0.88 * (1 - hpK) + 0.06 * Math.sin(T * 2 + st.phase * 6), 6, k); fx.fx.put(x, 6, z, 30, 1, 0.82, 0.4, 0.22 + 0.2 * st.open, 0, 0, 0, 1); }
+      else if (o.type === 'panel') { const ch = g.chains[o.chainId]; lit = ch && ch.state === 'run' ? 1 + ch.count / 8 : 0; if (lit) fx.fx.put(x, 4, z, 15, 0.45, 0.95, 1, 0.3, 0, 0, 0, 1); }
+      else if (o.type === 'core') {
+        const t1 = hpK > 0.66 ? 1 : 0, t2 = hpK > 0.33 ? 1 : 0;  // 装甲が段階的に剥がれる（C26）
+        if (t1 < st.s1) { fx.debris(x, 12, z, 14, 110, 2.4, 0x8f98a8); fx.sparks(x, 12, z, 26, 150, 0xffd9a0, 0.7, 2.2); fx.spawn(4, x, 10, z, 0, 0, 0, 0.5, 14, 110, 0xffe2b8, 0.8, 1, 0, 0, -1); shake(0.4); }
+        if (t2 < st.s2) { fx.debris(x, 14, z, 12, 110, 2.0, 0x6a7282); fx.sparks(x, 14, z, 26, 150, 0xff9fd2, 0.7, 2.2); fx.spawn(4, x, 12, z, 0, 0, 0, 0.5, 10, 90, 0xff9fd2, 0.8, 1, 0, 0, -1); shake(0.4); }
+        st.s1 = t1; st.s2 = t2; st.shell1 = damp(st.shell1, t1, 7, k); st.shell2 = damp(st.shell2, t2, 7, k); st.hurt = flash; hgt = 14;
+        fx.top.put(x, 9, z, 58, 1, 0.31, 0.66, 0.25 + 0.6 * hpK, 8, 0.012, 0, 1, 0, 0, 0, -1);   // 耐久の輪
+        fx.fx.put(x, 13, z, 34 + 6 * Math.sin(T * 5), 1, 0.35, 0.7, 0.55, 0, 0, 0, 1);
+      }
+      if (K2.add(x, 0, z)) { gndDef[o.type].pose(K2, o, st, T); K2.fx(flash, dmg, lit, st.phase); }
+      if (fired && (o.type === 'turret' || o.type === 'bunker')) fx.spawn(0, x + Math.sin(st.aim) * 13, hgt, z + Math.cos(st.aim) * 13, 0, 0, 0, 0.09, 12, 5, 0xffd0a0, 0.9, 1, 0);
+      if (dmg) { st.smoke -= k; if (st.smoke <= 0) { st.smoke = 0.13 + Math.random() * 0.12; const rr = o.r * 0.5; fx.spawn(2, x + (Math.random() - 0.5) * rr, hgt, z + (Math.random() - 0.5) * rr, (Math.random() - 0.5) * 6, 16, 6, 0.9, 4, 10, 0x2c2830, 0.45, 0, 0.8); if (Math.random() < 0.3) fx.sparks(x, hgt, z, 3, 50, 0xffc070, 0.3, 1.2); } }
     }
-    for (const [gid, m] of groundMeshes) if (!seen.has(gid)) { board.remove(m); groundMeshes.delete(gid); }
+    gState.forEach(sweepG);
 
-    // 空の敵
-    const used = {};
+    // ── 空の敵 ──
+    twinA.key = -1;
     for (const e of g.enemies) {
-      const i = used[e.type] = (used[e.type] ?? -1) + 1;
-      const m = airFrom(e.type, i); m.visible = true;
-      const x = lerp(e.px, e.x, alpha) - HW, z = lerp(e.py, e.y, alpha) - HH;
-      const bob = Math.sin(time * 2 + e.id) * 1.2;
-      m.position.set(x, AIR_H + bob, z);
-      const dx = e.x - e.px, dz = e.y - e.py;
-      if (e.type === 'spinner' || e.type === 'slicer') m.rotation.set(0, time * (e.type === 'slicer' ? 8 : 5), 0);
-      else if (e.type === 'weaver') m.rotation.set(0, time * 2, 0);
-      else if (e.type === 'scout' || e.type === 'diver') { const yaw = Math.max(-0.8, Math.min(0.8, Math.atan2(dx, dz || 0.001))); m.rotation.set(0, yaw, -dx * 0.08); }
-      else m.rotation.set(0, 0, Math.max(-0.4, Math.min(0.4, -dx * 0.1)));
-      if (e.flash > 0 && fi < 80) { dummy.position.copy(m.position); dummy.scale.setScalar(e.r * 0.9 * (e.flash / 6)); dummy.updateMatrix(); flashes.setMatrixAt(fi++, dummy.matrix); }
-      if (e.telegraph) { const r = ringAt(ri++, 0xff5070); r.position.copy(m.position); r.scale.setScalar(14); r.material.opacity = 0.5 + 0.5 * Math.sin(time * 36); }
-      if (e.mv === 'twin') { const r = ringAt(ri++, 0xff4fa8); r.position.copy(m.position); r.scale.setScalar(14 - 8 * (e.mergeK || 0)); r.material.opacity = 0.9; }
-      if (si < 120 && overLand(g, e.x, e.y)) { dummy.position.set(x + 4, 0.3, z + 6); dummy.scale.set(e.r * 0.9, 1, e.r * 0.9); dummy.updateMatrix(); shadows.setMatrixAt(si++, dummy.matrix); }
+      let st = eState.get(e.id); if (!st) { st = freeE.pop() || newE(); Object.assign(st, dummyE); st.phase = (e.id * 0.618) % 1; st.pf = e.fireT; eState.set(e.id, st); }
+      st.stamp = stamp;
+      const x = lerp(e.px, e.x, alpha) - HW, z = lerp(e.py, e.y, alpha) - HH, vx = (e.x - e.px) * 60, vz = (e.y - e.py) * 60, ty = e.type;
+      st.x = x; st.z = z; st.age += k; st.spin += k * 9;
+      const inside = Math.abs(x) < HW && Math.abs(z) < HH; if (inside) st.vis += k;
+      const fired = e.fireT < st.pf; st.pf = e.fireT; st.recoil = fired ? 1 : st.recoil * Math.exp(-8 * k); st.kick *= Math.exp(-11 * k);
+      // 向き: 進む方向へ実時間のばねで寄せる（M02）。大きな艦は自機のほうを少し向く
+      let yawT = 0, rollT = 0;
+      if (ty === 'scout' || ty === 'diver') { yawT = clamp(Math.atan2(vx, Math.max(8, vz)), -1.0, 1.0); rollT = clamp(-vx * 0.01, -0.7, 0.7); if (e.leave) yawT = PI; }
+      else if (ty === 'gunner' || ty === 'lancer') { yawT = clamp(Math.atan2(ppx - x, Math.max(20, ppz - z)), -0.5, 0.5); rollT = clamp(-vx * 0.006, -0.3, 0.3); }
+      else rollT = clamp(-vx * 0.004, -0.25, 0.25);
+      st.yaw = angDamp(st.yaw, yawT, 7, k); st.roll = damp(st.roll, rollT, 7, k);
+      if (ty === 'diver') st.fold = damp(st.fold, e.telegraph ? 1 : (e.t > (e.tele || 0) ? 0.55 : 0), 9, k);
+      if (ty === 'lancer') st.deploy = damp(st.deploy, e.t > 36 ? 1 : 0, 3, k);
+      // 出現（C30・M28）: 盤面に入った直後は進行方向に引き伸ばされ、収束する
+      const wk = clamp(st.vis / 0.32, 0, 1), we = 1 - (1 - wk) * (1 - wk), sx = 0.35 + 0.65 * we, sz2 = 1 + (1 - we) * 1.9;
+      const bob = Math.sin(T * 2.1 + st.phase * TAU) * 1.0, y = AIR_H + bob + (ty === 'twinM' ? 1 : 0);
+      const flash = clamp(e.flash / 6, 0, 1) + (1 - wk) * 0.55, dmg = e.hp0 > 1 && e.hp <= e.hp0 / 2 ? 1 : 0;
+      const kz = -st.kick * 1.4;
+      const K1 = air[ty];
+      if (K1.add(x + Math.sin(st.yaw) * kz, y, z + Math.cos(st.yaw) * kz, st.yaw, -st.kick * 0.12, st.roll, sx, 1, sz2)) { airDef[ty].pose(K1, e, st, T); K1.fx(flash, dmg, 0, st.phase); }
+      if (wk < 1 && inside) fx.fx.put(x, y, z, 26 * (1 - wk) + 6, 0.7, 0.85, 1, 0.5 * (1 - wk), 8, 0.1, 0, 1);
+      // 影（地面にだけ落ちる。高さの手がかり）
+      fx.ground.put(x + 6, -1.2, z + 7, e.r * 2.7, 0, 0, 0, 0.42, 13, 0, 0, 0, 0, 0, 0, -1);
+      // 噴射炎・回転の残像・発光のにじみ
+      const J = JETS[ty];
+      if (J) { const boost = ty === 'diver' && !e.telegraph && e.t > (e.tele || 0) ? 2.4 : e.leave ? 2 : 1; for (let j = 0; j < J.length; j++) { const q = J[j]; jetPut(x, y, z, st.yaw, q[0], q[1], q[2], q[3] * (boost > 1 ? 1.3 : 1), q[4] * boost, q[5], 0.95); } }
+      if (ty === 'weaver') fx.fx.put(x, y + 0.4, z, 20, 0.62, 1, 0.79, 0.28, 9, 0, st.spin, 1, 0, 0, 0, -1);
+      else if (ty === 'slicer') fx.fx.put(x, y + 0.2, z, 19, 1, 0.7, 0.37, 0.4, 9, 0, st.spin * 1.6, 1, 0, 0, 0, -1);
+      else if (ty === 'spinner') fx.fx.put(x, y, z, 15, 0.35, 0.82, 1, 0.5, 0, 0, 0, 1);
+      else if (ty === 'twinM') fx.fx.put(x, y + 3, z, 26, 1, 0.31, 0.66, 0.5, 0, 0, 0, 1);
+      if (fired && (ty === 'gunner' || ty === 'lancer')) { fx.spawn(0, x + Math.sin(st.yaw) * 14, y, z + Math.cos(st.yaw) * 14, 0, 0, 0, 0.09, 13, 5, ty === 'gunner' ? 0xd0a0ff : 0xffd98a, 0.9, 1, 0); }
+      if (e.telegraph) { const bl = 0.5 + 0.5 * Math.sin(T * 30); fx.top.put(x, y, z, 30, 1, 0.31, 0.44, 0.45 + 0.5 * bl, 8, 0.06, 0, 1); fx.fx.put(x, y, z, 30, 1, 0.2, 0.3, 0.3 * bl, 0, 0, 0, 1); }
+      if (e.mv === 'twin') { // ジェミニ: 半身どうしを結ぶ光の糸と、合体までの輪
+        fx.top.put(x, y, z, 30 - 14 * (e.mergeK || 0), 1, 0.31, 0.66, 0.8, 8, 0.05, 0, 1);
+        if (twinA.key === e.key) { const dx = x - twinA.x, dz = z - twinA.z, L = Math.hypot(dx, dz) + 1e-3, w = 2.2 + 3.5 * (e.mergeK || 0); fx.fx.put(twinA.x, y, twinA.z, w, 1, 0.4, 0.75, 0.55 + 0.4 * (e.mergeK || 0), 10, 0, e.key * 0.37, 1, dx / L, 0, dz / L, L / w); } else { twinA.key = e.key; twinA.x = x; twinA.z = z; }
+      }
+      if (dmg) { st.smoke -= k; if (st.smoke <= 0) { st.smoke = 0.09 + Math.random() * 0.1; fx.spawn(2, x + (Math.random() - 0.5) * e.r, y + 2, z + (Math.random() - 0.5) * e.r, -vx * 0.2, 6, -vz * 0.2 - 14, 0.7, 3.5, 9, 0x2c2830, 0.45, 0, 1); if (Math.random() < 0.35) fx.sparks(x, y, z, 2, 60, 0xffc070, 0.3, 1.2); } }
     }
-    for (const t in airPools) airPools[t].forEach((m, i) => { if (i > (used[t] ?? -1)) m.visible = false; });
-    for (let i = ri; i < ringPool.length; i++) ringPool[i].visible = false;
+    eState.forEach(sweepE);
 
-    // 自機・支援機
+    // ── 自機 ──
     const blink = p.invuln > 0 && (g.tick >> 2) % 2 === 0;
     player.visible = p.alive && !blink;
-    player.position.set(ppx, AIR_H, ppz);
-    const bank = Math.max(-0.5, Math.min(0.5, -(p.x - p.px) * 0.25));
-    player.rotation.z = lerp(player.rotation.z, bank, 0.2); player.rotation.x = Math.max(-0.2, Math.min(0.2, (p.y - p.py) * 0.06));
-    player.getObjectByName('relay').visible = p.docked;
-    const pulse = p.dockAnim > 0 ? 1 + 0.25 * Math.sin((p.dockAnim / TUNING.partner.dockTicks) * Math.PI) : 1; player.scale.setScalar(pulse);
-    if (p.alive && si < 120 && overLand(g, p.x, p.y)) { dummy.position.set(ppx + 4, 0.3, ppz + 7); dummy.scale.set(10, 1, 10); dummy.updateMatrix(); shadows.setMatrixAt(si++, dummy.matrix); }
-    partner.visible = !!g.partner;
-    if (g.partner) { const q = g.partner; partner.position.set(lerp(q.px, q.x, alpha) - HW, AIR_H + Math.sin(time * 4) * 1.5, lerp(q.py, q.y, alpha) - HH); partner.rotation.y = time * 1.5; const r = ringAt(ri++, 0xffd166); r.position.copy(partner.position); r.scale.setScalar(TUNING.partner.dockR); r.material.opacity = 0.6; }
-    if (app.settings.hitbox && p.alive) { const r = ringAt(ri++, 0x00ff88); r.position.set(ppx, AIR_H + 2, ppz); r.scale.setScalar(TUNING.player.hitR); r.material.opacity = 1; }
-
-    // 弾
-    let bi = 0;
-    for (const b of g.bullets) {
-      if (bi >= MAXB) break;
-      const x = lerp(b.px, b.x, alpha) - HW, z = lerp(b.py, b.y, alpha) - HH, born = Math.min(1, (g.tick - (b.born || 0)) / 6), r = b.r * (0.6 + 0.4 * born);
-      dummy.position.set(x, AIR_H, z);
-      dummy.scale.setScalar(r + 1.2); dummy.updateMatrix(); bOuter.setMatrixAt(bi, dummy.matrix);
-      dummy.scale.setScalar(r + 0.4); dummy.updateMatrix(); bMid.setMatrixAt(bi, dummy.matrix);
-      dummy.scale.setScalar(r * 0.55); dummy.updateMatrix(); bCore.setMatrixAt(bi, dummy.matrix);
-      bi++;
+    const pvx = p.alive ? p.vx || 0 : 0, pvy = p.alive ? p.vy || 0 : 0;
+    // 傾き（C04・M03）: 入力による速度から、描画側の実時間のばねで
+    pState.roll = damp(pState.roll, -pvx / TUNING.player.speed * 0.62, 11, dt); pState.pitch = damp(pState.pitch, pvy / TUNING.player.speed * 0.14, 9, dt); pState.thr = damp(pState.thr, clamp(-pvy / TUNING.player.speed, -1, 1) + (p.entering > 0 ? 1.4 : 0), 8, dt);
+    const py = AIR_H + Math.sin(T * 2.6) * 0.5;
+    player.position.set(ppx, py, ppz); player.rotation.set(pState.pitch, 0, pState.roll); player.scale.setScalar(1);
+    // 合体（C08・C09）: 引き寄せ → 閃光 → 装着 → 衝撃波の輪 → 金色の粒
+    if (dockFx.t < 2) {
+      const before = dockFx.t; dockFx.t += k;
+      if (before < 0.22 && dockFx.t >= 0.22) { fx.spawn(0, ppx, py, ppz, 0, 0, 0, 0.22, 70, 110, 0xfff0c0, 0.9 * (0.3 + 0.7 * opts.flash), 1, 0); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.55, 8, 120, 0xffd166, 0.9, 1, 0, 0, -1); fx.spawn(4, ppx, py, ppz, 0, 0, 0, 0.7, 4, 70, 0xffffff, 0.7, 1, 0, 0, -1, 0.08); fx.sparks(ppx, py, ppz, opts.lite ? 14 : 30, 120, 0xffd98a, 0.8, 2.0); fx.light(ppx, py, ppz, 0xffd166, 2.2, 120); }
     }
-    for (const m of [bOuter, bMid, bCore]) { m.count = bi; m.instanceMatrix.needsUpdate = true; }
-    let shI = 0;
-    for (const s of g.shots) { if (shI >= 40) break; dummy.position.set(lerp(s.px, s.x, alpha) - HW, AIR_H, lerp(s.py, s.y, alpha) - HH); dummy.scale.set(1.3, 1.3, 1); dummy.updateMatrix(); shots.setMatrixAt(shI++, dummy.matrix); }
-    shots.count = shI; shots.instanceMatrix.needsUpdate = true;
-    shadows.count = si; shadows.instanceMatrix.needsUpdate = true;
-    flashes.count = fi; flashes.instanceMatrix.needsUpdate = true;
+    const dk = p.docked ? clamp(dockFx.t / 0.22, 0, 1) : 0, de = 1 - (1 - dk) * (1 - dk) * (1 - dk);
+    relayR.visible = relayL.visible = p.docked;
+    relayR.position.set((1 - de) * 26, (1 - de) * 3, (1 - de) * 16); relayL.position.set(-(1 - de) * 26, (1 - de) * 3, (1 - de) * 16);
+    if (p.alive) {
+      const cr = Math.cos(pState.roll), sr = Math.sin(pState.roll), vis = blink ? 0.35 : 1;
+      const flameLen = 10 + pState.thr * 6.5;
+      for (let s = -1; s <= 1; s += 2) { // 推進炎（C05）: 前進で伸び、後退で縮む
+        const X = ppx + s * 2.5 * cr, Y = py + s * 2.5 * sr + 0.1, Z = ppz + 13.3;
+        fx.fx.put(X, Y, Z, 3.4, 0.25, 0.62, 1, 0.95 * vis, 6, 0, s * 1.7, 1, 0, 0, 1, Math.max(1.2, flameLen / 3.4)); fx.fx.put(X, Y, Z + 1, 9, 0.3, 0.7, 1, 0.6 * vis, 0, 0, 0, 1);
+        const tx = ppx + s * 14.1 * cr, tyy = py + s * 14.1 * sr, sl = 12 + Math.abs(pvx) * 0.16 + Math.max(0, -pvy) * 0.1;
+        fx.fx.put(tx, tyy, ppz + 8.6, 0.8, 0.6, 0.9, 1, 0.42 * vis, 3, 0, 0, 1, 0, 0, 1, sl / 0.8);   // 翼端の細い筋（C06）: 板の先が後ろへ伸びる
+        if (p.docked && dk >= 1) { const gx = ppx + s * 17.6 * cr, gy = py + s * 17.6 * sr - 0.2; fx.fx.put(gx, gy, ppz + 9.8, 2.8, 1, 0.75, 0.3, 0.9 * vis, 6, 0, s * 3.1, 1, 0, 0, 1, Math.max(1.2, flameLen * 0.8 / 2.8)); fx.fx.put(gx, gy, ppz + 10.5, 7, 1, 0.8, 0.4, 0.5 * vis, 0, 0, 0, 1); }
+      }
+      fx.fx.put(ppx, py - 1, ppz + 1, 34, 0.18, 0.62, 1, 0.16, 0, 0, 0, 1);       // 自機を背景から浮かせる淡い光
+      // 推進の軌跡（C06）: 実時間で一定の間隔に粒を置く
+      trailAcc += k; while (trailAcc > 1 / 110) { trailAcc -= 1 / 110; const s = (stamp + (trailAcc * 1000 | 0)) & 1 ? 1 : -1; fx.spawn(0, ppx + s * 2.5 * cr, py + s * 2.5 * sr, ppz + 15 + Math.random() * 3, 0, 0, 95 + pState.thr * 40, 0.24, 3.4, 0.6, p.docked ? 0x9fd8ff : 0x58b8ff, 0.5, 1, 0.5); }
+      if (muzzle.t < 0.07) { muzzle.t += k; const mk = 1 - muzzle.t / 0.07; fx.fx.put(ppx, py - 0.6, ppz - 15, 6 * mk + 2, 0.7, 0.95, 1, 0.7 * mk, 0, 0, 0, 1); if (p.docked) for (let s = -1; s <= 1; s += 2) fx.fx.put(ppx + s * 17.6, py, ppz - 6.5, 8 * mk + 2, 1, 0.85, 0.5, 0.9 * mk, 0, 0, 0, 1); }
+      fx.ground.put(ppx + 6, -1.2, ppz + 7, 30, 0, 0, 0, 0.45, 13, 0, 0, 0, 0, 0, 0, -1);
+      if (app.settings.hitbox) { fx.top.put(ppx, py + 2, ppz, TUNING.player.hitR * 2.4, 0, 1, 0.53, 1, 8, 0.2, 0, 1, 0, 0, 0, -1); fx.top.put(ppx, py + 2, ppz, 1.6, 1, 1, 1, 1, 0, 0, 0, 1); }
+    }
+    if (respawnFx.t < 0.6) { respawnFx.t += k; const rk = respawnFx.t / 0.6; fx.fx.put(ppx, py, ppz, 60 * (1 - rk) + 8, 0.6, 0.9, 1, 0.8 * (1 - rk), 8, 0.06, 0, 1); fx.fx.put(ppx, py, ppz, 40, 0.6, 0.9, 1, 0.5 * (1 - rk), 0, 0, 0, 1); }
 
-    // 点数の文字
-    for (const q of pops) q.t += k;
-    for (let i = pops.length - 1; i >= 0; i--) if (pops[i].t > 60) pops.splice(i, 1);
-    pops.forEach((q, i) => {
-      if (!popPool[i]) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false })); s.renderOrder = 30; board.add(s); popPool[i] = s; }
-      const s = popPool[i]; s.visible = true; s.material.map = textTexture(q.text, q.color); s.material.needsUpdate = true;
-      s.material.opacity = q.t < 40 ? 1 : 1 - (q.t - 40) / 20; const w = q.big ? 64 : 44; s.scale.set(w, w / 4, 1); s.position.set(q.x, AIR_H + 14 + q.t * 0.3, q.z);
-    });
-    for (let i = pops.length; i < popPool.length; i++) popPool[i].visible = false;
+    // ── 支援機 ARC（C10）──
+    partner.visible = !!g.partner;
+    if (g.partner) {
+      const q = g.partner, qx = lerp(q.px, q.x, alpha) - HW, qz = lerp(q.py, q.y, alpha) - HH, rise = clamp(q.t / 40, 0, 1), qy = lerp(5, AIR_H, rise * rise * (3 - 2 * rise)) + Math.sin(T * 4) * 1.0;
+      partner.position.set(qx, qy, qz); partner.scale.setScalar(0.6 + 0.4 * rise);
+      qBody.rotation.y = T * 1.2; qRing1.rotation.set(T * 2.1, T * 0.7, 0.4); qRing2.rotation.set(0.6, -T * 1.6, T * 2.6);
+      const pl = 0.75 + 0.25 * Math.sin(T * 7);
+      fx.fx.put(qx, qy, qz, 24, 1, 0.82, 0.4, 0.55 * pl, 0, 0, 0, 1);
+      fx.top.put(qx, qy, qz, TUNING.partner.dockR * 2, 1, 0.82, 0.4, 0.45 + 0.25 * pl, 8, 0.05, 0, 1, 0, 0, 0, -1);
+      if (p.alive && q.t >= 40 && q.t < TUNING.partner.life) { const dx = ppx - qx, dz = ppz - qz, L = Math.hypot(dx, dz) + 1e-3; fx.fx.put(qx, qy, qz, 1.6, 1, 0.85, 0.5, 0.3, 10, 0, 1.3, 1, dx / L, (py - qy) / L, dz / L, L / 1.6); } // 誘導の光の筋
+      fx.ground.put(qx + 6 * rise, -1.2, qz + 7 * rise, 20, 0, 0, 0, 0.4, 13, 0, 0, 0, 0, 0, 0, -1);
+    }
+
+    // ── 弾（必ずいちばん上に描く。C27・C28・M29）──
+    for (const s of g.shots) { const x = lerp(s.px, s.x, alpha) - HW, z = lerp(s.py, s.y, alpha) - HH; if (p.docked) fx.top.put(x, AIR_H, z + 8, 4.0, 1, 0.8, 0.42, 1, 7, 0, 0, 1, 0, 0, -1, 4.4); else fx.top.put(x, AIR_H, z + 7, 3.0, 0.42, 0.85, 1, 1, 7, 0, 0, 1, 0, 0, -1, 5.0); }
+    rgb(COLORS.enemyBullet); const br = _col.r, bg = _col.g, bb = _col.b;
+    for (const b of g.bullets) {
+      const x = lerp(b.px, b.x, alpha) - HW, z = lerp(b.py, b.y, alpha) - HH, age = (g.tick - (b.born || 0) + alpha) / 9;
+      const sw = age >= 1 ? 1 : (age < 0.6 ? 0.45 + (age / 0.6) * 0.8 : 1.25 - (age - 0.6) / 0.4 * 0.25); // 出現時にふくらむ
+      fx.top.put(x, AIR_H, z, (b.r + 1.3) / 0.6 * 2 * sw, br, bg, bb, 1, 5, 0, x * 0.3 + z * 0.2, 0);
+      let rec = bState.get(b); if (!rec) { rec = freeB.pop() || { x: 0, z: 0, stamp: 0 }; bState.set(b, rec); } rec.x = x; rec.z = z; rec.stamp = stamp;
+    }
+    bState.forEach(lostBullet);
+
+    // ── 点数の文字（拡大しながら出て、浮かんで消える。M28）──
+    for (let i = 0; i < POPMAX; i++) { const q = pops[i], s = popPool[i]; if (!q.on) { s.visible = false; continue; } q.t += k; if (q.t > 1) { q.on = false; s.visible = false; continue; }
+      if (s.material.map !== q.tex) { s.material.map = q.tex; s.material.needsUpdate = true; }
+      const inK = clamp(q.t / 0.12, 0, 1), sc2 = (q.big ? 64 : 44) * (0.6 + 0.4 * (1 - (1 - inK) * (1 - inK)) + 0.12 * Math.sin(inK * PI));
+      s.visible = true; s.material.opacity = q.t < 0.66 ? 1 : 1 - (q.t - 0.66) / 0.34; s.scale.set(sc2, sc2 / 4, 1); s.position.set(q.x, AIR_H + 14 + q.t * 16, q.z); }
+    finish();
   }
-  let lastDef = null;
-  function overLand(g, x, y) { const wy = g.scroll - y; for (const isl of g.def.islands) { const sp = islandSpanAt(isl, wy); if (sp && x > sp[0] && x < sp[1]) return true; } return false; }
-  function attract(dt, xr) {
-    // タイトル: 自機をゆっくり回して見せる
-    player.visible = !!xr; player.position.set(0, AIR_H + 40, 30); player.rotation.set(0.25, time * 0.5, 0); player.scale.setScalar(1.4);
-    player.getObjectByName('relay').visible = Math.floor(time / 4) % 2 === 1;
+  const pState = { roll: 0, pitch: 0, thr: 0 };
+  const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  const sweepE = (st, id) => { if (st.stamp !== stamp) { eState.delete(id); freeE.push(st); } };
+  const sweepG = (st, id) => { if (st.stamp !== stamp) { gState.delete(id); freeG.push(st); } };
+  function finish() {
+    for (const t in air) air[t].end(); for (const t in gnd) gnd[t].end();
+    fx.ground.end(); fx.fx.end(); fx.top.end();
+  }
+  overLandFn = (g, x, y) => { const wy = g.scroll - y; for (const isl of g.def.islands) { if (wy < isl.wy0 || wy > isl.wy1) continue; const f = (wy - isl.wy0) / isl.step, i = Math.min(isl.left.length - 2, Math.floor(f)), t = f - i; if (x > lerp(isl.left[i], isl.left[i + 1], t) && x < lerp(isl.right[i], isl.right[i + 1], t)) return true; } return false; };
+
+  function attract(xr) {
+    // タイトル: エリア 1 の大陸の上を、自機がゆっくり飛ぶ
+    const px = Math.sin(T * 0.5) * 46, pz = 78 + Math.sin(T * 0.37) * 14, py = AIR_H + Math.sin(T * 1.3) * 1.5, roll = -Math.cos(T * 0.5) * 0.42;
+    player.visible = true; player.position.set(px, py, pz); player.rotation.set(0, 0, roll); player.scale.setScalar(1);
+    const dockShow = Math.floor(T / 6) % 2 === 1; relayR.visible = relayL.visible = dockShow; relayR.position.set(0, 0, 0); relayL.position.set(0, 0, 0);
     partner.visible = false;
-    for (const t in airPools) airPools[t].forEach((m) => { m.visible = false; });
-    for (const m of [bOuter, bMid, bCore, shots, shadows, flashes]) m.count = 0;
-    for (const s of popPool) s.visible = false;
-    if (builtArea !== 0 || lastDef !== 'title') { lastDef = 'title'; const def = { area: 0, def: { islands: [] } }; while (scrollG.children.length) scrollG.children.pop(); paintAbyss(0); builtArea = 0; for (const m of groundMeshes.values()) board.remove(m); groundMeshes.clear(); }
-    abyss.material.map.offset.y = (time * 0.01) % 1;
+    const cr = Math.cos(roll), sr = Math.sin(roll);
+    for (let s = -1; s <= 1; s += 2) { const X = px + s * 2.5 * cr, Y = py + s * 2.5 * sr; fx.fx.put(X, Y, pz + 13.3, 3.4, 0.25, 0.62, 1, 0.95, 6, 0, s * 1.7, 1, 0, 0, 1, 3.6); fx.fx.put(X, Y, pz + 14, 9, 0.3, 0.7, 1, 0.6, 0, 0, 0, 1); fx.fx.put(px + s * 14.1 * cr, py + s * 14.1 * sr, pz + 8.6, 0.8, 0.6, 0.9, 1, 0.42, 3, 0, 0, 1, 0, 0, 1, 22); }
+    fx.ground.put(px + 6, -1.2, pz + 7, 30, 0, 0, 0, 0.45, 13, 0, 0, 0, 0, 0, 0, -1);
+    for (let i = 0; i < POPMAX; i++) popPool[i].visible = false;
+    eState.forEach(sweepE); gState.forEach(sweepG);
   }
-  return { scene, stage, board, frame, onEvents, recenter: doRecenter, placeBoard, K, boardCorners() {
-    board.updateMatrixWorld(true); return [[-HW, -HH], [HW, -HH], [-HW, HH], [HW, HH]].map(([x, z]) => new THREE.Vector3(x, 0, z).applyMatrix4(board.matrixWorld));
-  } };
+
+  return {
+    scene, stage, board, frame, bezel, onEvents, recenter: doRecenter, placeBoard, K, stats, jobs,
+    // 画質や XR の切り替えのあとに呼ぶ: 次の数フレームで全シェーダーを用意し直す
+    warm() { warmN = 3; },
+    // 通常画面の揺れ（m 単位の小さなずれ）。VR では使わない
+    shakeOffset(out, dt) { sh.amp *= Math.exp(-6.5 * dt); sh.t += dt; const a = sh.amp * app.settings.shake * 0.012; out.set(a * (Math.sin(sh.t * 61) * 0.6 + Math.sin(sh.t * 37 + 1.3) * 0.4), a * (Math.sin(sh.t * 53 + 0.7) * 0.6 + Math.sin(sh.t * 29 + 2.1) * 0.4), 0); return out; },
+    playerX() { const g = app.game; return g && g.player.alive ? (g.player.x - HW) / HW : 0; },
+    memory() { return { ...renderer.info.memory, pops: popTex.size, eStates: eState.size, gStates: gState.size, bStates: bState.size }; },
+    // 盤面の四隅（世界座標）。同じ 4 つの Vector3 を使い回す（呼び出し側は書き換えないこと）
+    boardCorners() { board.updateMatrixWorld(true); corners[0].set(-HW, 0, -HH); corners[1].set(HW, 0, -HH); corners[2].set(-HW, 0, HH); corners[3].set(HW, 0, HH); for (const c of corners) c.applyMatrix4(board.matrixWorld); return corners; },
+  };
 }

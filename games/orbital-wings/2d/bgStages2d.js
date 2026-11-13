@@ -626,20 +626,20 @@ STAGE_ART[6] = { build(B) {
           c.globalAlpha = 0.4; for (let x = 0; x < 64; x += 32) c.drawImage(t1, x, -7, 32, 32); c.globalAlpha = 0.55; for (let x = 0; x < 64; x += 16) c.drawImage(t2, x, 1, 16, 16); c.globalAlpha = 1;
           rep3(c, 64, () => { for (let i = 0; i < 60; i++) { const x = H(i, 31) * 64, y = H(i, 32) * 18, r = 0.4 + H(i, 33) ** 2 * 2.2; c.fillStyle = rgba('#3ab090', 0.05 + H(i, 34) * 0.07); c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); c.strokeStyle = rgba('#7adcae', 0.1); c.lineWidth = 0.06; c.stroke(); } });
         } },
-      // 光の網（コースティクス）: 2 枚を逆向きに流して重ねる
+      // 光の網（コースティクス）: 継ぎ目のない網目の絵 2 枚を、逆向きに流しながら重ねる
       { t: 'hook', inside: true,
-        init(B, L) { L.p1 = B.ctx.createPattern(tint(cellCanvas(256, 61, 5, 0.42, 2.0), '#8affd8'), 'repeat'); L.p2 = B.ctx.createPattern(tint(cellCanvas(256, 67, 4, 0.36, 2.4), '#5ad8ff'), 'repeat'); },
+        init(B, L) { L.c1 = tint(cellCanvas(256, 61, 5, 0.42, 2.0), '#8affd8'); L.c2 = tint(cellCanvas(256, 67, 4, 0.36, 2.4), '#5ad8ff'); },
         draw(R, ctx, cam, now, F, L) {
-          const S = R.S, sc = S * 9 / 256; ctx.globalCompositeOperation = 'lighter';
-          let ox = (cam * 0.1 + now * 0.35) % 9, oy = (now * 0.12) % 9;
-          ctx.setTransform(sc, 0.12 * sc, 0, sc * 0.62, -ox * S, -oy * S * 0.62); ctx.globalAlpha = 0.1 + 0.03 * Math.sin(now * 0.9); ctx.fillStyle = L.p1; ctx.fillRect(0, -40, (VIEW_W + 10) * 256 / 9, (VIEW_H + 12) * 256 / 9 / 0.62 + 80);
-          if (F.lite) return;
-          ox = (cam * 0.14 - now * 0.22) % 12.5; if (ox < 0) ox += 12.5; oy = (now * 0.17) % 12.5; const s2 = S * 12.5 / 256;
-          ctx.setTransform(s2, -0.1 * s2, 0, s2 * 0.6, -ox * S, -oy * S * 0.6 + S * 3); ctx.globalAlpha = 0.075; ctx.fillStyle = L.p2; ctx.fillRect(0, -200, (VIEW_W + 14) * 256 / 12.5, (VIEW_H + 16) * 256 / 12.5 / 0.6 + 200);
+          const S = R.S; ctx.globalCompositeOperation = 'lighter';
+          const lay = (img, w, h, ox, oy, a) => {
+            ctx.globalAlpha = a; ox = ((ox % w) + w) % w; oy = ((oy % h) + h) % h;
+            for (let y = -oy; y < VIEW_H; y += h) for (let x = -ox; x < VIEW_W; x += w) ctx.drawImage(img, x * S, y * S, w * S + 1, h * S + 1);
+          };
+          lay(L.c1, 11, 6.6, cam * 0.1 + now * 0.35, now * 0.12, 0.1 + 0.03 * Math.sin(now * 0.9));
+          if (!F.lite) lay(L.c2, 15, 8.6, cam * 0.14 - now * 0.22, -now * 0.17, 0.075);
         } },
       { t: 'strip', inside: true, par: 0.16, k: 0.5, P: 64, y0: -1, y1: 19, bob: [0.3, 0.45, 0],
         paint(c) { rep3(c, 64, () => cellsA.forEach(([x, y, r], i) => cell(c, x, y, r, i * 13 + 5, { hi: '#7adcae', mid: '#1c7a60', lo: '#052a20' }, 0.75))); } },
-      { t: 'rays', inside: true, c: '#5affc0', a: 0.12, slant: 0.3, seed: 5, reach: 0.95 },
       { t: 'strip', inside: true, par: 0.32, k: 0.75, P: 64, y0: -1, y1: 19, bob: [0.4, 0.38, 2],
         paint(c) {
           rep3(c, 64, () => {

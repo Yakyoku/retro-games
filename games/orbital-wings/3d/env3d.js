@@ -337,7 +337,7 @@ export class Env3D {
     E.add.clear(); E.alpha.clear();
     const bk = cfg.light.bake, sc = buildScenery(cfg, E.add, E.alpha, bk);
     // 宇宙の塵（面の外でも流れる。速いときは線になる）
-    for (let i = 0; i < 70; i++) E.add.ambient(hash1(i, 1), hash1(i, 2), hash1(i, 3), 0, 0, 0, 0.07 + hash1(i, 4) * 0.08, 6, 0.3, -0.9, '#cfe0ff', hash1(i, 5) * TAU);
+    for (let i = 0; i < 120; i++) E.add.ambient(hash1(i, 1), hash1(i, 2), hash1(i, 3), 0, 0, 0, 0.08 + hash1(i, 4) * 0.1, 6, 0.3, -1.2, i % 5 ? '#cfe0ff' : '#ffe8c0', hash1(i, 5) * TAU);
     E.add.commit(); E.alpha.commit();
     const layer = (geo, mat, period, n, f, order) => {
       const mesh = new THREE.InstancedMesh(geo, mat, n); mesh.frustumCulled = false; mesh.renderOrder = order || 0;

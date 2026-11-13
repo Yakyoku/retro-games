@@ -11,7 +11,7 @@
 - 構成と操作は README.md、採用値は docs/SPEC.md、音は docs/SOUND.md、テストは docs/TESTS.md
 - Netlify: aegis-relay-2d（086677e5-fc59-4c16-a426-e3676066c7ee、VARIANT=2d）／ aegis-relay-vr（042004da-9f9b-48f0-8eb1-96ff2c796f59、VARIANT=vr）。どちらも GAME=aegis-relay
 - 初版のデプロイ（2026-11-12）: 2D 6af571c975633c04e580e31a ／ VR 6af571d63d078b7023285c96
-- 最終デプロイ（2026-11-13、品質向上版）: 2D __D2__ ／ VR __D3__
+- 最終デプロイ（2026-11-13、品質向上版）: 2D 6af6dbe4f3572d0c915478e3 ／ VR 6af6dbf8b20293bb91a2c31e（本番 URL で 2D のプレイ・VR の模擬開始を確認、例外と 404 なし）
 - ビルド: ルートで `GAME=aegis-relay VARIANT=all node tools/build-game.js`。テスト: 作品フォルダで `node --test tests/*.test.js`、点検 `node tools/check.js`
 
 ## 判断ログ

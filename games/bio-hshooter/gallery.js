@@ -17,6 +17,7 @@ for (const m of Object.values(materials())) if (m.isMeshStandardMaterial) m.envM
 scene.add(new THREE.HemisphereLight(0x3a5878, 0x120814, 1.0));
 const key = new THREE.DirectionalLight(0xcfe6ff, 2.8); key.position.set(-6, 10, 12); scene.add(key);
 const rim = new THREE.DirectionalLight(0xff60c0, 1.2); rim.position.set(8, -4, -10); scene.add(rim);
+const under = new THREE.DirectionalLight(0x7dff4a, 1.0); under.position.set(3, -10, 6); scene.add(under);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 500);
 const pivot = new THREE.Group(); scene.add(pivot);
 const grid = new THREE.GridHelper(40, 40, 0x1a2a3a, 0x0c141c); grid.position.y = -4; scene.add(grid);

@@ -52,10 +52,10 @@ function lookAt(eye, base, ctx, r, flip = false, dt = 1 / 60) {
 }
 // 節の位置を通るなめらかな 1 本の胴（Catmull-Rom 曲線に沿って輪を並べ、毎フレーム頂点だけ書き換える）
 class SplineBody {
-  constructor(rings, radial, mat) {
-    this.R = rings; this.N = radial;
+  constructor(rings, radial, mat, off = 0, rs = 1) {
+    this.R = rings; this.N = radial; this.off = off; this.rs = rs;
     const pos = new Float32Array(rings * (radial + 1) * 3), idx = [];
-    for (let i = 0; i < rings - 1; i++) for (let j = 0; j < radial; j++) { const a = i * (radial + 1) + j, b = a + radial + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    for (let i = 0; i < rings - 1; i++) for (let j = 0; j < radial; j++) { const a = i * (radial + 1) + j, b = a + radial + 1; idx.push(a, a + 1, b, b, a + 1, b + 1); } // 表を外向きに（法線が外を向く巻き方）
     this.geo = new THREE.BufferGeometry(); this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); this.geo.setIndex(idx);
     this.mesh = new THREE.Mesh(this.geo, mat); this.mesh.frustumCulled = false;
     this.v = new THREE.Vector3(); this.tg = new THREE.Vector3();
@@ -65,9 +65,9 @@ class SplineBody {
     const pos = this.geo.attributes.position.array, R = this.R, N = this.N;
     for (let i = 0; i < R; i++) {
       const t = i / (R - 1), c = curve.getPointAt(t, this.v), tg = curve.getTangentAt(t, this.tg);
-      const fi = t * (pts.length - 1), i0 = Math.floor(fi), i1 = Math.min(pts.length - 1, i0 + 1), r = pts[i0].r + (pts[i1].r - pts[i0].r) * (fi - i0);
+      const fi = t * (pts.length - 1), i0 = Math.floor(fi), i1 = Math.min(pts.length - 1, i0 + 1), r0 = pts[i0].r + (pts[i1].r - pts[i0].r) * (fi - i0), r = r0 * this.rs * (this.off ? Math.pow(Math.sin(Math.PI * t), 0.4) : 1), cz = c.z + r0 * this.off;
       const nx = -tg.y, ny = tg.x, nl = Math.hypot(nx, ny) || 1;
-      for (let j = 0; j <= N; j++) { const a = (j / N) * Math.PI * 2, ca = Math.cos(a) * r, sa = Math.sin(a) * r, k = (i * (N + 1) + j) * 3; pos[k] = c.x + nx / nl * ca; pos[k + 1] = c.y + ny / nl * ca; pos[k + 2] = c.z + sa; }
+      for (let j = 0; j <= N; j++) { const a = (j / N) * Math.PI * 2, ca = Math.cos(a) * r, sa = Math.sin(a) * r, k = (i * (N + 1) + j) * 3; pos[k] = c.x + nx / nl * ca; pos[k + 1] = c.y + ny / nl * ca; pos[k + 2] = cz + sa; }
     }
     this.geo.attributes.position.needsUpdate = true; this.geo.computeVertexNormals();
   }
@@ -126,11 +126,43 @@ function spikeRing(n, r, len, w, mat, axis = 'z') {
 }
 // 被弾の光（白い殻）。不透明度で 0〜1 を表す（以前は出る／出ないの 2 値だった）
 function flashShell(r) {
-  const m = mesh(geo('flash', () => new THREE.SphereGeometry(1, 16, 10)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, uniforms: { uO: { value: 0 } },
+    vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vN = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }',
+    fragmentShader: 'uniform float uO; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.2); float a = (f * 1.3 + 0.12) * uO; gl_FragColor = vec4(vec3(1.0, 0.97, 0.92) * a, a); }' });
+  const m = mesh(geo('flash', () => new THREE.SphereGeometry(1, 24, 16)), mat);
   m.scale.setScalar(r); m.visible = false;
-  m.userData.set = (h) => { m.visible = h > 0.02; m.material.opacity = 0.6 * h; };
+  m.userData.set = (h) => { m.visible = h > 0.02; mat.uniforms.uO.value = h; };
   return m;
 }
+// ---- 線と光の道具 ----
+// 輪郭線: 裏返しにして法線方向へ少し太らせた同じ形を、暗い色で後ろに描く（シルエットに細い線が入る）
+let OUTLINE_LEVEL = 2; // 2 = すべて、1 = 自機・SEED・ボス・大きめの敵だけ（VR・スマホ）
+export function setOutlineLevel(n) { OUTLINE_LEVEL = n; }
+const OL = {};
+function outlineMat(w, c) {
+  const k = w + '_' + c; if (OL[k]) return OL[k];
+  return (OL[k] = new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: { uW: { value: w }, uC: { value: new THREE.Color(c) } },
+    vertexShader: 'uniform float uW; void main(){ vec3 p = position + normal * uW; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }',
+    fragmentShader: 'uniform vec3 uC; void main(){ gl_FragColor = vec4(uC, 1.0); }' }));
+}
+export function addOutline(root, w, level = 2, color = 0x010407) {
+  if (level > OUTLINE_LEVEL) return root;
+  const list = []; root.traverse((o) => { if (o.isMesh && !o.userData.noOutline && o.material && (o.material.isMeshStandardMaterial) && !o.material.transparent) list.push(o); });
+  for (const o of list) { const ol = new THREE.Mesh(o.geometry, outlineMat(w, color)); ol.userData.noOutline = true; ol.renderOrder = -1; o.add(ol); }
+  return root;
+}
+// 発光の線の材質（色ごとに 1 つ）
+const GL = {};
+function glowMat(hex, k = 2) { const key = hex + '_' + k; return GL[key] || (GL[key] = new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(k), toneMapped: false })); }
+// 流れる光の線: 管の長さ方向（uv.x）に沿って光の粒が流れる
+function flowMat(hex, speed = 0.7) {
+  return new THREE.ShaderMaterial({ toneMapped: false, uniforms: { uTime: U.time, uC: { value: new THREE.Color(hex) }, uS: { value: speed } },
+    vertexShader: 'varying vec2 vU; void main(){ vU = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader: 'uniform float uTime, uS; uniform vec3 uC; varying vec2 vU; void main(){ float p = exp(-pow((fract(vU.x - uTime * uS) - 0.5) * 7.0, 2.0)); gl_FragColor = vec4(uC * (0.9 + p * 2.2), 1.0); }' });
+}
+// 曲線に沿った細い光の線（両端を細く）
+function glowLine(curve, r, mat, segs = 48) { const m = mesh(taperTube(curve, segs, 5, r, (t) => Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t))), 0.35)), mat); m.userData.noOutline = true; return m; }
+const V3 = (x, y, z = 0) => new THREE.Vector3(x, y, z);
 // 押し出しの板（x-y の形を厚み d で）
 function plateGeo(pts, d, bevel = 0.015) {
   const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) s.lineTo(p[0], p[1]); s.closePath();
@@ -165,7 +197,12 @@ export function buildPlayer() {
   const w1 = mesh(wingG, M.darkSteel), w2 = mesh(wingG, M.darkSteel); w2.scale.z = -1; w1.position.y = w2.position.y = -0.03; body.add(w1, w2);
   // 前縁の光も同じ曲線に沿わせる
   const edgeG = geo('pl-edge2', () => { const c = new THREE.CubicBezierCurve3(new THREE.Vector3(0.4, 0, 0.02), new THREE.Vector3(0.12, 0, 0.32), new THREE.Vector3(-0.3, 0, 0.78), new THREE.Vector3(-0.6, 0, 0.99)); return taperTube(c, 32, 5, 0.014, (t) => 1 - t * 0.5); });
-  for (const zs of [1, -1]) { const e2 = mesh(edgeG, M.trim); e2.scale.z = zs; e2.position.y = -0.012; body.add(e2); }
+  const flowC = flowMat(0x4fe3ff, 0.6);
+  for (const zs of [1, -1]) { const e2 = mesh(edgeG, flowC); e2.userData.noOutline = true; e2.scale.z = zs; e2.position.y = -0.012; body.add(e2); }
+  // 後縁の細い光（主翼の後ろの曲線に沿う）と、胴の背骨の光の線（機首へ流れる）
+  const trailG = geo('pl-trail', () => taperTube(new THREE.CubicBezierCurve3(V3(-0.74, 0, 0.92), V3(-0.66, 0, 0.55), V3(-0.6, 0, 0.22), V3(-0.78, 0, 0.02)), 32, 5, 0.008, (t) => Math.pow(Math.sin(Math.PI * t), 0.3)));
+  for (const zs of [1, -1]) { const tl = mesh(trailG, glowMat(0x7a6bff, 1.6)); tl.userData.noOutline = true; tl.scale.z = zs; tl.position.y = -0.012; body.add(tl); }
+  body.add(glowLine(new THREE.CatmullRomCurve3([V3(-0.82, 0.075), V3(-0.5, 0.128), V3(0.0, 0.152), V3(0.45, 0.108), V3(0.92, 0.035)]), 0.009, flowMat(0x9ff6ff, 0.9), 64));
   // 前翼（曲線）と、外へ開く二枚の曲線の背びれ
   const canS = new THREE.Shape(); canS.moveTo(0.2, 0); canS.quadraticCurveTo(0.02, 0.18, -0.14, 0.34); canS.quadraticCurveTo(-0.2, 0.3, -0.12, 0); canS.closePath();
   const canG = geo('pl-canard2', () => { const e = new THREE.ExtrudeGeometry(canS, { depth: 0.02, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 1, curveSegments: 16 }); e.rotateX(Math.PI / 2); return e; });
@@ -187,6 +224,7 @@ export function buildPlayer() {
   }
   const chargeOrb = mesh(geo('pl-charge', () => new THREE.SphereGeometry(1, 20, 14)), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9ff0ff).multiplyScalar(2.5), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
   chargeOrb.position.set(1.15, 0, 0); chargeOrb.visible = false; g.add(chargeOrb);
+  addOutline(body, 0.016, 1);
   // ばね: 上下の速度で機体を傾け（ロール）、機首を少し上げ下げ（ピッチ）、前後の速度で炎の長さ
   const roll = { x: 0, v: 0 }, pitch = { x: 0, v: 0 }, thrust = { x: 0.5, v: 0 };
   let chargeVis = 0;
@@ -217,6 +255,13 @@ export function buildPod() {
   const petalMat = M.steel.clone(); petalMat.side = THREE.DoubleSide; petalMat.onBeforeCompile = M.steel.onBeforeCompile; petalMat.customProgramCacheKey = M.steel.customProgramCacheKey;
   for (let k = 0; k < 6; k++) { const p = mesh(petalG, petalMat); p.rotation.x = (k / 6) * Math.PI * 2; cage.add(p); }
   const spikes = spikeRing(6, 0.7, 0.26, 0.06, M.darkSteel, 'x'); spikes.rotation.z = -Math.PI / 2; cage.add(spikes);
+  const edgeM = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  for (let k = 0; k < 6; k++) for (const ph of [0, Math.PI / 3 * 0.72]) {
+    const phi = (k / 6) * Math.PI * 2 + ph, pts = [];
+    for (let i = 0; i <= 16; i++) { const th = Math.PI * (0.12 + 0.76 * i / 16); pts.push(V3(-Math.cos(th) * 0.735, Math.sin(th) * 0.735 * Math.cos(phi), Math.sin(th) * 0.735 * Math.sin(phi))); }
+    cage.add(glowLine(new THREE.CatmullRomCurve3(pts), 0.012, edgeM, 24));
+  }
+  addOutline(cage, 0.018, 1);
   const ringM = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const ring = mesh(geo('pod-ring', () => new THREE.TorusGeometry(0.86, 0.025, 6, 48)), ringM); ring.rotation.y = Math.PI / 2; sway.add(ring);
   const col = new THREE.Color(), tcol = new THREE.Color();
@@ -227,7 +272,7 @@ export function buildPod() {
       // 色はなめらかに移る（結晶の色が変わった瞬間に飛ばない）
       tcol.set(colorOf[pod.level > 0 ? pod.color : 'P']); col.lerp(tcol, 1 - Math.exp(-10 * dt));
       coreMat.color.copy(col).multiplyScalar(2.2 + Math.sin(t * 9) * 0.5);
-      ringM.color.copy(col).multiplyScalar(1.5);
+      ringM.color.copy(col).multiplyScalar(1.5); edgeM.color.copy(col).multiplyScalar(1.3 + 0.4 * Math.sin(t * 4));
       // 殻の回転速度も減衰で追う（切り離した瞬間に急に回り出さない）
       const fast = pod.state === 'launch' || pod.state === 'return' || pod.state === 'enter';
       spin = damp(spin, fast ? 16 : 2.2, 6, dt); cageA += spin * dt; cage.rotation.x = cageA;
@@ -254,8 +299,9 @@ export function buildBit() {
   const eye = mesh(geo('bit-e', () => new THREE.SphereGeometry(0.11, 12, 8)), M.gBio); eye.position.x = 0.18; g.add(eye);
   const r = mesh(geo('bit-r', () => new THREE.TorusGeometry(0.4, 0.028, 6, 32)), M.gBio); g.add(r);
   const r2 = mesh(geo('bit-r2', () => new THREE.TorusGeometry(0.32, 0.018, 6, 28)), M.steel); g.add(r2);
+  const r3 = mesh(geo('bit-r3', () => new THREE.TorusGeometry(0.47, 0.012, 6, 40)), glowMat(0xb6ffd8, 1.4)); g.add(r3);
   const tilt = { x: 0, v: 0 };
-  return { obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) { r.rotation.x = t * 3; r.rotation.y = t * 2; r2.rotation.y = -t * 2.6; r2.rotation.x = 0.6; g.rotation.z = spring(tilt, Math.max(-0.6, Math.min(0.6, (ctx.vy || 0) * 0.05)), 10, dt) + Math.sin(t * 2 + b.side) * 0.12; } };
+  return { obj: g, anim(b, t, a = 1, dt = 1 / 60, ctx = {}) { r.rotation.x = t * 3; r.rotation.y = t * 2; r2.rotation.y = -t * 2.6; r2.rotation.x = 0.6; r3.rotation.x = -t * 2.2; r3.rotation.z = t * 1.4; g.rotation.z = spring(tilt, Math.max(-0.6, Math.min(0.6, (ctx.vy || 0) * 0.05)), 10, dt) + Math.sin(t * 2 + b.side) * 0.12; } };
 }
 
 // ---------------------------------------------------------------- 雑魚敵
@@ -264,6 +310,7 @@ const B = {};
 B.drifter = () => {
   const M = materials(), g = new THREE.Group();
   const b = mesh(geo('dr-b2', () => { const x = latheX(spline2([[-0.52, 0], [-0.44, 0.2], [-0.15, 0.33], [0.25, 0.24], [0.6, 0.07], [0.78, 0]], 36), 24); x.scale(1, 0.85, 0.85); return x; }), M.chitin); g.add(b);
+  b.add(glowLine(new THREE.CatmullRomCurve3([V3(-0.44, 0.175), V3(-0.15, 0.285), V3(0.25, 0.21), V3(0.6, 0.065), V3(0.76, 0.01)]), 0.014, glowMat(0x7dffb0, 1.5), 32));
   const collar = mesh(geo('dr-c', () => new THREE.TorusGeometry(0.33, 0.045, 6, 20)), M.bone); collar.rotation.y = Math.PI / 2; collar.position.x = 0.12; g.add(collar);
   const sp = spikeRing(5, 0.3, 0.42, 0.06, M.bone, 'x'); sp.position.x = 0.38; sp.rotation.z = -Math.PI / 2; g.add(sp);
   const eye = mesh(geo('dr-e', () => new THREE.SphereGeometry(0.12, 12, 8)), M.gEye); eye.position.x = -0.42; g.add(eye);
@@ -274,6 +321,7 @@ B.drifter = () => {
 B.hookjaw = () => {
   const M = materials(), g = new THREE.Group();
   const hook = mesh(geo('hj-h2', () => { const pts = []; for (let k = 0; k <= 16; k++) { const a = k / 16 * Math.PI * 1.3; pts.push(new THREE.Vector3(Math.cos(a) * 0.44, Math.sin(a) * 0.44 * (1 - k / 60), 0)); } return taperTube(new THREE.CatmullRomCurve3(pts), 40, 10, 0.12, (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.92 + 0.04)), 0.7)); }), M.steel); hook.rotation.z = Math.PI * 0.4; g.add(hook);
+  { const pts = []; for (let k = 0; k <= 16; k++) { const a2 = k / 16 * Math.PI * 1.3; pts.push(V3(Math.cos(a2) * 0.335, Math.sin(a2) * 0.335 * (1 - k / 60), 0.03)); } hook.add(glowLine(new THREE.CatmullRomCurve3(pts), 0.012, glowMat(0xff3a5a, 1.7), 40)); }
   const head = mesh(geo('hj-head', () => blob(0.26, 2, 0.12, 3.3)), M.flesh); head.position.x = -0.15; g.add(head);
   const jawG = geo('hj-j', () => { const c = new THREE.ConeGeometry(0.07, 0.42, 6); c.rotateZ(Math.PI / 2); return c; });
   const j1 = mesh(jawG, M.bone), j2 = mesh(jawG, M.bone); j1.position.set(-0.45, 0.1, 0); j2.position.set(-0.45, -0.1, 0); g.add(j1, j2);
@@ -357,7 +405,7 @@ B.puff = () => {
 };
 B.spore = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('sp-b', () => blob(0.26, 2, 0.2, 2.2, 1.3, 0.85, 0.85)), M.fleshTeal); g.add(b); const c = mesh(geo('sp-c', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gBio); c.position.x = -0.18; g.add(c); return { face: true, organic: true, obj: g, anim(e, t) { b.rotation.x = t * 6; } }; };
 B.nit = () => { const M = materials(), g = new THREE.Group(); const b = mesh(geo('nt-b', () => { const x = new THREE.TetrahedronGeometry(0.3, 0); x.scale(1.3, 0.8, 0.8); return x; }), M.chitin); g.add(b); const c = mesh(geo('nt-c', () => new THREE.SphereGeometry(0.09, 8, 6)), M.gEye); c.position.x = -0.22; g.add(c); const wm = new THREE.MeshBasicMaterial({ color: 0x9dffd0, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }); const wingG = geo('nt-w', () => { const x = new THREE.PlaneGeometry(0.42, 0.16); x.translate(0.06, 0, 0.1); x.rotateX(Math.PI / 2); return x; }); const wings = [1, -1].map((sg) => { const w = mesh(wingG, wm); w.scale.z = sg; w.position.y = 0.08; g.add(w); return w; }); return { face: true, organic: true, obj: g, anim(e, t) { const fl = Math.sin(t * 70) * 0.9; wings[0].rotation.x = fl; wings[1].rotation.x = -fl; const w = e.windup || 0; b.rotation.x = t * (8 + w * 30); b.position.y = Math.sin(t * 90) * 0.04 * w; c.scale.setScalar(1 + w * 1.2); } }; };
-B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b2', () => { const x = latheX(spline2([[-0.4, 0], [-0.25, 0.1], [0.1, 0.15], [0.3, 0.08], [0.36, 0]], 24), 16); return x; }), M.steel)); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
+B.dart = () => { const M = materials(), g = new THREE.Group(); g.add(mesh(geo('dt-b2', () => { const x = latheX(spline2([[-0.4, 0], [-0.25, 0.1], [0.1, 0.15], [0.3, 0.08], [0.36, 0]], 24), 16); return x; }), M.steel)); const stripe = mesh(geo('dt-st', () => { const x = new THREE.TorusGeometry(0.152, 0.012, 6, 28); x.rotateY(Math.PI / 2); return x; }), glowMat(0xffb347, 1.8)); stripe.position.x = 0.02; g.add(stripe); const fins = spikeRing(3, 0.12, 0.25, 0.05, M.darkSteel, 'x'); fins.position.x = 0.25; fins.rotation.z = -Math.PI / 2; g.add(fins); const f = mesh(geo('dt-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gAmber); f.position.x = 0.38; g.add(f); return { face: true, obj: g, anim(e, t) { fins.rotation.x = t * 10; const k = Math.min(1, (e.spd || 3) / 10); f.scale.set(1 + k * 2.5, 1 + k * 0.3, 1 + k * 0.3); f.position.x = 0.38 + k * 0.15; } }; };
 B.coilworm = (e) => {
   const M = materials(), g = new THREE.Group();
   const head = new THREE.Group(); g.add(head);
@@ -373,6 +421,7 @@ B.coilworm = (e) => {
     s.scale.setScalar(e.parts[k].r / 0.6); g.add(s); segs.push(s);
   }
   const cwBody = new SplineBody(48, 14, M.fleshTeal); g.add(cwBody.mesh);
+  const cwLine = new SplineBody(48, 5, flowMat(0x5cffc8, 0.5), 0.92, 0.07); cwLine.mesh.userData.noOutline = true; g.add(cwLine.mesh);
   for (const l of links) l.visible = false;
   return {
     obj: g, anim(e2, t, a = 1) {
@@ -387,7 +436,7 @@ B.coilworm = (e) => {
       }
       { const x1 = lx(e2.parts[1], a), y1 = ly(e2.parts[1], a); if (x1 * x1 + y1 * y1 > 1e-4) head.rotation.z = Math.atan2(-y1, -x1) - Math.PI; }
       jaw.rotation.x = Math.sin(t * 6) * 0.4;
-      cwBody.update([{ x: -0.2, y: 0, r: 0.5 }, ...segs.map((q, k) => ({ x: q.position.x, y: q.position.y, r: e2.parts[k + 1].r * 0.86 * (1 + 0.06 * Math.sin(t * 7 - k * 0.8)) }))]);
+      { const pts = [{ x: -0.2, y: 0, r: 0.5 }, ...segs.map((q, k) => ({ x: q.position.x, y: q.position.y, r: e2.parts[k + 1].r * 0.86 * (1 + 0.06 * Math.sin(t * 7 - k * 0.8)) }))]; cwBody.update(pts); cwLine.update(pts); }
     },
   };
 };
@@ -442,6 +491,8 @@ B.skimmer = () => {
   g.add(mesh(geo('sk-b2', () => { const c = latheX(spline2([[-0.62, 0], [-0.4, 0.1], [0.05, 0.15], [0.42, 0.1], [0.55, 0]], 30), 20); c.scale(1, 0.5, 1); c.rotateY(Math.PI); return c; }), M.steel));
   const w = mesh(geo('sk-w2', () => { const sh = new THREE.Shape(); sh.moveTo(-0.32, 0); sh.bezierCurveTo(-0.1, 0.15, 0.15, 0.45, 0.4, 0.58); sh.quadraticCurveTo(0.42, 0.4, 0.32, 0); sh.closePath(); const e = new THREE.ExtrudeGeometry(sh, { depth: 0.025, bevelEnabled: true, bevelSize: 0.01, bevelThickness: 0.01, bevelSegments: 1, curveSegments: 20 }); e.rotateX(Math.PI / 2); return e; }), M.darkSteel);
   const w2 = mesh(w.geometry, M.darkSteel); w2.scale.z = -1; g.add(w, w2);
+  const skE = geo('sk-edge', () => taperTube(new THREE.CubicBezierCurve3(V3(-0.32, 0, 0), V3(-0.1, 0, 0.15), V3(0.15, 0, 0.45), V3(0.4, 0, 0.58)), 24, 5, 0.012, (t) => Math.pow(Math.sin(Math.PI * t), 0.3)));
+  for (const zs of [1, -1]) { const e = mesh(skE, glowMat(0xff6ac8, 1.6)); e.userData.noOutline = true; e.scale.z = zs; e.position.y = 0.02; g.add(e); }
   const f = mesh(geo('sk-f', () => new THREE.SphereGeometry(0.1, 8, 6)), M.gMagenta); f.position.x = 0.55; g.add(f);
   return { face: true, obj: g, anim() {} };
 };
@@ -494,11 +545,13 @@ B.ossuary = (e) => {
   const body = mesh(geo('os-body', () => blob(2.3, 4, 0.09, 1.9, 1.05, 1.15, 1.1)), M.fleshBig); g.add(body);
   const lobes = [2, 3].map(() => { const m = mesh(geo('os-lobe', () => blob(1.5, 3, 0.12, 4.2)), M.fleshBig); g.add(m); return m; });
   const ribG = geo('os-rib2', () => { const pts = []; for (let k = 0; k <= 20; k++) { const a = k / 20 * Math.PI * 0.9; pts.push(new THREE.Vector3(Math.cos(a) * 2.4, Math.sin(a) * 2.4, 0)); } return taperTube(new THREE.CatmullRomCurve3(pts), 48, 10, 0.17, (t) => 0.35 + 0.65 * Math.sin(Math.PI * t)); });
-  for (let k = 0; k < 5; k++) { const r = mesh(ribG, M.bone); r.rotation.y = Math.PI / 2; r.rotation.x = -Math.PI * 0.45; r.position.set(1.2 + k * 0.55, 0, 0); r.scale.setScalar(1 - Math.abs(k - 2) * 0.12); g.add(r); }
+  const ribLine = geo('os-ribl', () => { const pts = []; for (let k = 0; k <= 20; k++) { const a2 = k / 20 * Math.PI * 0.9; pts.push(V3(Math.cos(a2) * 2.4, Math.sin(a2) * 2.4, 0.16)); } return taperTube(new THREE.CatmullRomCurve3(pts), 40, 5, 0.03, (t) => Math.pow(Math.sin(Math.PI * t), 0.6)); });
+  for (let k = 0; k < 5; k++) { const r = mesh(ribG, M.bone); { const l = mesh(ribLine, glowMat(0x9dff6a, 1.2)); l.userData.noOutline = true; r.add(l); } r.rotation.y = Math.PI / 2; r.rotation.x = -Math.PI * 0.45; r.position.set(1.2 + k * 0.55, 0, 0); r.scale.setScalar(1 - Math.abs(k - 2) * 0.12); g.add(r); }
   const coreM = new THREE.MeshBasicMaterial({ color: 0xff4fb4, toneMapped: false });
   const core = mesh(geo('os-core', () => new THREE.IcosahedronGeometry(0.95, 3)), coreM); g.add(core);
   const petalG = geo('os-petal2', () => bladeGeo(2.5, 1.35, 0.16));
-  const petals = e.petals.map(() => { const m = mesh(petalG, M.bone); g.add(m); return m; });
+  const midG = geo('os-mid', () => taperTube(new THREE.CatmullRomCurve3([V3(0, -1.15, 0.2), V3(0.04, 0, 0.22), V3(0, 1.18, 0.16)]), 32, 5, 0.035, (t) => Math.pow(Math.sin(Math.PI * t), 0.5)));
+  const petals = e.petals.map(() => { const m = mesh(petalG, M.bone); const l = mesh(midG, glowMat(0xff4fb4, 1.5)); l.userData.noOutline = true; m.add(l); g.add(m); return m; });
   const tailG = geo('os-tail', () => blob(0.55, 2, 0.15, 6.6));
   const tail = e.tail.map((p) => { const m = mesh(tailG, M.bone); m.scale.setScalar(p.r / 0.55); g.add(m); return m; });
   const eyes = [];
@@ -545,6 +598,7 @@ B.vesper = (e) => {
     s.scale.setScalar(e.parts[k + 2].r / 0.8); g.add(s); segs.push({ s, spin });
   }
   const vsBody = new SplineBody(72, 16, M.fleshBig); g.add(vsBody.mesh);
+  const vsLine = new SplineBody(72, 5, flowMat(0xff5a8a, 0.4), 0.93, 0.06); vsLine.mesh.userData.noOutline = true; g.add(vsLine.mesh);
   const flash = flashShell(0.9); head.add(flash); flash.position.x = -0.6;
   let dir = Math.PI, mouth = 0, glow = 0.5;
   return {
@@ -567,7 +621,7 @@ B.vesper = (e) => {
         segs[k].spin.rotation.x = t * 1.5 + k * 0.4;
       }
       // 頭から尾まで 1 本の流れる胴
-      vsBody.update([{ x: 0.6, y: head.position.y, z: 0, r: 0.72 }, ...segs.map((q, k) => ({ x: q.s.position.x, y: q.s.position.y, z: q.s.position.z, r: b.parts[k + 2].r * 0.9 }))]);
+      { const pts = [{ x: 0.6, y: head.position.y, z: 0, r: 0.72 }, ...segs.map((q, k) => ({ x: q.s.position.x, y: q.s.position.y, z: q.s.position.z, r: b.parts[k + 2].r * 0.9 }))]; vsBody.update(pts); vsLine.update(pts); }
       flash.userData.set(ctx.hit || 0);
     },
   };
@@ -577,7 +631,8 @@ B.keelheart = (e) => {
   const coreM = new THREE.MeshBasicMaterial({ color: 0xffb347, toneMapped: false });
   const core = mesh(geo('kh-c', () => new THREE.IcosahedronGeometry(1.2, 4)), coreM); g.add(core);
   const ringG = geo('kh-r', () => new THREE.TorusGeometry(1.6, 0.1, 10, 56));
-  const rings = [0, 1, 2].map((k) => { const r = mesh(ringG, M.steel); r.scale.setScalar(1 + k * 0.12); g.add(r); return r; });
+  const ringEdge = geo('kh-re', () => new THREE.TorusGeometry(1.6, 0.022, 6, 64));
+  const rings = [0, 1, 2].map((k) => { const r = mesh(ringG, M.steel); const e2 = mesh(ringEdge, glowMat(0xffb347, 1.5)); e2.userData.noOutline = true; e2.scale.setScalar(1.075); e2.position.z = 0.04; r.add(e2); r.scale.setScalar(1 + k * 0.12); g.add(r); return r; });
   const frame = mesh(geo('kh-f', () => new THREE.TorusGeometry(3.6, 0.35, 10, 56)), M.hull); frame.position.z = -1.2; g.add(frame);
   const plateG = geo('kh-p', () => { const x = new THREE.CylinderGeometry(2.25, 2.25, 1.3, 16, 1, true, -0.42, 0.84); x.rotateX(Math.PI / 2); return x; });
   const plate2G = geo('kh-p2', () => new THREE.BoxGeometry(0.45, 1.1, 1.0));
@@ -617,7 +672,8 @@ B.heart = (e) => {
   const shellM = M.chitin.clone(); shellM.side = THREE.DoubleSide; shellM.onBeforeCompile = M.chitin.onBeforeCompile; shellM.customProgramCacheKey = M.chitin.customProgramCacheKey;
   const shell = mesh(shellG, shellM); shell.rotation.y = -Math.PI / 2; g.add(shell);
   const petalG = geo('hr-p2', () => { const b = bladeGeo(2.9, 1.15, 0.18); b.rotateZ(-Math.PI / 2); return b; });
-  const petals = e.petals.map(() => { const m = mesh(petalG, M.crystalViolet.clone()); g.add(m); return { m, hit: 0, gone: 0 }; });
+  const hmid = geo('hr-mid', () => taperTube(new THREE.CatmullRomCurve3([V3(-1.35, 0, 0.22), V3(0, 0.05, 0.26), V3(1.4, 0, 0.2)]), 32, 5, 0.03, (t) => Math.pow(Math.sin(Math.PI * t), 0.5)));
+  const petals = e.petals.map(() => { const pm = M.crystalIrid.clone(); pm.onBeforeCompile = M.crystalIrid.onBeforeCompile; pm.customProgramCacheKey = M.crystalIrid.customProgramCacheKey; const m = mesh(petalG, pm); const l = mesh(hmid, glowMat(0xe0a8ff, 1.6)); l.userData.noOutline = true; m.add(l); g.add(m); return { m, hit: 0, gone: 0 }; });
   const halo = mesh(geo('hr-h', () => new THREE.TorusGeometry(3.3, 0.04, 6, 96)), M.gViolet); g.add(halo);
   let open = 0;
   return {
@@ -649,6 +705,7 @@ export function buildEnemy(e) {
   const f = B[e.type];
   const r = f ? f(e) : { obj: new THREE.Mesh(new THREE.SphereGeometry(e.r), materials().gRed), anim() {} };
   const holder = new THREE.Group(); holder.add(r.obj);
+  addOutline(r.obj, e.boss ? 0.045 : Math.max(0.012, e.r * 0.035), e.boss || e.r >= 0.8 ? 1 : 2);
   let flash = null;
   if (!e.boss) { flash = flashShell(e.r * 1.05); holder.add(flash); }
   return { obj: holder, inner: r.obj, anim: r.anim, face: !!r.face, organic: !!r.organic, chains: r.chains || null, flash, boss: !!e.boss };

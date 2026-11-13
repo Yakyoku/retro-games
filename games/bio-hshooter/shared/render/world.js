@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { FIELD_W, FIELD_H, lineAt } from '../game-core.js';
 import { materials, colorOf, U, makeEnvironment } from './materials.js';
-import { buildPlayer, buildPod, buildBit, buildEnemy, damp, dampAngle } from './models.js';
+import { buildPlayer, buildPod, buildBit, buildEnemy, damp, dampAngle, setOutlineLevel } from './models.js';
+import { LOOK } from './materials.js';
 import { ENEMY } from '../enemies.js';
 const rnd = (a, b) => a + Math.random() * (b - a);
 const ENEMY_COLOR = Object.fromEntries(Object.entries(ENEMY).map(([k, v]) => [k, v.color || 'w']));
@@ -37,7 +38,15 @@ export class World {
     this.under = new THREE.DirectionalLight(0x7dff4a, 1.4); this.under.position.set(4, -14, 8); // 下からの毒の照り返し
     this.rim = new THREE.DirectionalLight(0xff60c0, 1.1); this.rim.position.set(8, -4, -10);
     this.hemi = new THREE.HemisphereLight(0x3a5878, 0x120814, 0.9);
+    // 背後からの縁取り光（奥から手前へ。機体や敵の輪郭が光の線で浮かぶ）
+    // （本物の光にすると濡れた地形まで白く光るので、縁取りの光はキャラクターの材質の中で計算する: materials.js の「背後からの縁取り光」）
     this.root.add(this.key, this.rim, this.hemi, this.under, this.key.target, this.under.target);
+    // 動く光: 自機の推進器（青）・溜め（白）・閃光（爆発や発射。使い回す）。光は周りの機体・敵・地形を実際に照らす
+    this.engineLight = new THREE.PointLight(0x5fe8ff, 0, 4.5, 2); this.field.add(this.engineLight);
+    this.chargeLight = new THREE.PointLight(0xbff6ff, 0, 6, 2); this.field.add(this.chargeLight);
+    this.flashLights = Array.from({ length: this.lite || this.vr ? 1 : 3 }, () => { const l = new THREE.PointLight(0xffc890, 0, 9, 2); this.field.add(l); return { l, t: 1, i0: 0 }; });
+    this.flashIdx = 0;
+    setOutlineLevel(this.vr || this.lite ? 1 : 2);
     this.under.target.position.set(FIELD_W / 2, FIELD_H / 2, 0);
     this.key.target.position.set(FIELD_W / 2, FIELD_H / 2, 0);
     // 弾・火花
@@ -92,6 +101,7 @@ export class World {
     this.under.color.set(pal.toxic ?? pal.accent);
     this.hemi.color.set(pal.fog).multiplyScalar(3); this.hemi.groundColor.set(pal.toxic ?? pal.flesh).multiplyScalar(0.12);
     this.pal = pal; this.baseHemi = 0.55; this.hemi.intensity = this.baseHemi;
+    LOOK.rimTint.value.set(pal.toxic ?? pal.accent);
     this.buildSky(pal);
     this.buildStars(st, pal);
     if (st.bottom.length) this.buildTerrain(st, st.bottom, -1, pal);
@@ -455,6 +465,17 @@ export class World {
     if (this.chargeVis > 0.05) { const k = this.chargeVis; const c = p.charge >= 1 ? [1.2, 1.6, 2] : COL.C; sb.add(px + 1.15, py, 0.2, 1 + k * 2.6, 1 + k * 2.6, this.t * 4, c[0], c[1], c[2], 0.5 + 0.4 * k, 2); }
     if (s.boss && s.boss.beamWarn > 0) { const b = s.boss; const a = 0.45 + 0.45 * Math.sin(this.t * 30); sb.add(FIELD_W / 2 - 2, b.beamY, 0.1, FIELD_W + 4, 0.12, 0, 2.2, 0.3, 0.4, a, 1); }
     for (const [mx, my, k, boss] of this.muzzles) { const w = (boss ? 1.6 : 1.0) * (0.6 + k); sb.add(mx, my, 0.35, w, w, 0, 2.6 * k, 1.4 * k, 0.8 * k, k, 0); }
+    // 推進器の光（前へ進むほど強く、ちらつく）・溜めの光
+    { const v = Math.hypot(this.player.vx || 0, this.player.vy || 0), th = 0.6 + Math.min(1, Math.max(0, (this.player.vx || 0) * 0.08)) + Math.min(0.4, v * 0.03);
+      this.engineLight.position.set(px - 1.1, py, 0.4); this.engineLight.intensity = p.alive ? th * (2.2 + Math.sin(this.t * 60) * 0.25) : 0;
+      this.chargeLight.position.set(px + 1.3, py, 0.6); this.chargeLight.intensity = p.alive ? this.chargeVis * this.chargeVis * 9 : 0; }
+    for (const f of this.flashLights) { f.t += dt; f.l.intensity = f.i0 * Math.exp(-f.t * 9); }
+    // ボスの発射の閃光も周りを照らす
+    for (const [mx, my, k, boss] of this.muzzles) if (boss && k > 0.95) this.flashAt(mx, my, 3, 0xff9a70);
+    // 速度線: 素早く動くと、機体のまわりを細い光の直線が後ろへ流れる
+    { const v = Math.hypot(this.player.vx || 0, this.player.vy || 0);
+      if (p.alive && v > 6.5 && Math.random() < dt * (v - 6) * 6) { const ang = Math.atan2(this.player.vy, this.player.vx); const ox = (Math.random() - 0.5) * 2.4, oy = (Math.random() - 0.5) * 2.4;
+        this.parts.spawn({ x: px + ox + Math.cos(ang) * 2, y: py + oy + Math.sin(ang) * 2, z: 0.6, vx: -Math.cos(ang) * 30, vy: -Math.sin(ang) * 30, vz: 0, life: 0.16, t: 0, w: 0.03, h: 2.4, r: 0.5, g: 1.0, b: 1.3, sh: 1, drag: 1, streak: true }); } }
     this.parts.update(dt, sb);
     this.ribbons.update(dt);
     // 煙・靄（暗くする合成）
@@ -651,12 +672,15 @@ export class World {
     }
   }
 
+  // 閃光の光を 1 つ使う（いちばん古いものから）
+  flashAt(x, y, intensity, color) { const f = this.flashLights[this.flashIdx++ % this.flashLights.length]; f.l.position.set(x, y, 1.5); f.l.color.set(color); f.i0 = intensity; f.t = 0; }
+
   // ゲームのイベント（爆発・火花など）
   handle(events) {
     for (const ev of events) {
       if (ev.t !== 'fx') continue;
       const c = COL[ev.c] || COL.w;
-      if (ev.k === 'boom') this.parts.boom(ev.x, ev.y, ev.s, ev.c === 'big' ? [1.4, 1.2, 1.6] : c, this.lite);
+      if (ev.k === 'boom') { this.parts.boom(ev.x, ev.y, ev.s, ev.c === 'big' ? [1.4, 1.2, 1.6] : c, this.lite); if (ev.s >= 0.7) this.flashAt(ev.x, ev.y, 3 + ev.s * 5, new THREE.Color(c[0], c[1], c[2]).lerp(new THREE.Color(1, 0.85, 0.6), 0.5)); }
       else if (ev.k === 'spark') this.parts.spark(ev.x, ev.y, ev.s, c);
       else if (ev.k === 'pickup') { for (let k = 0; k < 3; k++) this.parts.spawn({ x: ev.x, y: ev.y, z: 0.2, vx: 0, vy: 0, vz: 0, life: 0.4 + k * 0.12, t: 0, w: 1 + k, h: 0, r: c[0] * 2, g: c[1] * 2, b: c[2] * 2, sh: 2, drag: 1, grow: 2.5 }); }
     }

@@ -1,8 +1,8 @@
 {
  "name": "gloveR",
  "generator": "tools/build-characters.mjs（Claude Code で制作）",
- "vertices": 5346,
- "triangles": 10398,
+ "vertices": 7839,
+ "triangles": 15550,
  "bones": [
   {
    "name": "wrist",
@@ -17,135 +17,135 @@
    "name": "index1",
    "parent": 0,
    "pos": [
-    0.031,
-    0.096,
-    -0.002
+    0.0285,
+    0.097,
+    0
    ]
   },
   {
    "name": "index2",
    "parent": 1,
    "pos": [
-    0.031,
-    0.131,
-    -0.002
+    0.0285,
+    0.137,
+    0
    ]
   },
   {
    "name": "index3",
    "parent": 2,
    "pos": [
-    0.031,
-    0.156,
-    -0.002
+    0.0285,
+    0.162,
+    0
    ]
   },
   {
    "name": "middle1",
    "parent": 0,
    "pos": [
-    0.011,
-    0.096,
-    -0.002
+    0.0095,
+    0.1,
+    0
    ]
   },
   {
    "name": "middle2",
    "parent": 4,
    "pos": [
-    0.011,
-    0.136,
-    -0.002
+    0.0095,
+    0.14400000000000002,
+    0
    ]
   },
   {
    "name": "middle3",
    "parent": 5,
    "pos": [
-    0.011,
-    0.164,
-    -0.002
+    0.0095,
+    0.17300000000000001,
+    0
    ]
   },
   {
    "name": "ring1",
    "parent": 0,
    "pos": [
-    -0.01,
-    0.096,
-    -0.002
+    -0.0095,
+    0.097,
+    0
    ]
   },
   {
    "name": "ring2",
    "parent": 7,
    "pos": [
-    -0.01,
-    0.133,
-    -0.002
+    -0.0095,
+    0.137,
+    0
    ]
   },
   {
    "name": "ring3",
    "parent": 8,
    "pos": [
-    -0.01,
-    0.159,
-    -0.002
+    -0.0095,
+    0.164,
+    0
    ]
   },
   {
    "name": "pinky1",
    "parent": 0,
    "pos": [
-    -0.029,
-    0.096,
-    -0.002
+    -0.0275,
+    0.089,
+    0
    ]
   },
   {
    "name": "pinky2",
    "parent": 10,
    "pos": [
-    -0.029,
-    0.126,
-    -0.002
+    -0.0275,
+    0.12,
+    0
    ]
   },
   {
    "name": "pinky3",
    "parent": 11,
    "pos": [
-    -0.029,
-    0.147,
-    -0.002
+    -0.0275,
+    0.13999999999999999,
+    0
    ]
   },
   {
    "name": "thumb1",
    "parent": 0,
    "pos": [
-    0.04,
-    0.03,
-    -0.008
+    0.034,
+    0.022,
+    -0.012
    ]
   },
   {
    "name": "thumb2",
    "parent": 13,
    "pos": [
-    0.05660410197907871,
-    0.05264195724419824,
-    -0.018566246713959178
+    0.0562754934751568,
+    0.047149750697757675,
+    -0.024934157501703948
    ]
   },
   {
    "name": "thumb3",
    "parent": 14,
    "pos": [
-    0.07099432369428026,
-    0.07226498685583671,
-    -0.0277236605327238
+    0.07483840470445413,
+    0.0681078762792224,
+    -0.03571262208645724
    ]
   }
  ],
@@ -153,48 +153,49 @@
   {
    "name": "glove",
    "start": 0,
-   "count": 24786
+   "count": 37386
   },
   {
-   "name": "cuff",
-   "start": 24786,
-   "count": 6408
+   "name": "strap",
+   "start": 37386,
+   "count": 9264
   }
  ],
+ "morphs": [],
  "layout": {
   "position": {
    "offset": 0,
-   "length": 16038,
+   "length": 23517,
    "type": "Float32Array"
   },
   "normal": {
-   "offset": 64152,
-   "length": 21384,
+   "offset": 94068,
+   "length": 31356,
    "type": "Int8Array"
   },
   "color": {
-   "offset": 85536,
-   "length": 21384,
+   "offset": 125424,
+   "length": 31356,
    "type": "Uint8Array"
   },
   "uv": {
-   "offset": 106920,
-   "length": 10692,
+   "offset": 156780,
+   "length": 15678,
    "type": "Float32Array"
   },
   "skinIndex": {
-   "offset": 149688,
-   "length": 21384,
+   "offset": 219492,
+   "length": 31356,
    "type": "Uint8Array"
   },
   "skinWeight": {
-   "offset": 171072,
-   "length": 21384,
+   "offset": 250848,
+   "length": 31356,
    "type": "Uint8Array"
   },
   "index": {
-   "offset": 192456,
-   "length": 31194,
+   "offset": 282204,
+   "length": 46650,
    "type": "Uint16Array"
   }
  }

@@ -30,6 +30,9 @@ class App {
     this.settings = this.store.settings();
     this.progress = this.store.progress();
     this.audio = new AudioEngine();
+    // 主人公の掛け声に合わせて口を動かす（声の長さぶん）
+    { const VO = { yoisho: 0.55, itte: 0.35, are: 0.75, ganbare: 0.55, yatta: 0.6, wa: 0.25 }, play = this.audio.play.bind(this.audio);
+      this.audio.play = (n, o) => { const r = play(n, o); if (r && VO[n]) this.world?.climber?.say?.(VO[n]); return r; }; }
     this.applyAudioSettings();
     this.world = new World($('#view'));
     this.pad = new GamepadInput(); this.kb = new KeyboardInput(); this.touch = new TouchInput($('#touch'));
@@ -154,7 +157,7 @@ class App {
       const out = el.parentElement?.querySelector('output'); if (out && el.type === 'range') out.textContent = key.startsWith('vol.') ? Math.round(val * 100) + '%' : key === 'height' ? val + 'cm' : (+val).toFixed(2) + '×';
     });
   }
-  applyAudioSettings() { for (const [k, v] of Object.entries(this.settings.vol)) this.audio.vol[k] = v; for (const [k, v] of Object.entries(this.settings.mute)) this.audio.mute[k] = v; this.audio.mode = this.settings.audioMode; }
+  applyAudioSettings() { for (const [k, v] of Object.entries(this.settings.vol)) this.audio.vol[k] = v; for (const [k, v] of Object.entries(this.settings.mute)) this.audio.mute[k] = v; this.audio.setMode(this.settings.audioMode); }
   show(name) {
     this.screen = name;
     $$('.screen').forEach((el) => el.classList.toggle('show', el.id === 'scr-' + name));
@@ -214,7 +217,7 @@ class App {
     this.acc = 0; this.paused = false; this.sinceHit = 9; this.idle = 0; this.ganbare = false; this.resumeGuard = 0;
     this.world.updateFlatCamera(0, g.climber.body, { snap: true });
     this.show('play'); this.closeOverlay();
-    this.audio.stopMusic(); this.audio.music('start', { loop: false });
+    this.audio.stopMusic(); this.audio.music('start', { loop: false }); this.audio.prepare(practice ? 'practice' : CLIMB_SONG[g.def.theme]);
     this.startT = performance.now(); this.songT = 1.7;
     this.audio.startAmbient(g.def.theme);
     $('#hud-stage').textContent = g.def.ja;
@@ -247,13 +250,13 @@ class App {
     if (['clear', 'over'].includes(this.game?.state)) return;
     this.paused = true; $('#pause-msg').textContent = msg || '';
     this.openOverlay('pause'); this.audio.play('uiBack');
-    if (this.audio.song) this.audio.song.g.gain.value = 0.35;
+    this.audio.setPaused(true);
   }
   resume() {
     if (!this.paused) return;
     this.paused = false; this.closeOverlay(); this.clock = makeFrameClock(); this.acc = 0;
     this.resumeGuard = 1.2; // 復帰直後の 1.2 秒は、握り直さなくても保持を外さない（直後の落下を防ぐ）
-    if (this.audio.song) this.audio.song.g.gain.value = 1;
+    this.audio.setPaused(false);
     this.banner('再開', '');
   }
   onClear() {
@@ -379,30 +382,34 @@ class App {
     for (const e of evs) {
       switch (e.type) {
         case 'reach': this.world.climber?.impulse('reach', e.side); A.play('reach', { pos: handPos(g, e.side), gain: 0.7 }); break;
-        case 'grab': this.world.climber?.impulse('grab', e.side); A.play('grab', { pos: handPos(g, e.side) }); this.haptic(e.side, 0.35, 30); if (Math.random() < 0.12 && g.climber.hands[e.side].y > 3) A.play('yoisho', { minGap: 3 }); break;
+        case 'grab': this.world.climber?.impulse('grab', e.side); A.play('grab', { pos: handPos(g, e.side), kind: g.b.holds[e.hold]?.kind }); this.haptic(e.side, 0.35, 30); if (Math.random() < 0.12 && g.climber.hands[e.side].y > 3) A.play('yoisho', { minGap: 3 }); break;
         case 'release': if (e.reason === 'window') { A.play('itte'); this.haptic(e.side, 0.8, 80); } break;
         case 'windowWarn': A.play('windowWarn', { pos: wpos(e.win), warn: true, minGap: 0.2 }); break;
         case 'windowClose': A.play('windowClose', { pos: wpos(e.win), gain: 0.9 }); break;
         case 'windowOpen': A.play('windowOpen', { pos: wpos(e.win), gain: 0.5 }); break;
         case 'dropWarn': A.play('kora', { pos: { x: e.x, y: e.y, z: 0.1 }, warn: true, minGap: 0.5 }); break;
         case 'dropFall': A.play('hoi', { pos: { x: e.x, y: e.y, z: 0.1 } }); A.play('dropFall', { pos: { x: e.x, y: e.y, z: 0.3 }, warn: true }); break;
-        case 'dropBreak': A.play('dropBreak', { pos: { x: e.x, y: e.y, z: 0.3 } }); this.world.burst(e.x, e.y, e.item); break;
+        case 'dropBreak': A.play('dropBreak', { pos: { x: e.x, y: e.y, z: 0.3 }, item: e.item }); this.world.burst(e.x, e.y, e.item); break;
         case 'birdWarn': A.play('birdCall', { pos: { x: e.x, y: e.y, z: 0.4 }, warn: true }); A.sting?.('bird'); break;
         case 'birdFly': A.play('flap', { pos: { x: e.x, y: e.y, z: 0.4 } }); break;
         case 'zoneWarn': A.play('buzz', { pos: { x: e.x, y: e.y, z: 0.2 }, warn: true }); break;
         case 'zoneOn': A.play('zap', { pos: { x: e.x, y: e.y, z: 0.2 } }); break;
         case 'hit': this.world.climber?.impulse('hit', e.side || 'R'); A.play('hit'); A.play(e.kind === 'bird' ? 'wa' : 'itte', { minGap: 0.3 }); this.sinceHit = 0; if (e.side) this.haptic(e.side, 1, 120); this.world.burst(e.x, e.y, e.kind === 'neon' ? 'spark' : 'glass'); if (!this.vr) this.pad.rumble(120, 0.8); break;
-        case 'combo': A.play(e.n >= 6 ? 'combo3' : e.n >= 4 ? 'combo2' : 'combo1'); this.popCombo(e); break;
+        case 'combo': A.play('combo', { n: e.n }); this.popCombo(e); break;
         case 'grace': A.play('grace'); break;
-        case 'fall': A.play('fall'); A.play('are', { minGap: 0.5 }); if (!this.vr) this.pad.rumble(300, 1); this.haptic('L', 0.6, 200); this.haptic('R', 0.6, 200); break;
-        case 'respawn': A.play('respawn'); this.banner(e.ledge ? '安全区画から再開' : '最初から再開', this.practice ? '練習は何度でも' : `残り ${g.run.lives}`); if (this.vr) this.positionRigForStart(); break;
+        case 'fall': A.tapeStop(); A.play('fall'); A.play('are', { minGap: 0.5 }); if (!this.vr) this.pad.rumble(300, 1); this.haptic('L', 0.6, 200); this.haptic('R', 0.6, 200); break;
+        case 'respawn': A.tapeStart(); A.play('respawn'); this.banner(e.ledge ? '安全区画から再開' : '最初から再開', this.practice ? '練習は何度でも' : `残り ${g.run.lives}`); if (this.vr) this.positionRigForStart(); break;
         case 'mantle': A.play('yoisho'); break;
         case 'clear': this.banner('屋上到達！', `+${RULES.clearBonus} 点`); this.onClear(); break;
         case 'gameover': this.banner('ゲームオーバー', ''); this.onGameOver(); break;
         case 'meter': if (e.m % 10 === 0) A.play('floor'); break;
       }
     }
-    if (this.vr) this.audio.updateAmbient(g.climber.body.y); else this.audio.updateAmbient(g.climber.body.y);
+    // 音へ状況を伝える: 高度（環境音・曲の層）、片手・危険（緊張の層・心拍）、近くの大型障害とヘリ（ループ音の大きさ）
+    { const c = g.climber, by = c.body.y, lp = { motor: 0, creak: 0, hum: 0, heli: Math.max(0, 1 - (g.top + 2 - by) / 14) };
+      for (const z of g.hz.zones) { const k = Math.max(0, 1 - Math.hypot(z.x - c.body.x, (z.y0 + z.y1) / 2 - by) / 9); if (z.kind === 'gondola') lp.motor = Math.max(lp.motor, k * (z.wait > 0 ? 0.3 : 1)); else if (z.kind === 'crane') lp.creak = Math.max(lp.creak, k); else lp.hum = Math.max(lp.hum, k * (z.on || z.state === 'warn' ? 1 : 0.35)); }
+      A.updateAmbient(by);
+      A.setIntensity({ height01: (by - 1.45) / Math.max(1, g.top - 1.45), oneHand: g.state === 'play' && c.heldCount() === 1 && !c.grounded(), danger: g.state === 'grace' || g.hz.items.some((it) => it.phase === 'fall') || g.hz.birds.some((b) => b.phase === 'fly'), lives: this.practice ? 3 : g.run.lives, loops: lp }); }
   }
   haptic(side, i, ms) { if (this.vr) this.xr.pulse(side, i, ms); }
   toastOnce(msg, key) { if (this.toasted === key) return; this.toasted = key; this.toast(msg); setTimeout(() => { if (this.toasted === key) this.toasted = null; }, 6000); }

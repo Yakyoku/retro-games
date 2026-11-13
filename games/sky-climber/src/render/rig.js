@@ -19,6 +19,14 @@ export async function loadModels(names) {
     for (let i = 0; i < nv; i++) { for (let k = 0; k < 3; k++) { N[i * 3 + k] = n8[i * 4 + k] / 127; C[i * 3 + k] = lin(c8[i * 4 + k]); } }
     g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
     g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+    // 焼き込みの陰（色の 4 つ目の値）
+    const AO = new Float32Array(nv); for (let i = 0; i < nv; i++) AO[i] = c8[i * 4 + 3] / 255;
+    g.setAttribute('aAO', new THREE.BufferAttribute(AO, 1));
+    // 表情の変形（疎なデータを展開）
+    if (json.morphs && json.morphs.length) {
+      g.morphAttributes.position = json.morphs.map((m) => { const a = new Float32Array(nv * 3), idx = arr('mi_' + m.name), d = arr('md_' + m.name); for (let k = 0; k < idx.length; k++) { a[idx[k] * 3] = d[k * 3]; a[idx[k] * 3 + 1] = d[k * 3 + 1]; a[idx[k] * 3 + 2] = d[k * 3 + 2]; } return new THREE.BufferAttribute(a, 3); });
+      g.morphTargetsRelative = true;
+    }
     g.setAttribute('uv', new THREE.BufferAttribute(arr('uv').slice(), 2));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(Uint16Array.from(arr('skinIndex')), 4));
     g.setAttribute('skinWeight', new THREE.BufferAttribute(Float32Array.from(arr('skinWeight'), (w) => w / 255), 4));
@@ -45,9 +53,11 @@ export function makeRigged(name, materials) {
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
   mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
+  const morph = {};
+  if (json.morphs && json.morphs.length) { mesh.morphTargetInfluences = json.morphs.map(() => 0); json.morphs.forEach((m, i) => { morph[m.name] = i; }); mesh.morphTargetDictionary = morph; }
   const byName = Object.fromEntries(bones.map((b) => [b.name, b]));
   const bindPos = Object.fromEntries(json.bones.map((b) => [b.name, new THREE.Vector3(...b.pos)]));
-  return { mesh, bones: byName, bindPos, json };
+  return { mesh, bones: byName, bindPos, json, morph, setMorph: (n, v) => { if (morph[n] != null) mesh.morphTargetInfluences[morph[n]] = v; } };
 }
 
 // ---- 姿勢づけの道具 ----

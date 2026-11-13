@@ -1,15 +1,15 @@
 {
  "name": "climber",
  "generator": "tools/build-characters.mjs（Claude Code で制作）",
- "vertices": 31829,
- "triangles": 63454,
+ "vertices": 54274,
+ "triangles": 108428,
  "bones": [
   {
    "name": "hips",
    "parent": -1,
    "pos": [
     0,
-    0.93,
+    0.95,
     0
    ]
   },
@@ -18,7 +18,7 @@
    "parent": 0,
    "pos": [
     0,
-    1.06,
+    1.07,
     0
    ]
   },
@@ -27,7 +27,7 @@
    "parent": 1,
    "pos": [
     0,
-    1.24,
+    1.23,
     0
    ]
   },
@@ -36,8 +36,8 @@
    "parent": 2,
    "pos": [
     0,
-    1.45,
-    0
+    1.455,
+    0.005
    ]
   },
   {
@@ -45,43 +45,52 @@
    "parent": 3,
    "pos": [
     0,
-    1.55,
+    1.535,
     0
+   ]
+  },
+  {
+   "name": "bag",
+   "parent": 0,
+   "pos": [
+    0,
+    1,
+    0.105
    ]
   },
   {
    "name": "clavL",
    "parent": 2,
    "pos": [
-    -0.05,
-    1.4,
+    -0.045,
+    1.425,
     0
    ]
   },
   {
    "name": "upperL",
-   "parent": 5,
+   "parent": 6,
    "pos": [
-    -0.195,
-    1.405,
+    -0.186,
+    1.425,
     0
    ]
   },
   {
    "name": "foreL",
-   "parent": 6,
+   "parent": 7,
    "pos": [
-    -0.36059502075313193,
-    1.1730446398511778,
+    -0.3515950207531319,
+    1.1930446398511778,
     0
    ]
   },
   {
    "name": "handL",
-   "parent": 7,
+   "parent": 8,
    "pos": [
-    -0.5116641624928313,
-    0.961436241118919,
+    -0.4980158812085328,
+    0.9879472687722193,
     0
    ]
   },
@@ -89,35 +98,35 @@
    "name": "clavR",
    "parent": 2,
    "pos": [
-    0.05,
-    1.4,
+    0.045,
+    1.425,
     0
    ]
   },
   {
    "name": "upperR",
-   "parent": 9,
+   "parent": 10,
    "pos": [
-    0.195,
-    1.405,
+    0.186,
+    1.425,
     0
    ]
   },
   {
    "name": "foreR",
-   "parent": 10,
+   "parent": 11,
    "pos": [
-    0.36059502075313193,
-    1.1730446398511778,
+    0.3515950207531319,
+    1.1930446398511778,
     0
    ]
   },
   {
    "name": "handR",
-   "parent": 11,
+   "parent": 12,
    "pos": [
-    0.5116641624928313,
-    0.961436241118919,
+    0.4980158812085328,
+    0.9879472687722193,
     0
    ]
   },
@@ -125,72 +134,72 @@
    "name": "thighL",
    "parent": 0,
    "pos": [
-    -0.097,
-    0.9,
+    -0.092,
+    0.93,
     0
    ]
   },
   {
    "name": "shinL",
-   "parent": 13,
+   "parent": 14,
    "pos": [
-    -0.102,
-    0.495,
+    -0.098,
+    0.508,
     -0.012
    ]
   },
   {
    "name": "footL",
-   "parent": 14,
+   "parent": 15,
    "pos": [
-    -0.106,
-    0.09,
-    0
+    -0.102,
+    0.088,
+    0.004
    ]
   },
   {
    "name": "toeL",
-   "parent": 15,
+   "parent": 16,
    "pos": [
-    -0.106,
+    -0.102,
     0.03,
-    -0.12
+    -0.115
    ]
   },
   {
    "name": "thighR",
    "parent": 0,
    "pos": [
-    0.097,
-    0.9,
+    0.092,
+    0.93,
     0
    ]
   },
   {
    "name": "shinR",
-   "parent": 17,
+   "parent": 18,
    "pos": [
-    0.102,
-    0.495,
+    0.098,
+    0.508,
     -0.012
    ]
   },
   {
    "name": "footR",
-   "parent": 18,
+   "parent": 19,
    "pos": [
-    0.106,
-    0.09,
-    0
+    0.102,
+    0.088,
+    0.004
    ]
   },
   {
    "name": "toeR",
-   "parent": 19,
+   "parent": 20,
    "pos": [
-    0.106,
+    0.102,
     0.03,
-    -0.12
+    -0.115
    ]
   }
  ],
@@ -198,133 +207,245 @@
   {
    "name": "skin",
    "start": 0,
-   "count": 38418
+   "count": 71370
   },
   {
    "name": "hair",
-   "start": 38418,
-   "count": 30636
+   "start": 71370,
+   "count": 30528
   },
   {
    "name": "band",
-   "start": 69054,
-   "count": 19008
+   "start": 101898,
+   "count": 19200
   },
   {
    "name": "jacket",
-   "start": 88062,
-   "count": 50532
+   "start": 121098,
+   "count": 64056
+  },
+  {
+   "name": "harness",
+   "start": 185154,
+   "count": 52908
   },
   {
    "name": "pants",
-   "start": 138594,
-   "count": 31296
+   "start": 238062,
+   "count": 42696
   },
   {
    "name": "shoe",
-   "start": 169890,
-   "count": 20472
+   "start": 280758,
+   "count": 30930
+  },
+  {
+   "name": "bag",
+   "start": 311688,
+   "count": 13596
+  }
+ ],
+ "morphs": [
+  {
+   "name": "blinkL",
+   "count": 148
+  },
+  {
+   "name": "blinkR",
+   "count": 152
+  },
+  {
+   "name": "jaw",
+   "count": 2856
+  },
+  {
+   "name": "smile",
+   "count": 3092
+  },
+  {
+   "name": "browUp",
+   "count": 1613
+  },
+  {
+   "name": "browDown",
+   "count": 1042
   }
  ],
  "layout": {
   "position": {
    "offset": 0,
-   "length": 95487,
+   "length": 162822,
    "type": "Float32Array"
   },
   "normal": {
-   "offset": 381948,
-   "length": 127316,
+   "offset": 651288,
+   "length": 217096,
    "type": "Int8Array"
   },
   "color": {
-   "offset": 509264,
-   "length": 127316,
+   "offset": 868384,
+   "length": 217096,
    "type": "Uint8Array"
   },
   "uv": {
-   "offset": 636580,
-   "length": 63658,
+   "offset": 1085480,
+   "length": 108548,
    "type": "Float32Array"
   },
   "skinIndex": {
-   "offset": 891212,
-   "length": 127316,
+   "offset": 1519672,
+   "length": 217096,
    "type": "Uint8Array"
   },
   "skinWeight": {
-   "offset": 1018528,
-   "length": 127316,
+   "offset": 1736768,
+   "length": 217096,
    "type": "Uint8Array"
   },
   "index": {
-   "offset": 1145844,
-   "length": 190362,
+   "offset": 1953864,
+   "length": 325284,
    "type": "Uint16Array"
+  },
+  "mi_blinkL": {
+   "offset": 2604432,
+   "length": 148,
+   "type": "Uint32Array"
+  },
+  "md_blinkL": {
+   "offset": 2605024,
+   "length": 444,
+   "type": "Float32Array"
+  },
+  "mi_blinkR": {
+   "offset": 2606800,
+   "length": 152,
+   "type": "Uint32Array"
+  },
+  "md_blinkR": {
+   "offset": 2607408,
+   "length": 456,
+   "type": "Float32Array"
+  },
+  "mi_jaw": {
+   "offset": 2609232,
+   "length": 2856,
+   "type": "Uint32Array"
+  },
+  "md_jaw": {
+   "offset": 2620656,
+   "length": 8568,
+   "type": "Float32Array"
+  },
+  "mi_smile": {
+   "offset": 2654928,
+   "length": 3092,
+   "type": "Uint32Array"
+  },
+  "md_smile": {
+   "offset": 2667296,
+   "length": 9276,
+   "type": "Float32Array"
+  },
+  "mi_browUp": {
+   "offset": 2704400,
+   "length": 1613,
+   "type": "Uint32Array"
+  },
+  "md_browUp": {
+   "offset": 2710852,
+   "length": 4839,
+   "type": "Float32Array"
+  },
+  "mi_browDown": {
+   "offset": 2730208,
+   "length": 1042,
+   "type": "Uint32Array"
+  },
+  "md_browDown": {
+   "offset": 2734376,
+   "length": 3126,
+   "type": "Float32Array"
   }
  },
  "face": {
   "eyeL": [
-   -0.051039999999999995,
-   0.14847999999999995,
-   -0.12295999999999999
+   -0.0318,
+   0.10299999999999998,
+   -0.0705
   ],
   "eyeR": [
-   0.051039999999999995,
-   0.14847999999999995,
-   -0.12295999999999999
+   0.0318,
+   0.10299999999999998,
+   -0.0705
   ],
+  "eyeRadius": 0.013568000000000002,
   "mouth": [
    0,
-   0.06264000000000003,
-   -0.14035999999999998
+   0.037800000000000056,
+   -0.092
+  ],
+  "mouthIn": [
+   0,
+   0.037800000000000056,
+   -0.078
   ],
   "bandTail": [
    0,
-   0.20300000000000007,
-   0.174
+   0.146,
+   0.105
   ],
-  "scale": 1.16
+  "front": -1
  },
  "detail": {
   "armL": [
    [
-    -0.195,
-    1.405,
+    -0.186,
+    1.425,
     0
    ],
    [
-    -0.5116641624928313,
-    0.961436241118919,
+    -0.4980158812085328,
+    0.9879472687722193,
     0
    ]
   ],
   "armR": [
    [
-    0.195,
-    1.405,
+    0.186,
+    1.425,
     0
    ],
    [
-    0.5116641624928313,
-    0.961436241118919,
+    0.4980158812085328,
+    0.9879472687722193,
     0
    ]
   ],
-  "cheekL": [
-   -0.07192,
-   1.62192,
-   -0.11599999999999999
-  ],
-  "cheekR": [
-   0.07192,
-   1.62192,
-   -0.11599999999999999
-  ],
-  "lip": [
+  "head": [
    0,
-   1.5940800000000002,
-   -0.1334
+   1.535,
+   0
+  ],
+  "kneeL": [
+   -0.098,
+   0.508,
+   -0.012
+  ],
+  "kneeR": [
+   0.098,
+   0.508,
+   -0.012
+  ],
+  "elbowL": [
+   -0.3515950207531319,
+   1.1930446398511778,
+   0
+  ],
+  "elbowR": [
+   0.3515950207531319,
+   1.1930446398511778,
+   0
   ]
  }
 }

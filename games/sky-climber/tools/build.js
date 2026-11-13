@@ -22,6 +22,8 @@ const v = join(dist, 'vendor', 'three');
 mkdirSync(join(v, 'addons', 'utils'), { recursive: true });
 for (const f of ['three.module.js', 'three.core.js']) cpSync(join(threeDir, 'build', f), join(v, f));
 cpSync(join(threeDir, 'examples', 'jsm', 'utils', 'BufferGeometryUtils.js'), join(v, 'addons', 'utils', 'BufferGeometryUtils.js'));
+// 画面効果（ブルーム・色調整）に使う postprocessing と shaders
+for (const d of ['postprocessing', 'shaders']) cpSync(join(threeDir, 'examples', 'jsm', d), join(v, 'addons', d), { recursive: true });
 const threePkg = JSON.parse(readFileSync(join(threeDir, 'package.json'), 'utf8'));
 // 版: 手元の git を優先（CLI からのアップロードでは Netlify の COMMIT_REF がリポジトリのコミットと一致しないため）
 let commit = '';

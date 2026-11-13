@@ -1,6 +1,6 @@
 // Sky Climber VR — キャラクター設定資料（回して見る・姿勢と表情を切り替える）。?model=&pose=&yaw=&zoom= で直接指定できる
 import * as THREE from 'three';
-import { makeMaterials, ClimberModel, ResidentModel, BirdModel, HelicopterModel, loadCharacterModels } from './render/characters.js';
+import { makeMaterials, ClimberModel, ResidentModel, BirdModel, HelicopterModel, FirstPersonHands, loadCharacterModels } from './render/characters.js';
 const q = new URLSearchParams(location.search);
 const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
 r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.shadowMap.enabled = true;
@@ -13,12 +13,12 @@ const floor = new THREE.Mesh(new THREE.CircleGeometry(3, 64), new THREE.MeshStan
 const cam = new THREE.PerspectiveCamera(35, 1, 0.01, 50);
 await loadCharacterModels();
 const M = makeMaterials();
-const models = { climber: '主人公 ソラ', oyaji: '住人 おやじ', obachan: '住人 おばちゃん', bird: 'カモメ', heli: 'ヘリとパイロット' };
+const models = { climber: '主人公 ソラ', oyaji: '住人 おやじ', obachan: '住人 おばちゃん', bird: 'カモメ', heli: 'ヘリとパイロット', hands: '手袋（VR の手）' };
 const poses = { climb: '登る', reach: '伸ばす', strain: '片手で耐える', hit: '驚く', fall: '落ちる', joy: '喜ぶ', stand: '立つ' };
 let cur = q.get('model') || 'climber', pose = q.get('pose') || 'climb', obj = null, yaw = +(q.get('yaw') ?? 0.6), pitch = 0.1, zoom = +(q.get('zoom') ?? 1), t = 0;
 function build() {
   if (obj) scene.remove(obj.group);
-  obj = cur === 'climber' ? new ClimberModel(M) : cur === 'oyaji' ? new ResidentModel(M, 'oyaji') : cur === 'obachan' ? new ResidentModel(M, 'obachan') : cur === 'bird' ? new BirdModel(M) : new HelicopterModel(M);
+  obj = cur === 'climber' ? new ClimberModel(M) : cur === 'oyaji' ? new ResidentModel(M, 'oyaji') : cur === 'obachan' ? new ResidentModel(M, 'obachan') : cur === 'bird' ? new BirdModel(M) : cur === 'hands' ? new FirstPersonHands(M) : new HelicopterModel(M);
   obj.group.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
   if (cur === 'bird') obj.group.position.y = 1.0; if (cur === 'heli') obj.group.position.y = 1.0; if (cur === 'oyaji' || cur === 'obachan') obj.group.position.y = 0.9;
   scene.add(obj.group); ui();
@@ -55,9 +55,10 @@ let last = performance.now();
 r.setAnimationLoop((now) => {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
   const w = innerWidth, h = innerHeight; r.setSize(w, h, false); cam.aspect = w / h;
-  if (cur === 'climber') obj.update(dt, climberState(dt)); else if (cur === 'oyaji' || cur === 'obachan') obj.update(dt, pose, (Math.sin(t) + 1) / 2); else obj.update(dt, 1);
-  const tgt = cur === 'climber' ? new THREE.Vector3(0, 1.25, 0.3) : cur === 'heli' ? new THREE.Vector3(0, 1, 0) : cur === 'bird' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 1.4, 0);
-  const dist = (cur === 'climber' ? 3.4 : cur === 'heli' ? 9 : cur === 'bird' ? 2.2 : 1.9) * zoom;
+  if (cur === 'climber') obj.update(dt, climberState(dt)); else if (cur === 'oyaji' || cur === 'obachan') obj.update(dt, pose, (Math.sin(t) + 1) / 2); else if (cur === 'hands') { const c = (Math.sin(t * 1.5) + 1) / 2; const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.9, 0, 0)); obj.set('L', new THREE.Vector3(-0.12, 1.4, 0), q, c, null, dt); obj.set('R', new THREE.Vector3(0.12, 1.4, 0), q, 1 - c, null, dt); }
+  else obj.update(dt, 1);
+  const tgt = cur === 'climber' ? new THREE.Vector3(0, 1.25, 0.3) : cur === 'heli' ? new THREE.Vector3(0, 1, 0) : cur === 'hands' ? new THREE.Vector3(0, 1.42, 0) : cur === 'bird' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 1.4, 0);
+  const dist = (cur === 'climber' ? 3.4 : cur === 'heli' ? 9 : cur === 'hands' ? 0.9 : cur === 'bird' ? 2.2 : 1.9) * zoom;
   if (q.has('focus') && cur === 'climber') tgt.set(0, 1.62, 0.2);
   cam.position.set(tgt.x + Math.sin(yaw) * Math.cos(pitch) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(yaw) * Math.cos(pitch) * dist); cam.lookAt(tgt); cam.updateProjectionMatrix();
   r.render(scene, cam);

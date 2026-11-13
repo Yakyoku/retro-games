@@ -5,14 +5,15 @@ import { BuildingView } from './building.js';
 import { City, makeSky, SKY } from './city.js';
 import { makeMaterials, ClimberModel, FirstPersonHands, ResidentModel, BirdModel, HelicopterModel, loadCharacterModels } from './characters.js';
 export { loadCharacterModels };
-import { makeItem, Shards, Warnings, HoldMarkers, makeGondola, makeBeam, Sparks } from './props.js';
+import { makeItem, Shards, Warnings, HoldMarkers, makeGondola, makeBeam, Sparks, Puffs, Weather } from './props.js';
+import { Post } from './post.js';
 import { WIN } from '../core/stages.js';
 
 export const QUALITY = {
-  pcHigh:    { id: 'pcHigh',    ja: '通常ブラウザー高画質', maxPR: 2.0,  shadow: 2048, wallTex: 2048, aniso: 16, city: 1.0, xrScale: 1.0, foveation: 0,   shadowEvery: 1 },
-  questHigh: { id: 'questHigh', ja: 'Quest 高画質',        maxPR: 1.25, shadow: 1024, wallTex: 2048, aniso: 8,  city: 0.6, xrScale: 1.0, foveation: 0.3, shadowEvery: 2 },
-  standard:  { id: 'standard',  ja: '標準',                maxPR: 1.5,  shadow: 1024, wallTex: 1024, aniso: 8,  city: 0.6, xrScale: 0.9, foveation: 0.5, shadowEvery: 2 },
-  light:     { id: 'light',     ja: '軽量',                maxPR: 1.0,  shadow: 0,    wallTex: 1024, aniso: 4,  city: 0.3, xrScale: 0.8, foveation: 1.0, shadowEvery: 4 },
+  pcHigh:    { id: 'pcHigh',    ja: '通常ブラウザー高画質', maxPR: 2.0,  shadow: 2048, wallTex: 2048, aniso: 16, city: 1.0, xrScale: 1.0, foveation: 0,   shadowEvery: 1, post: true,  skyLite: false },
+  questHigh: { id: 'questHigh', ja: 'Quest 高画質',        maxPR: 1.25, shadow: 1024, wallTex: 2048, aniso: 8,  city: 0.6, xrScale: 1.0, foveation: 0.3, shadowEvery: 2, post: true,  skyLite: true },
+  standard:  { id: 'standard',  ja: '標準',                maxPR: 1.5,  shadow: 1024, wallTex: 1024, aniso: 8,  city: 0.6, xrScale: 0.9, foveation: 0.5, shadowEvery: 2, post: true,  skyLite: false },
+  light:     { id: 'light',     ja: '軽量',                maxPR: 1.0,  shadow: 0,    wallTex: 1024, aniso: 4,  city: 0.3, xrScale: 0.8, foveation: 1.0, shadowEvery: 4, post: false, skyLite: true },
 };
 export const QUALITY_ORDER = ['pcHigh', 'questHigh', 'standard', 'light'];
 
@@ -47,6 +48,7 @@ export class World {
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.quality.maxPR));
     r.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+    if (this.post) this.post.setSize(w, h, r.getPixelRatio());
   }
   // 実際に描いている解像度（表示解像度と区別して記録するため）
   drawSize() { const v = new THREE.Vector2(); this.renderer.getDrawingBufferSize(v); return { w: v.x, h: v.y, css: { w: this.renderer.domElement.clientWidth, h: this.renderer.domElement.clientHeight }, dpr: window.devicePixelRatio || 1 }; }
@@ -57,27 +59,32 @@ export class World {
     const theme = game.def.theme, sky = SKY[theme];
     this.theme = theme; this.game = game;
     const root = this.stageRoot = new THREE.Group(); this.scene.add(root);
-    // 空と環境マップ（反射に使う）
-    const skyMesh = makeSky(theme); this.skyMesh = skyMesh; root.add(skyMesh);
-    const envScene = new THREE.Scene(); envScene.add(makeSky(theme));
+    // 空と環境マップ（反射と環境光に使う。項目 1〜4）
+    const lite = this.quality.skyLite || this.renderer.xr.isPresenting;
+    const skyMesh = makeSky(theme, { lite }); this.skyMesh = skyMesh; root.add(skyMesh);
+    const envScene = new THREE.Scene(); envScene.add(makeSky(theme, { lite: true }));
     this.envRT = this.pmrem.fromScene(envScene, 0.02, 1, 2000); this.env = this.envRT.texture;
-    this.scene.environment = null;
-    this.scene.fog = new THREE.FogExp2(sky.fog, sky.fogD);
-    // 照明
-    this.hemi = new THREE.HemisphereLight(sky.top, theme === 'night' ? 0x1a1820 : 0x6a6258, theme === 'night' ? 0.35 : theme === 'dusk' ? 0.8 : 1.1); root.add(this.hemi);
-    const sun = this.sun = new THREE.DirectionalLight(sky.sun, theme === 'night' ? 0.35 : theme === 'dusk' ? 2.6 : 3.0);
+    this.scene.environment = this.env; this.scene.environmentIntensity = sky.env;   // キャラクターなど envMap を持たない材質にも空の光が回る
+    this.scene.fog = new THREE.FogExp2(sky.fog, sky.fogD); this.fogBase = sky.fogD;
+    this.renderer.toneMappingExposure = sky.exposure;
+    // 照明（項目 30）: 主光（太陽・影あり）＋空と地面の環境光＋輪郭を浮かせる逆光
+    this.hemi = new THREE.HemisphereLight(sky.hor, theme === 'night' ? 0x14121c : 0x5a5248, sky.hemi); root.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight(sky.sun, sky.sunI);
     this.sunDir = V(...sky.sunDir).normalize();
-    sun.shadow.camera.left = -5; sun.shadow.camera.right = 5; sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -5; sun.shadow.camera.near = 1; sun.shadow.camera.far = 40;
-    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+    sun.shadow.camera.left = -6; sun.shadow.camera.right = 6; sun.shadow.camera.top = 6; sun.shadow.camera.bottom = -6; sun.shadow.camera.near = 1; sun.shadow.camera.far = 45;
+    sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.025; sun.shadow.radius = 2.5;
     root.add(sun, sun.target);
-    // 夜: ネオンと街灯の色の光（手元を照らす）
+    const rim = this.rim = new THREE.DirectionalLight(theme === 'night' ? 0x7f9cff : theme === 'dusk' ? 0xffb080 : 0xcfe4ff, theme === 'night' ? 0.9 : 0.7);
+    rim.position.set(-3, 4, 6); root.add(rim, rim.target);
+    // 夜・夕方: ネオンと街灯の色の光（手元を照らす）
     this.accents = [];
-    if (theme === 'night') { for (const [c, x] of [[0xff3fa4, -2.5], [0x3fe0ff, 2.5]]) { const p = new THREE.PointLight(c, 6, 9, 1.6); p.position.set(x, 2, 2.5); root.add(p); this.accents.push(p); } }
-    if (theme === 'dusk') { const p = new THREE.PointLight(0xffa860, 2.5, 10, 1.5); p.position.set(0, 2, 3); root.add(p); this.accents.push(p); }
+    if (theme === 'night') { for (const [c, x] of [[0xff3fa4, -2.5], [0x3fe0ff, 2.5]]) { const p = new THREE.PointLight(c, 7, 10, 1.6); p.position.set(x, 2, 2.5); root.add(p); this.accents.push(p); } }
+    if (theme === 'dusk') { const p = new THREE.PointLight(0xffa860, 3, 10, 1.5); p.position.set(0, 2, 3); root.add(p); this.accents.push(p); }
+    if (this.post) this.post.setTheme(sky.grade);
     // 建物と都市
     this.bv = new BuildingView(game.b, { theme, quality: this.quality, envMap: this.env }); root.add(this.bv.group);
     this.bv.setFog(new THREE.Color(sky.fog), sky.fogD);
-    this.city = new City(theme, { density: this.quality.city, heroW: game.b.cols * 1.7, heroTop: game.b.top, envMap: this.env }); root.add(this.city.group);
+    this.city = new City(theme, { density: this.quality.city, heroW: game.b.cols * 1.7, heroTop: game.b.top, envMap: this.env, lite: this.quality.id === 'light' }); root.add(this.city.group);
     // キャラクター
     this.climber = new ClimberModel(this.M); root.add(this.climber.group);
     this.fpHands = new FirstPersonHands(this.M); root.add(this.fpHands.group);
@@ -96,13 +103,12 @@ export class World {
     }
     this.heli = new HelicopterModel(this.M); this.heli.group.position.set(0, game.b.top + 1.0, -5.5); this.heli.group.rotation.y = 0.4; root.add(this.heli.group);
     this.heliLift = 0;
-    // 雨（夜）と風の筋（超高層）: カメラの周りの線
-    if (theme === 'night' || theme === 'tower') {
-      const n = theme === 'night' ? 600 : 160, pos = new Float32Array(n * 6);
-      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      this.streaks = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: theme === 'night' ? 0x9fb4d8 : 0xffffff, transparent: true, opacity: theme === 'night' ? 0.35 : 0.25, depthWrite: false }));
-      this.streaks.frustumCulled = false; this.streakData = { n, seed: Array.from({ length: n }, () => [Math.random(), Math.random(), Math.random()]) }; root.add(this.streaks);
-    }
+    // 雨・風の筋・舞う葉や紙（項目 26）、煙と粉じん（項目 28）、接地影（項目 30）
+    this.weather = new Weather(theme); root.add(this.weather.group);
+    this.puffs = new Puffs(); root.add(this.puffs.group);
+    this.contact = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.puffs.tex, color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false }));
+    this.contact.renderOrder = 1; root.add(this.contact);
+    this.trails = new Map();
     this.setQuality(this.quality.id);
     this.renderer.shadowMap.needsUpdate = true;
   }
@@ -126,7 +132,11 @@ export class World {
     const b = game.b, hz = game.hz, P = view.interp;
     const theme = this.theme;
     this.skyMesh.material.uniforms.uTime.value += dt;
-    this.city.update(dt);
+    const camW = this.camera.getWorldPosition(V());
+    this.city.update(dt, camW);
+    this.bv.update(dt, camW);
+    // 高度に応じて霞を少し濃く（地上が遠のいて見える。項目 27）
+    this.scene.fog.density = this.fogBase * (1 + Math.min(0.6, Math.max(0, camW.y) / 120));
     // 窓のガラス戸
     this.bv.updateSashes((i) => hz.win[i].active ? hz.win[i].close : 0);
     // 夜のネオンの点滅（帯電の予告で激しく）
@@ -187,6 +197,8 @@ export class World {
     for (const z of hz.zones) {
       const v = this.zoneViews.get(z.id);
       if (v) { v.position.set(z.x, z.kind === 'gondola' ? z.y0 - 0.3 : z.y0 - 0.2, 0); if (z.kind === 'crane') v.rotation.z = Math.sin(hz.t * 2 * Math.PI / z.period + z.phase) * 0.05; }
+      if (v && v.userData.lamp) v.userData.lamp.visible = Math.sin(performance.now() / 160) > 0;
+      if (v && v.userData.flags) v.userData.flags.forEach((f, i) => { f.rotation.z = Math.sin(performance.now() / 180 + i) * 0.5; });
       if (z.kind === 'neon' && z.on && Math.random() < 0.6) this.sparks.emit(z.x + (Math.random() - 0.5) * z.w, z.y0 + Math.random() * (z.y1 - z.y0), 0.3, 3, 0.4);
     }
     this.shards.update(dt); this.sparks.update(dt);
@@ -201,19 +213,18 @@ export class World {
     this.warn.set(W);
     // 保持点の目印
     this.markers.set(view.markers || []);
-    // 雨・風の筋
-    if (this.streaks) {
-      const p = this.streaks.geometry.attributes.position.array, c = this.camera.getWorldPosition(V()), T = performance.now() / 1000;
-      for (let i = 0; i < this.streakData.n; i++) {
-        const [a, bb, cc] = this.streakData.seed[i];
-        if (theme === 'night') { const x = c.x + (a - 0.5) * 12, z = c.z + (cc - 0.5) * 10 - 1, y = c.y + 6 - ((T * 9 + bb * 12) % 12); p.set([x, y, z, x + 0.02, y - 0.35, z], i * 6); }
-        else { const y = c.y + (bb - 0.5) * 8, z = c.z + (cc - 0.5) * 8, x = c.x + 10 - ((T * 14 + a * 20) % 20); p.set([x, y, z, x - 0.9, y, z], i * 6); }
-      }
-      this.streaks.geometry.attributes.position.needsUpdate = true;
-    }
+    this.weather.update(dt, camW);
+    this.puffs.update(dt);
+    // 接地影: 壁に落ちる柔らかい影（通常 3D のみ）
+    this.contact.visible = flat; this.contact.position.set(P.body.x + 0.12, P.body.y - 0.55, 0.012); this.contact.scale.set(1.5, 2.4, 1);
+    // 落下物の光の尾
+    for (const it of hz.items) { if (it.phase !== 'fall') continue; let tr = this.trails.get(it.id); if (!tr) { tr = this.puffs.makeTrail(); this.stageRoot.add(tr); this.trails.set(it.id, tr); }
+      const len = Math.min(1.6, 0.25 + it.vy * 0.16); tr.position.set(it.x, it.y + len / 2 + 0.08, it.z - 0.02); tr.scale.set(0.2, len, 1); }
+    for (const [id, tr] of this.trails) if (!hz.items.some((it) => it.id === id && it.phase === 'fall')) { this.stageRoot.remove(tr); this.trails.delete(id); }
     // 影: 太陽の光の範囲を主人公の周りに寄せ、画質設定の間隔で更新
     const focus = V(P.body.x, P.body.y, 0.4);
     this.sun.position.copy(focus).addScaledVector(this.sunDir, 20); this.sun.target.position.copy(focus); this.sun.target.updateMatrixWorld();
+    this.rim.position.set(focus.x - 3, focus.y + 3, 6); this.rim.target.position.copy(focus); this.rim.target.updateMatrixWorld();
     for (const a of this.accents) a.position.y = P.body.y + 0.5;
     if (this.quality.shadow > 0 && this.frame % this.quality.shadowEvery === 0) this.renderer.shadowMap.needsUpdate = true;
   }
@@ -239,6 +250,14 @@ export class World {
     this.rig.position.set(0, 0, 0); this.rig.quaternion.identity();
     this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook);
   }
-  burst(x, y, kind) { this.shards.burst(x, y, 0.3, kind); }
-  render() { this.renderer.render(this.scene, this.camera); }
+  burst(x, y, kind) { this.shards.burst(x, y, 0.3, kind); this.puffs.burst(x, y, 0.32, kind); }
+  // 通常 3D は画面効果つき、WebXR と「軽量」は直接描く
+  render() {
+    const r = this.renderer, now = performance.now(), dt = Math.min(0.1, (now - (this.lastRender || now)) / 1000); this.lastRender = now;
+    r.info.autoReset = false; r.info.reset();   // 画面効果の複数パスを合計して数える（debug 表示用）
+    if (r.xr.isPresenting || !this.quality.post) { r.render(this.scene, this.camera); return; }
+    if (!this.post) { try { this.post = new Post(r, this.scene, this.camera); this.post.setTheme(SKY[this.theme || 'day'].grade); const c = r.domElement; this.post.setSize(c.clientWidth || innerWidth, c.clientHeight || innerHeight, r.getPixelRatio()); }
+      catch (e) { console.warn('画面効果を使えないため直接描画します', e); this.quality = { ...this.quality, post: false }; r.render(this.scene, this.camera); return; } }
+    this.post.render(dt);
+  }
 }

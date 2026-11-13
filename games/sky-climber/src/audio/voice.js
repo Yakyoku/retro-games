@@ -35,7 +35,8 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 function interp(pts, x) { for (let i = 1; i < pts.length; i++) if (x <= pts[i][0]) { const t = (x - pts[i - 1][0]) / (pts[i][0] - pts[i - 1][0]); return lerp(pts[i - 1][1], pts[i][1], t); } return pts[pts.length - 1][1]; }
 
 // 合成して Float32Array を返す。lofi: 当時のサンプル再生風（サンプリング 8kHz・8bit 量子化）
-export function synthVoice(name, sampleRate = 44100, { lofi = true, seed = 1 } = {}) {
+// hq: モダン音源用（量子化なし・第 4 フォルマント・息の成分・声の高さの細かなゆらぎ・口元の放射特性）
+export function synthVoice(name, sampleRate = 44100, { lofi = true, seed = 1, hq = false } = {}) {
   const v = VOICES[name]; if (!v) throw new Error('voice: ' + name);
   const total = v.seg.reduce((s, x) => s + x[1], 0);
   const n = Math.ceil((total + 0.05) * sampleRate);
@@ -50,7 +51,8 @@ export function synthVoice(name, sampleRate = 44100, { lofi = true, seed = 1 } =
     for (let j = k - 1; j >= 0; j--) if (bounds[j][2].f) return bounds[j][2].f;
     return V.a;
   };
-  const y1 = [0, 0, 0], y2 = [0, 0, 0]; let fy1 = 0, fy2 = 0;
+  const y1 = [0, 0, 0, 0], y2 = [0, 0, 0, 0]; let fy1 = 0, fy2 = 0, jit = 0, prevOut = 0;
+  const NF = hq ? 4 : 3;
   let phase = 0, prevG = 0, amp = 0;
   for (let i = 0; i < n; i++) {
     const t = i / sampleRate;
@@ -60,10 +62,11 @@ export function synthVoice(name, sampleRate = 44100, { lofi = true, seed = 1 } =
     // 声道の形: 区間の始め 35ms で前の区間の形から移る
     const cur = formantsAt(k), prev = k > 0 ? formantsAt(k - 1) : cur;
     const tr = Math.min(1, (t - t0) / 0.035);
-    const F = cur.map((f, j) => lerp(prev[j], f, tr) * v.fm);
+    const F = cur.map((f, j) => lerp(prev[j], f, tr) * v.fm); if (hq) F.push(3650 * v.fm);
     // 声の高さ（f0）と声帯の波形（Rosenberg パルスの微分）
     const f0 = interp(v.f0, Math.min(1, t / total)) * (1 + 0.012 * Math.sin(2 * Math.PI * 5.5 * t));
-    phase += f0 / sampleRate; if (phase >= 1) phase -= 1;
+    if (hq) { jit += (noise() * 0.012 - jit) * 0.002; }
+    phase += f0 * (1 + jit) / sampleRate; if (phase >= 1) phase -= 1;
     const Tp = 0.42, Tn = 0.16;
     const g = phase < Tp ? 0.5 * (1 - Math.cos(Math.PI * phase / Tp)) : phase < Tp + Tn ? Math.cos(Math.PI * (phase - Tp) / (2 * Tn)) : 0;
     let src = (g - prevG) * 18; prevG = g;
@@ -84,14 +87,15 @@ export function synthVoice(name, sampleRate = 44100, { lofi = true, seed = 1 } =
     // 始まりと終わりの音量の包絡
     const env = Math.min(1, t / 0.012, Math.max(0, (total - t) / 0.06));
     amp += ((p.kind === 'sil' ? 0 : target) - amp) * 0.02;
-    let x = (src * voiced + noise() * asp * 0.6) * amp;
-    for (let j = 0; j < 3; j++) {
-      const bw = [80, 110, 170][j];
+    let x = (src * voiced + noise() * (asp * 0.6 + (hq ? voiced * 0.035 : 0))) * amp; // hq: 母音にも少し息を混ぜる
+    for (let j = 0; j < NF; j++) {
+      const bw = [80, 110, 170, 260][j];
       const r = resonator(Math.min(F[j], sampleRate * 0.45), bw, sampleRate);
       const yv = r.A * x + r.B * y1[j] + r.C * y2[j]; y2[j] = y1[j]; y1[j] = yv; x = yv;
     }
     let s = x;
     if (fric > 0) { const r = resonator(fc, fbw, sampleRate); const fy = r.A * noise() + r.B * fy1 + r.C * fy2; fy2 = fy1; fy1 = fy; s += fy * fric * 0.6; }
+    if (hq) { const r = s - 0.6 * prevOut; prevOut = s; s = s * 0.5 + r * 0.9; } // 口元の放射（高域を持ち上げて明るく）
     out[i] = s * env;
   }
   // 正規化して、当時のサンプル再生のように 8kHz・8bit に落とす

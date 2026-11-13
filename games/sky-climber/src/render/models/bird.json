@@ -1,8 +1,8 @@
 {
  "name": "bird",
  "generator": "tools/build-characters.mjs（Claude Code で制作）",
- "vertices": 7346,
- "triangles": 14684,
+ "vertices": 13247,
+ "triangles": 26488,
  "bones": [
   {
    "name": "root",
@@ -14,12 +14,21 @@
    ]
   },
   {
-   "name": "head",
+   "name": "neck",
    "parent": 0,
    "pos": [
     0,
-    0.07,
-    0.17
+    0.035,
+    0.13
+   ]
+  },
+  {
+   "name": "head",
+   "parent": 1,
+   "pos": [
+    0,
+    0.085,
+    0.2
    ]
   },
   {
@@ -28,43 +37,61 @@
    "pos": [
     0,
     0,
-    -0.18
+    -0.17
    ]
   },
   {
    "name": "wing1L",
    "parent": 0,
    "pos": [
-    -0.09,
-    0.05,
-    0.02
+    -0.07,
+    0.04,
+    0.05
    ]
   },
   {
    "name": "wing2L",
-   "parent": 3,
+   "parent": 4,
    "pos": [
-    -0.36,
-    0.05,
-    0
+    -0.27,
+    0.045,
+    0.06
+   ]
+  },
+  {
+   "name": "wing3L",
+   "parent": 5,
+   "pos": [
+    -0.5,
+    0.045,
+    0.02
    ]
   },
   {
    "name": "wing1R",
    "parent": 0,
    "pos": [
-    0.09,
-    0.05,
-    0.02
+    0.07,
+    0.04,
+    0.05
    ]
   },
   {
    "name": "wing2R",
-   "parent": 5,
+   "parent": 7,
    "pos": [
-    0.36,
-    0.05,
-    0
+    0.27,
+    0.045,
+    0.06
+   ]
+  },
+  {
+   "name": "wing3R",
+   "parent": 8,
+   "pos": [
+    0.5,
+    0.045,
+    0.02
    ]
   }
  ],
@@ -72,61 +99,64 @@
   {
    "name": "body",
    "start": 0,
-   "count": 39204
+   "count": 70788
   },
   {
    "name": "beak",
-   "start": 39204,
-   "count": 4848
+   "start": 70788,
+   "count": 8676
   }
  ],
+ "morphs": [],
  "layout": {
   "position": {
    "offset": 0,
-   "length": 22038,
+   "length": 39741,
    "type": "Float32Array"
   },
   "normal": {
-   "offset": 88152,
-   "length": 29384,
+   "offset": 158964,
+   "length": 52988,
    "type": "Int8Array"
   },
   "color": {
-   "offset": 117536,
-   "length": 29384,
+   "offset": 211952,
+   "length": 52988,
    "type": "Uint8Array"
   },
   "uv": {
-   "offset": 146920,
-   "length": 14692,
+   "offset": 264940,
+   "length": 26494,
    "type": "Float32Array"
   },
   "skinIndex": {
-   "offset": 205688,
-   "length": 29384,
+   "offset": 370916,
+   "length": 52988,
    "type": "Uint8Array"
   },
   "skinWeight": {
-   "offset": 235072,
-   "length": 29384,
+   "offset": 423904,
+   "length": 52988,
    "type": "Uint8Array"
   },
   "index": {
-   "offset": 264456,
-   "length": 44052,
+   "offset": 476892,
+   "length": 79464,
    "type": "Uint16Array"
   }
  },
  "face": {
   "eyeL": [
-   -0.07,
-   0.04,
-   0.065
+   -0.036,
+   0.012,
+   0.03
   ],
   "eyeR": [
-   0.07,
-   0.04,
-   0.065
-  ]
+   0.036,
+   0.012,
+   0.03
+  ],
+  "eyeRadius": 0.0085,
+  "front": 1
  }
 }

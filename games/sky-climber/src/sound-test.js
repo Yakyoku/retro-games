@@ -4,7 +4,8 @@ import { SONGS } from './audio/music.js';
 import { SFX, renderSfx } from './audio/sfx.js';
 import { VOICES, synthVoice } from './audio/voice.js';
 import { renderSong } from './audio/psg.js';
-const A = new AudioEngine();
+import { MODERN_SONGS, STEMS, MODERN_SFX_NAMES } from './audio/modern-songs.js';
+const A = new AudioEngine(); window.__snd = A;
 const $ = (s) => document.querySelector(s);
 let last = null, refBuf = null, abTimer = null;
 const DESC = {
@@ -14,7 +15,7 @@ const DESC = {
   buzz: 'ネオンの予告', zap: '放電', creak: 'きしみ', motor: 'ゴンドラ', hit: '命中', fall: '落下', grace: '両手が離れた', combo1: 'コンボ 1', combo2: 'コンボ 2', combo3: 'コンボ 3', respawn: '復帰', uiMove: 'カーソル', uiOk: '決定', uiBack: '戻る', floor: '10m ごと',
   yoisho: '「よいしょ」', itte: '「いてっ」', are: '「あれ〜」', ganbare: '「がんばれ」', yatta: '「やったー」', wa: '「わっ」', kora: '住人「こらー」', hoi: '住人「ほいっ」', okaeri: 'パイロット',
 };
-async function unlock() { await A.unlock(); $('#mode').textContent = `現在: ${A.mode === 'vr' ? 'VR 音響' : 'クラシック音響'}・${A.ctx.sampleRate}Hz`; }
+async function unlock() { await A.unlock(); $('#mode').textContent = `現在: ${A.mode === 'vr' ? 'モダン音源（空間）' : A.mode === 'retrovr' ? 'レトロ音源（空間）' : 'クラシック音響'}・${A.ctx.sampleRate}Hz${A.mode === 'vr' && !A.modernReady ? '・モダン音源を準備中…' : ''}`; }
 function draw(canvas, buf) {
   const c = canvas.getContext('2d'), W = canvas.width, H = canvas.height, d = buf.getChannelData(0);
   c.fillStyle = '#050b18'; c.fillRect(0, 0, W, H); c.strokeStyle = '#ffd34a'; c.beginPath();
@@ -32,17 +33,21 @@ function wav(buf) {
   for (let i = 0; i < d.length; i++) b.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(d[i] * 32767))), true);
   return new Blob([b], { type: 'audio/wav' });
 }
-function addBtn(root, name, onPlay, getBuf) {
+function addBtn(root, name, onPlay, getBuf, getModern) {
   const el = document.createElement('div');
   el.innerHTML = `<button>${name}<small>${DESC[name] || ''}</small></button>`;
   const dl = document.createElement('a'); dl.textContent = 'WAV'; dl.href = '#'; dl.style.fontSize = '12px'; dl.style.marginLeft = '6px';
-  dl.onclick = async (e) => { e.preventDefault(); await unlock(); const b = getBuf(); dl.href = URL.createObjectURL(wav(b)); dl.download = `skyclimber-${name}.wav`; dl.onclick = null; dl.click(); };
-  el.firstChild.onclick = async () => { await unlock(); const b = getBuf(); last = b; draw($('#wave'), b); stats(b, name); onPlay(); };
+  dl.onclick = async (e) => { e.preventDefault(); await unlock(); let b = getBuf(); if (getModern) { const m = await getModern(); if (m) b = m; } dl.href = URL.createObjectURL(wav(b)); dl.download = `skyclimber-${name}.wav`; dl.onclick = null; dl.click(); };
+  el.firstChild.onclick = async () => { await unlock(); let b = getBuf(); onPlay(); if (getModern) { const m = await getModern(); if (m) b = m; } last = b; draw($('#wave'), b); stats(b, name); };
   el.appendChild(dl); root.appendChild(el);
 }
-for (const k of Object.keys(SONGS)) addBtn($('#songs'), k, () => { A.stopMusic(0.02); A.music(k, { loop: SONGS[k].loop }); }, () => A.songBuffer(k));
-for (const k of Object.keys(SFX)) addBtn($('#sfx'), k, () => A.play(k, { pos: { x: Math.random() * 4 - 2, y: 1.6, z: -1 } }), () => A.buf['sfx:' + k]);
-for (const k of Object.keys(VOICES)) addBtn($('#voices'), k, () => A.play(k), () => A.buf['voice:' + k]);
+// モダン音源の曲は全ステムを重ねた波形を表示する（鳴らすのはエンジンのステム再生）
+async function modernMix(k) { if (MODERN_SONGS[k]) { const s = await A.modernSong(k); const n = s.stems.drums.length, out = A.ctx.createBuffer(2, n, A.ctx.sampleRate); for (const st of STEMS) { if (st === 'tension') continue; for (let c = 0; c < 2; c++) { const d = s.stems[st].getChannelData(c), o = out.getChannelData(c); for (let i = 0; i < n; i++) o[i] += d[i]; } } return out; } return A.modernJingle(k); }
+for (const k of Object.keys(SONGS)) addBtn($('#songs'), k, () => { A.stopMusic(0.02); A.music(k, { loop: SONGS[k].loop }); }, () => A.songBuffer(k), () => (A.modern ? modernMix(k) : null));
+for (const k of Object.keys(SFX)) addBtn($('#sfx'), k, () => A.play(k, { pos: { x: Math.random() * 4 - 2, y: 1.6, z: -1 } }), () => A.buf['sfx:' + k], () => (A.modern && A.mbuf[k] ? A.mbuf[k][0] : null));
+// モダン音源だけにある音（素材別のつかむ音・割れる音・心拍・街の音・ループ素材）
+for (const k of MODERN_SFX_NAMES.filter((n) => !SFX[n])) addBtn($('#sfx'), k, () => { const b = A.mbuf[k] && A.mbuf[k][(A.rr[k] = ((A.rr[k] ?? -1) + 1) % A.mbuf[k].length)]; if (!b) return; const s = A.ctx.createBufferSource(); s.buffer = b; s.connect(A.bus.sfx); s.start(); }, () => (A.mbuf[k] && A.mbuf[k][0]) || A.buf['sfx:grab']);
+for (const k of Object.keys(VOICES)) addBtn($('#voices'), k, () => A.play(k), () => A.buf['voice:' + k], () => (A.modern ? A.mvoice[k] : null));
 for (const k of Object.keys(SONGS).filter((k) => SONGS[k].loop)) {
   const b = document.createElement('button'); b.innerHTML = `${k}<small>終わり 2 秒 → 先頭 2 秒</small>`;
   b.onclick = async () => { await unlock(); const buf = A.songBuffer(k), sr = buf.sampleRate, d = buf.getChannelData(0), n = sr * 2; const out = A.ctx.createBuffer(1, n * 2, sr), o = out.getChannelData(0);
@@ -51,6 +56,14 @@ for (const k of Object.keys(SONGS).filter((k) => SONGS[k].loop)) {
   $('#seams').appendChild(b);
 }
 $('#m-vr').onclick = async () => { await unlock(); A.setMode('vr'); unlock(); };
+$('#m-retro').onclick = async () => { await unlock(); A.setMode('retrovr'); unlock(); };
+// 適応型音楽の確認: 高度・片手・危険・残機をスライダーとボタンで変えて、層の出入りを聴く
+const I = { height01: 1, oneHand: false, danger: false, lives: 3 };
+$('#i-h').oninput = (e) => { I.height01 = +e.target.value; A.setIntensity(I); };
+for (const [id, k] of [['i-one', 'oneHand'], ['i-danger', 'danger']]) $('#' + id).onclick = (e) => { I[k] = !I[k]; e.target.style.borderColor = I[k] ? '#ffd34a' : ''; A.setIntensity(I); };
+$('#i-lives').onclick = (e) => { I.lives = I.lives === 1 ? 3 : 1; e.target.style.borderColor = I.lives === 1 ? '#ffd34a' : ''; A.setIntensity(I); };
+$('#i-tape').onclick = () => { A.tape ? A.tapeStart() : A.tapeStop(); };
+$('#i-pause').onclick = () => A.setPaused(!A.paused);
 $('#m-classic').onclick = async () => { await unlock(); A.setMode('classic'); unlock(); };
 $('#stop').onclick = () => { A.stopMusic(0.02); clearInterval(abTimer); };
 $('#ref').onchange = async (e) => { await unlock(); const f = e.target.files[0]; if (!f) return; refBuf = await A.ctx.decodeAudioData(await f.arrayBuffer()); draw($('#wave-ref'), refBuf); };

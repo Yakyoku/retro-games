@@ -59,6 +59,13 @@ export function makeWallTextures(theme, { size = 2048, colW, floorH, win, seed =
         c = c.map((k) => k * (1 - s * 0.55)); r = Math.min(1, r + s * 0.2);
       }
     }
+    // 接する所の陰（アンビエントオクルージョンの焼き込み。項目 9）: 窓の開口のまわり・窓台の下・階の帯の下・付け柱のきわ
+    { const dxw = Math.max(sillX0 - mx, mx - sillX1, 0.0), dyw = Math.max(win.y0 - my, my - win.y1, 0.0), dw = Math.hypot(dxw, dyw);
+      let ao = 1 - 0.3 * Math.max(0, 1 - dw / 0.13);
+      if (mx > sillX0 - 0.15 && mx < sillX1 + 0.15 && my < win.y0 - 0.05 && my > win.y0 - 0.3) ao *= 1 - 0.32 * (1 - (win.y0 - 0.05 - my) / 0.25);
+      if (my > floorH - 0.3) ao *= 1 - 0.3 * ((my - (floorH - 0.3)) / 0.3);
+      const dp = Math.min(mx, colW - mx); if (dp < 0.2) ao *= 1 - 0.22 * (1 - dp / 0.2);
+      c = c.map((k) => k * ao); }
     // 窓の上の庇の下のすす
     if (my > win.y1 && my < win.y1 + 0.12 && mx > sillX0 && mx < sillX1) { c = c.map((k) => k * 0.85); }
     // 濡れた壁（夜）: 縦の筋状に粗さが下がる

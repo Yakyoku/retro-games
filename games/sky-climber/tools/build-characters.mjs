@@ -111,14 +111,23 @@ function surfaceNets(field, bmin, bmax, h) {
 }
 const grad = (field, p, e = 0.0007) => norm([field([p[0] + e, p[1], p[2]]) - field([p[0] - e, p[1], p[2]]), field([p[0], p[1] + e, p[2]]) - field([p[0], p[1] - e, p[2]]), field([p[0], p[1], p[2] + e]) - field([p[0], p[1], p[2] - e])]);
 
+// ---------- 追加の距離関数 ----------
+// 平たい帯の輪（ベルト・ハーネス）: 中心 c、楕円の半径 rx/rz、帯の半分の高さ hh、厚み th
+function belt(c, rx, rz, hh, th, tiltX = 0) {
+  const f = (p) => { let q = sub(p, c); if (tiltX) q = rotX(q, -tiltX); const k = Math.hypot(q[0] / rx, q[2] / rz); const dr = (k - 1) * Math.min(rx, rz); const dx = Math.abs(dr) - th, dy = Math.abs(q[1]) - hh; return Math.min(Math.max(dx, dy), 0) + Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) - 0.004; };
+  const m = Math.max(rx, rz) + th + 0.01; return { f, min: sub(c, [m, m, m]), max: add(c, [m, m, m]), center: c };
+}
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const gauss = (p, c, s) => Math.exp(-(dot(sub(p, c), sub(p, c))) / (2 * s * s));
+
 // ---------- モデルを作って書き出す ----------
-// 素材ごとに別の閉じた表面（層）を作り、重ねる。境目は面どうしの交わりになるので、描画で画素単位にくっきり出る。
-// 層: { group, parts, h, bmin, bmax }。スキンウェイトは全層の部品から計算する（重なった層が同じように曲がる）
-function build(name, { layers, bones, sigma = 0.018, extra = {} }) {
+// 素材ごとに別の閉じた表面（層）を作って重ねる。頂点ごとに: 位置・法線・色・UV・骨 4 本・重み・焼き込みの陰（AO）。
+// post(p, group) で結合姿勢の補正（口を閉じる等）、morphs = { 名前: (p, group) => 変位 | null } で表情の変形を作る
+function build(name, { layers, bones, sigma = 0.018, extra = {}, post = null, morphs = {} }) {
   const t0 = Date.now();
   const allParts = layers.flatMap((l) => l.parts);
   const all = makeField(allParts);
-  const P = [], Nn = [], Co = [], Uv = [], SI = [], SW = [], index = [], gInfo = [];
+  const P = [], Nn = [], Co = [], Uv = [], SI = [], SW = [], AO = [], GR = [], index = [], gInfo = [];
   for (const L of layers) {
     const { field, each } = makeField(L.parts);
     const { pos, tri } = surfaceNets(field, L.bmin, L.bmax, L.h);
@@ -129,7 +138,10 @@ function build(name, { layers, bones, sigma = 0.018, extra = {} }) {
       const nrm = grad(field, p);
       const own = each(p).sort((a, b) => a[1] - b[1]);
       const near = own[0] ? own[0][0] : L.parts[0];
-      P.push(p); Nn.push(nrm); Co.push(typeof near.color === 'function' ? near.color(p, nrm) : near.color);
+      // 焼き込みの陰: 法線方向に少し離れた点が、全体の距離場でどれだけ「物に近いか」
+      let occ = 0; for (const [d, w] of [[0.012, 0.5], [0.03, 0.3], [0.07, 0.2]]) { const q = add(p, mul(nrm, d)); occ += w * Math.max(0, Math.min(1, (d - all.field(q)) / d)); }
+      AO.push(Math.max(0.25, 1 - occ * (L.ao ?? 0.9)));
+      Nn.push(nrm); Co.push(typeof near.color === 'function' ? near.color(p, nrm) : near.color); GR.push(L.group);
       const list = all.each(p), dmin = Math.min(...list.map((x) => x[1])), acc = new Map();
       for (const [q, d] of list) { if (q.noWeight) continue; const w = Math.exp(-Math.max(0, d - dmin) / (q.sigma ?? sigma)); acc.set(q.bone, (acc.get(q.bone) || 0) + w); }
       if (!acc.size) acc.set(near.bone, 1);
@@ -139,6 +151,7 @@ function build(name, { layers, bones, sigma = 0.018, extra = {} }) {
       if (near.s.axis) { const [a, b] = near.s.axis, ax = norm(sub(b, a)), pa = sub(p, a), along = dot(pa, ax), rad = sub(pa, mul(ax, along)); const ref = Math.abs(ax[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]; const u0 = norm(cross(ax, ref)), w0 = cross(ax, u0);
         Uv.push([Math.atan2(dot(rad, w0), dot(rad, u0)) / (2 * Math.PI) * 4, along * 8]); }
       else { const c0 = near.s.center || p, d0 = norm(sub(p, c0)); Uv.push([Math.atan2(d0[0], d0[2]) / (2 * Math.PI) * 6, d0[1] * 3]); }
+      P.push(post ? post(p, L.group) : p);
     }
     const start = index.length;
     for (const t of tri) index.push(base + t);
@@ -149,132 +162,254 @@ function build(name, { layers, bones, sigma = 0.018, extra = {} }) {
   const fP = new Float32Array(n * 3), fN = new Int8Array(n * 4), fC = new Uint8Array(n * 4), fU = new Float32Array(n * 2), fSI = new Uint8Array(n * 4), fSW = new Uint8Array(n * 4);
   for (let i = 0; i < n; i++) {
     fP.set(P[i], i * 3); fN.set([Math.round(Nn[i][0] * 127), Math.round(Nn[i][1] * 127), Math.round(Nn[i][2] * 127), 0], i * 4);
-    fC.set([Math.round(Co[i][0] * 255), Math.round(Co[i][1] * 255), Math.round(Co[i][2] * 255), 255], i * 4); fU.set(Uv[i], i * 2); fSI.set(SI[i], i * 4); fSW.set(SW[i], i * 4);
+    fC.set([Math.round(Co[i][0] * 255), Math.round(Co[i][1] * 255), Math.round(Co[i][2] * 255), Math.round(AO[i] * 255)], i * 4); fU.set(Uv[i], i * 2); fSI.set(SI[i], i * 4); fSW.set(SW[i], i * 4);
   }
   const I = big ? new Uint32Array(index) : new Uint16Array(index);
-  const layout = {}; let off = 0; const bufs = { position: fP, normal: fN, color: fC, uv: fU, skinIndex: fSI, skinWeight: fSW, index: I };
+  const bufs = { position: fP, normal: fN, color: fC, uv: fU, skinIndex: fSI, skinWeight: fSW, index: I };
+  // 表情の変形（疎: 動く頂点の番号と変位だけ）
+  const morphInfo = [];
+  for (const [mn, fn] of Object.entries(morphs)) {
+    const idx = [], del = [];
+    for (let i = 0; i < n; i++) { const d = fn(P[i], GR[i]); if (d && (Math.abs(d[0]) + Math.abs(d[1]) + Math.abs(d[2])) > 2e-5) { idx.push(i); del.push(d[0], d[1], d[2]); } }
+    bufs['mi_' + mn] = new Uint32Array(idx); bufs['md_' + mn] = new Float32Array(del); morphInfo.push({ name: mn, count: idx.length });
+  }
+  const layout = {}; let off = 0;
   for (const [k, b] of Object.entries(bufs)) { layout[k] = { offset: off, length: b.length, type: b.constructor.name }; off += b.byteLength; off = (off + 3) & ~3; }
-  const bin = Buffer.alloc(off); for (const [k, b] of Object.entries(bufs)) Buffer.from(b.buffer).copy(bin, layout[k].offset);
+  const bin = Buffer.alloc(off); for (const [k, b] of Object.entries(bufs)) Buffer.from(b.buffer, b.byteOffset, b.byteLength).copy(bin, layout[k].offset);
   writeFileSync(join(OUT, name + '.bin'), bin);
-  writeFileSync(join(OUT, name + '.json'), JSON.stringify({ name, generator: 'tools/build-characters.mjs（Claude Code で制作）', vertices: n, triangles: index.length / 3, bones, groups: gInfo, layout, ...extra }, null, 1));
+  writeFileSync(join(OUT, name + '.json'), JSON.stringify({ name, generator: 'tools/build-characters.mjs（Claude Code で制作）', vertices: n, triangles: index.length / 3, bones, groups: gInfo, morphs: morphInfo, layout, ...extra }, null, 1));
   console.log(`${name}: 頂点 ${n}・三角形 ${index.length / 3}・${(off / 1024).toFixed(0)}KB・${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
 }
 
 const hex = (h) => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
-const RED = hex(0xd8342c), NAVY = hex(0x263553), SKIN = hex(0xf2b48c), HAIR = hex(0x2a1d17), YEL = hex(0xf6c33a), WHITE = hex(0xf5f2ea);
 
 // =========================================================
-// 主人公「ソラ」: A ポーズ・壁（-z）を向く・足は y=0。頭は漫画的に 1.16 倍（頭身 約 5.8）
-// 層: skin（顔・首・耳）/ hair / band（はちまき）/ jacket（上着）/ pants（ズボン）/ shoe（靴）
-// 細部の色（上着の白線・ファスナー・裾、ベルト、靴底と赤い線、ほお紅とくちびる）は描画側で結合姿勢の座標から描く
+// 頭（写実寄り）。基準は「顔が -z を向き、頭の付け根（首の上端）が原点」。tf で各モデルの座標へ移す。
+// o: { w 顔の幅の倍率, jaw あごの張り, nose 鼻の大きさ, age しわ・たるみ(0-1), eye 目の大きさ, hair: 'short'|'bald'|'perm', mustache, band }
+// 戻り値: 目の中心・口などの位置と、表情の変形の関数
+// =========================================================
+function makeHead(o, tf, bone, L) {
+  const w = o.w ?? 1, jw = o.jaw ?? 1, nz = o.nose ?? 1, age = o.age ?? 0, es = o.eye ?? 1;
+  const SK = o.skin, P = (layer, s, color, k, extra = {}) => L[layer].push({ s, bone, group: layer, color: color ?? SK, k, ...extra });
+  const T = tf, E = (c, r, rot) => ellipsoid(T(c), r, rot), RC = (a, b, r1, r2) => roundCone(T(a), T(b), r1, r2);
+  // 頭蓋・顔・あご
+  P('skin', E([0, 0.122, 0.014], [0.077 * w, 0.096, 0.097]), null, 0.03);
+  P('skin', E([0, 0.08, -0.03], [0.063 * w, 0.085, 0.072]), null, 0.03);
+  P('skin', E([0, 0.022, -0.03], [0.048 * w * jw, 0.04, 0.054]), null, 0.035);
+  P('skin', E([0, -0.002, -0.056], [0.031 * jw, 0.021, 0.026]), null, 0.03);                       // おとがい
+  for (const s of [-1, 1]) {
+    P('skin', E([s * 0.047 * w, 0.082, -0.058], [0.023, 0.019, 0.022]), null, 0.03);               // ほお骨
+    P('skin', E([s * 0.044 * w * jw, 0.034, -0.008], [0.013, 0.024, 0.028]), null, 0.03);              // えら
+    P('skin', E([s * 0.03, 0.123, -0.083], [0.026, 0.0105, 0.016], [0, 0, s * 0.12]), null, 0.016); // 眉の骨
+    P('skin', E([s * 0.012 * nz, 0.066, -0.097], [0.0095 * nz, 0.008 * nz, 0.0095 * nz]), null, 0.01); // 小鼻
+    // 耳: 外輪と、内側のくぼみ
+    P('skin', E([s * 0.0775 * w, 0.092, 0.014], [0.0075, 0.031, 0.019], [0.25, -s * 0.35, 0]), null, 0.006);
+    P('skin', E([s * 0.079 * w, 0.058, 0.009], [0.006, 0.011, 0.009]), null, 0.008);               // 耳たぶ
+    if (age > 0.3) P('skin', E([s * 0.036, 0.03, -0.062], [0.02, 0.024, 0.018]), null, 0.03);       // ほおのたるみ
+  }
+  P('skin', RC([0, 0.118, -0.089], [0, 0.074, -0.104 - 0.004 * nz], 0.0085, 0.0115 * nz), null, 0.014);   // 鼻筋〜鼻先
+  P('skin', E([0, 0.067, -0.107 - 0.004 * nz], [0.0115 * nz, 0.0095 * nz, 0.0105 * nz]), null, 0.008);
+  P('skin', E([0, 0.0445, -0.093], [0.0225, 0.0068, 0.0115]), null, 0.007);                        // 上くちびる
+  P('skin', E([0, 0.0305, -0.091], [0.0205, 0.008, 0.0115]), null, 0.007);                         // 下くちびる
+  P('skin', E([0, 0.058, -0.094], [0.016, 0.012, 0.01]), null, 0.012);                             // 人中のふくらみ
+  // 削る: 口（開けた形で作り、あとで閉じる）・眼窩・耳のくぼみ
+  const MY = 0.0378;
+  P('skin', E([0, MY, -0.09], [0.0215, 0.0036, 0.02]), null, 0, { sub: true });
+  const eyeC = [-1, 1].map((s) => [s * 0.0318, 0.103, -0.0705]);
+  const ER = 0.0128 * es;
+  for (const s of [-1, 1]) {
+    P('skin', E([s * 0.0318, 0.103, -0.089], [0.0168 * es, 0.0086 * es, 0.0155], [0, 0, s * 0.1]), null, 0, { sub: true });
+    P('skin', E([s * 0.0835 * w, 0.094, 0.008], [0.0045, 0.016, 0.009], [0.25, -s * 0.35, 0]), null, 0, { sub: true });
+  }
+  // 髪
+  const HC = o.hairColor;
+  if (o.hair === 'short') {
+    // 頭皮に沿う短い髪（横と後ろ）＋上と前のボリューム（後ろへ流す）
+    P('hair', E([0, 0.134, 0.022], [0.081 * w, 0.094, 0.097]), HC, 0.012);
+    P('hair', E([0, 0.182, -0.008], [0.06, 0.03, 0.074], [-0.15, 0, 0]), HC, 0.03);
+    P('hair', E([0.012, 0.186, -0.052], [0.048, 0.022, 0.036], [-0.45, 0, 0.12]), HC, 0.025);            // 前髪の立ち上がり
+    P('hair', E([-0.03, 0.18, -0.03], [0.035, 0.022, 0.055], [-0.25, 0.2, -0.2]), HC, 0.025);
+    P('hair', E([0.036, 0.178, -0.02], [0.03, 0.02, 0.055], [-0.2, -0.2, 0.25]), HC, 0.025);
+    P('hair', E([0, 0.16, 0.085], [0.06, 0.05, 0.035]), HC, 0.03);                                   // つむじ〜後頭部
+    P('hair', E([0, 0.07, 0.085], [0.05, 0.04, 0.022]), HC, 0.025);                                  // えり足
+    for (const s of [-1, 1]) P('hair', E([s * 0.073 * w, 0.118, 0.004], [0.012, 0.03, 0.03]), HC, 0.014); // もみあげ
+  } else if (o.hair === 'perm') {
+    P('hair', E([0, 0.14, 0.02], [0.083 * w, 0.092, 0.098]), HC, 0.012);
+    let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (let i = 0; i < 46; i++) { const a = rnd() * Math.PI * 2, e = rnd() * 1.25 - 0.1; const r = 0.094; const c = [Math.cos(a) * Math.cos(e) * r * 0.92 * w, 0.135 + Math.sin(e) * r, 0.02 + Math.sin(a) * Math.cos(e) * r];
+      if (c[2] < -0.045 && c[1] < 0.17) continue; P('hair', E(c, [0.02, 0.02, 0.02]), HC, 0.012); }
+  } else if (o.hair === 'bald') {
+    for (const s of [-1, 1]) P('hair', E([s * 0.072 * w, 0.105, 0.03], [0.012, 0.034, 0.055]), HC, 0.012);
+    P('hair', E([0, 0.085, 0.092], [0.055, 0.035, 0.016]), HC, 0.014);
+  }
+  // 眉（毛の束）・口ひげ
+  const BC = o.browColor ?? HC;
+  for (const s of [-1, 1]) { P('hair', RC([s * 0.014, 0.1265, -0.0965], [s * 0.034, 0.1305, -0.091], 0.0066 * (o.brow ?? 1), 0.006 * (o.brow ?? 1)), BC, 0.006); P('hair', RC([s * 0.034, 0.1305, -0.091], [s * 0.05, 0.125, -0.079], 0.006 * (o.brow ?? 1), 0.0042), BC, 0.006); }
+  if (o.mustache) P('hair', E([0, 0.054, -0.101], [0.027, 0.0085, 0.009]), BC, 0.006);
+  if (o.band) { P('band', belt(T([0, 0.15, 0.016]), 0.0825 * w, 0.1, 0.0115, 0.0028, -0.16), o.band, 0.002); P('band', E([0, 0.146, 0.098], [0.016, 0.014, 0.012]), o.band, 0.006); }
+  // ---- 結合姿勢の補正と、表情の変形（頭の基準座標で計算） ----
+  const inv = o.inv; // モデル座標 → 頭の基準座標
+  const fwd = (v) => sub(T(add([0, 0, 0], v)), T([0, 0, 0])); // 向きの変換
+  const closeMouth = (pm) => { // 開けて作った口を閉じる（上下のくちびるを寄せる）
+    const p = inv(pm); if (Math.abs(p[0]) > 0.034 || p[2] > -0.045 || p[1] < MY - 0.04 || p[1] > MY + 0.025) return pm;
+    const wx = 1 - smooth(0.02, 0.033, Math.abs(p[0]));
+    let dy = 0; if (p[1] < MY) dy = 0.0044 * smooth(MY - 0.03, MY - 0.003, p[1]); else dy = -0.0024 * (1 - smooth(MY + 0.003, MY + 0.02, p[1]));
+    return add(pm, fwd([0, dy * wx, 0]));
+  };
+  const hinge = [0, 0.07, 0.005];
+  const jawW = (p) => { if (p[1] > MY + 0.0005 || p[2] > 0.03) return 0; const front = 1 - smooth(-0.05, 0.02, p[2]); const up = 1 - smooth(MY - 0.012, MY + 0.0005, p[1]) * (Math.abs(p[0]) < 0.024 && p[2] < -0.07 ? 0 : 1); const side = 1 - smooth(0.03, 0.062, Math.abs(p[0])) * smooth(MY - 0.03, MY, p[1]); return front * Math.min(1, up + (p[1] < MY ? 1 : 0) * (Math.abs(p[0]) < 0.024 ? 1 : 0)) * side; };
+  const blink = (s) => (pm, g) => {
+    if (g !== 'skin') return null; const p = inv(pm), c = eyeC[s < 0 ? 0 : 1]; const dx = p[0] - c[0], dy = p[1] - c[1];
+    if (Math.abs(dx) > 0.024 || dy < -0.012 || dy > 0.03 || p[2] > c[2] + 0.004) return null;
+    const rim = 0.0086 * es; const wx = 1 - smooth(0.012 * es, 0.019 * es, Math.abs(dx));
+    let wv, ty;
+    if (dy >= -0.001) { wv = 1 - smooth(rim, rim + 0.014, dy); ty = c[1] - 0.0052 * es + Math.max(0, dy - rim) * 0.35; }  // 上まぶたが下りる
+    else { wv = 0.55 * (1 - smooth(0.0, 0.011, -dy)); ty = c[1] - 0.0052 * es - Math.max(0, -dy - rim) * 0.5; }           // 下まぶたが少し上がる
+    const wgt = wx * wv; if (wgt < 0.01) return null;
+    const ny = p[1] + (ty - p[1]) * wgt; const ddy = ny - c[1]; const R = ER + 0.0014; const zs = c[2] - Math.sqrt(Math.max(0, R * R - dx * dx - ddy * ddy));
+    const nzv = p[2] + (Math.min(p[2], zs) - p[2]) * Math.min(1, wgt * 1.5);
+    return fwd([0, ny - p[1], nzv - p[2]]);
+  };
+  const morphs = {
+    blinkL: blink(-1), blinkR: blink(1),
+    jaw: (pm, g) => { if (g !== 'skin' && g !== 'hair') return null; const p = inv(pm); const wj = jawW(p); if (wj < 0.01) return null; const q = add(hinge, rotX(sub(p, hinge), -0.26)); return fwd(mul(sub(q, p), wj)); },
+    smile: (pm, g) => { if (g !== 'skin' && g !== 'hair') return null; const p = inv(pm); if (p[2] > -0.02) return null; let d = [0, 0, 0];
+      for (const s of [-1, 1]) { const a = gauss(p, [s * 0.023, MY, -0.086], 0.0125); d = add(d, mul([s * 0.009, 0.013, 0.005], a)); const b = gauss(p, [s * 0.042, 0.07, -0.07], 0.02); d = add(d, mul([s * 0.0015, 0.005, -0.002], b)); }
+      return fwd(d); },
+    browUp: (pm, g) => { if (g !== 'skin' && g !== 'hair') return null; const p = inv(pm); if (p[2] > -0.04 || p[1] < 0.105) return null; let a = 0; for (const s of [-1, 1]) a += gauss(p, [s * 0.03, 0.13, -0.088], 0.017); return fwd([0, 0.0055 * a, 0]); },
+    browDown: (pm, g) => { if (g !== 'skin' && g !== 'hair') return null; const p = inv(pm); if (p[2] > -0.04 || p[1] < 0.105) return null; let d = [0, 0, 0]; for (const s of [-1, 1]) { const a = gauss(p, [s * 0.017, 0.127, -0.092], 0.013); d = add(d, mul([-s * 0.002, -0.0042, -0.001], a)); } return fwd(d); },
+  };
+  return { eyeC: eyeC.map(T), eyeR: ER, mouth: T([0, MY, -0.092]), mouthIn: T([0, MY, -0.078]), closeMouth, morphs, nose: T([0, 0.067, -0.11]) };
+}
+
+const RED = hex(0xc8281f), CHAR = hex(0x2d3138), YEL = hex(0xf2b61c), WHITE = hex(0xf2f0ea), HAIR = hex(0x231813), BLK = hex(0x1c1d20);
+
+// =========================================================
+// 主人公「ソラ」（第 3 版・写実寄り）: 身長 1.77m・約 7.3 頭身。A ポーズ・壁（-z）を向く・足は y=0
+// 層: skin / hair / band / jacket / harness / pants / shoe / bag
 // =========================================================
 function climber() {
   const B = {}; const bones = [];
   const bone = (name, parent, pos) => { B[name] = bones.length; bones.push({ name, parent: parent == null ? -1 : B[parent], pos }); };
-  const HP = [0, 1.55, 0], HK = 1.16;               // 頭の拡大の中心と倍率
-  const hp = (p) => add(HP, mul(sub(p, HP), HK)), hr = (r) => (Array.isArray(r) ? r.map((x) => x * HK) : r * HK);
-  bone('hips', null, [0, 0.93, 0]); bone('spine', 'hips', [0, 1.06, 0]); bone('chest', 'spine', [0, 1.24, 0]); bone('neck', 'chest', [0, 1.45, 0]); bone('head', 'neck', HP);
+  const HP = [0, 1.535, 0.0];
+  bone('hips', null, [0, 0.95, 0]); bone('spine', 'hips', [0, 1.07, 0]); bone('chest', 'spine', [0, 1.23, 0]); bone('neck', 'chest', [0, 1.455, 0.005]); bone('head', 'neck', HP);
+  bone('bag', 'hips', [0, 1.0, 0.105]);
+  const ANG = 0.62;
   const arm = (s, S) => {
-    const sh = [s * 0.195, 1.405, 0.0], dir = norm([s * Math.sin(0.62), -Math.cos(0.62), 0]);
-    const el = add(sh, mul(dir, 0.285)), wr = add(el, mul(dir, 0.26));
-    bone('clav' + S, 'chest', [s * 0.05, 1.40, 0]); bone('upper' + S, 'clav' + S, sh); bone('fore' + S, 'upper' + S, el); bone('hand' + S, 'fore' + S, wr);
+    const sh = [s * 0.186, 1.425, 0.0], dir = norm([s * Math.sin(ANG), -Math.cos(ANG), 0]);
+    const el = add(sh, mul(dir, 0.285)), wr = add(el, mul(dir, 0.252));
+    bone('clav' + S, 'chest', [s * 0.045, 1.425, 0]); bone('upper' + S, 'clav' + S, sh); bone('fore' + S, 'upper' + S, el); bone('hand' + S, 'fore' + S, wr);
     return { sh, el, wr, dir };
   };
   const leg = (s, S) => {
-    const h0 = [s * 0.097, 0.9, 0], kn = [s * 0.102, 0.495, -0.012], an = [s * 0.106, 0.09, 0];
-    bone('thigh' + S, 'hips', h0); bone('shin' + S, 'thigh' + S, kn); bone('foot' + S, 'shin' + S, an); bone('toe' + S, 'foot' + S, [s * 0.106, 0.03, -0.12]);
+    const h0 = [s * 0.092, 0.93, 0], kn = [s * 0.098, 0.508, -0.012], an = [s * 0.102, 0.088, 0.004];
+    bone('thigh' + S, 'hips', h0); bone('shin' + S, 'thigh' + S, kn); bone('foot' + S, 'shin' + S, an); bone('toe' + S, 'foot' + S, [s * 0.102, 0.03, -0.115]);
     return { hp: h0, kn, an };
   };
   const AL = arm(-1, 'L'), AR = arm(1, 'R'), LL = leg(-1, 'L'), LR = leg(1, 'R');
-  const mk = () => []; const L = { skin: mk(), hair: mk(), band: mk(), jacket: mk(), pants: mk(), shoe: mk() };
-  const P = (layer, s, bone, color, k, extra = {}) => L[layer].push({ s, bone: B[bone], group: layer, color, k, ...extra });
-  // 上着: 胸・腹・肩・襟・裾・袖（肩の丸み・上腕・肘・前腕・袖口）
-  P('jacket', ellipsoid([0, 1.29, 0.0], [0.172, 0.168, 0.12]), 'chest', RED, 0.06);
-  P('jacket', ellipsoid([0, 1.11, 0.0], [0.152, 0.135, 0.11]), 'spine', RED, 0.06);
-  P('jacket', roundCone([-0.165, 1.385, 0.01], [0.165, 1.385, 0.01], 0.068, 0.068), 'chest', RED, 0.05);
-  P('jacket', ellipsoid([0, 0.995, 0.0], [0.158, 0.05, 0.118]), 'hips', RED, 0.03);
-  P('jacket', torus([0, 1.45, 0.0], 0.07, 0.026, 0.15), 'chest', RED, 0.03);
-  for (const [A, s, S] of [[AL, -1, 'L'], [AR, 1, 'R']]) {
-    P('jacket', ellipsoid(add(A.sh, [s * 0.012, 0.004, 0.0]), [0.07, 0.064, 0.066]), 'upper' + S, RED, 0.05);
-    P('jacket', roundCone(A.sh, A.el, 0.058, 0.047), 'upper' + S, RED, 0.035);
-    P('jacket', roundCone(A.el, A.wr, 0.048, 0.039), 'fore' + S, RED, 0.035);
-    P('jacket', roundCone(sub(A.wr, mul(A.dir, 0.03)), sub(A.wr, mul(A.dir, 0.005)), 0.043, 0.042), 'fore' + S, RED, 0.015);
-  }
-  // ズボン（腰・もも・ひざ・すね・ふくらはぎ・すその折り返し）
-  P('pants', ellipsoid([0, 0.94, 0.0], [0.15, 0.105, 0.112]), 'hips', NAVY, 0.05);
-  for (const [G, s, S] of [[LL, -1, 'L'], [LR, 1, 'R']]) {
-    P('pants', roundCone(G.hp, G.kn, 0.08, 0.057), 'thigh' + S, NAVY, 0.045);
-    P('pants', roundCone(G.kn, G.an, 0.056, 0.043), 'shin' + S, NAVY, 0.035);
-    P('pants', ellipsoid(add(lerp3(G.kn, G.an, 0.28), [0, 0, 0.022]), [0.05, 0.1, 0.048]), 'shin' + S, NAVY, 0.045);
-    P('pants', roundCone(add(G.an, [0, 0.07, 0]), add(G.an, [0, 0.035, 0]), 0.052, 0.052), 'shin' + S, NAVY, 0.012);
-    // 靴（甲・つま先の反り・底・足首）
-    P('shoe', ellipsoid(add(G.an, [0, -0.035, -0.045]), [0.058, 0.05, 0.118]), 'foot' + S, WHITE, 0.03);
-    P('shoe', ellipsoid(add(G.an, [0, -0.052, -0.125]), [0.052, 0.036, 0.062], [-0.25, 0, 0]), 'toe' + S, WHITE, 0.03);
-    P('shoe', ellipsoid(add(G.an, [0, -0.074, -0.05]), [0.064, 0.016, 0.138]), 'foot' + S, WHITE, 0.012);
-    P('shoe', roundCone(add(G.an, [0, 0.035, 0]), add(G.an, [0, -0.01, 0]), 0.052, 0.054), 'foot' + S, WHITE, 0.015);
-  }
-  // 肌（首・頭・あご・ほお・耳・鼻・眉の骨・くちびる）。頭まわりは拡大する
-  P('skin', roundCone([0, 1.41, 0.0], [0, 1.57, -0.005], 0.06, 0.054), 'neck', SKIN, 0.035);
-  P('skin', ellipsoid(hp([0, 1.665, 0.0]), hr([0.118, 0.13, 0.122])), 'head', SKIN, 0.04);
-  P('skin', ellipsoid(hp([0, 1.6, -0.018]), hr([0.1, 0.075, 0.098])), 'head', SKIN, 0.05);
+  const L = { skin: [], hair: [], band: [], jacket: [], harness: [], pants: [], shoe: [], bag: [] };
+  const P = (layer, s, bn, color, k, extra = {}) => L[layer].push({ s, bone: B[bn], group: layer, color, k, ...extra });
+  const SKIN = hex(0xe2a77f);
+  // ---- 頭と首 ----
+  const tfH = (p) => add(HP, p), invH = (p) => sub(p, HP);
+  const head = makeHead({ skin: SKIN, hair: 'short', hairColor: HAIR, band: YEL, inv: invH, eye: 1.06, w: 0.97, jaw: 1.0, nose: 0.95 }, tfH, B.head, L);
+  P('skin', roundCone([0, 1.4, 0.012], [0, 1.555, 0.008], 0.052, 0.047), 'neck', SKIN, 0.025);
+  for (const s of [-1, 1]) P('skin', roundCone([s * 0.012, 1.41, -0.03], [s * 0.05, 1.53, 0.012], 0.014, 0.012), 'neck', SKIN, 0.02); // 胸鎖乳突筋
+  P('skin', ellipsoid([0, 1.475, -0.048], [0.011, 0.012, 0.008]), 'neck', SKIN, 0.012);                                               // のどぼとけ
+  // ---- 上着（体の起伏: 胸・広背・僧帽・三角筋・上腕二頭/三頭・前腕） ----
+  P('jacket', ellipsoid([0, 1.3, -0.004], [0.156, 0.148, 0.1]), 'chest', RED, 0.05);
   for (const s of [-1, 1]) {
-    P('skin', ellipsoid(hp([s * 0.06, 1.615, -0.07]), hr([0.048, 0.042, 0.045])), 'head', SKIN, 0.04);
-    P('skin', ellipsoid(hp([s * 0.118, 1.655, 0.0]), hr([0.02, 0.034, 0.016]), [0, -s * 0.3, 0]), 'head', SKIN, 0.012);
-    P('skin', ellipsoid(hp([s * 0.045, 1.705, -0.103]), hr([0.03, 0.012, 0.02]), [0, 0, s * 0.15]), 'head', SKIN, 0.015);
+    P('jacket', ellipsoid([s * 0.074, 1.335, -0.062], [0.07, 0.056, 0.034]), 'chest', RED, 0.04);    // 胸
+    P('jacket', ellipsoid([s * 0.09, 1.265, 0.046], [0.086, 0.135, 0.062]), 'chest', RED, 0.05);       // 広背
+    P('jacket', ellipsoid([s * 0.078, 1.452, 0.014], [0.062, 0.028, 0.048], [0, 0, -s * 0.36]), 'chest', RED, 0.035); // 僧帽
   }
-  P('skin', ellipsoid(hp([0, 1.645, -0.124]), hr([0.021, 0.024, 0.026])), 'head', SKIN, 0.025);
-  P('skin', ellipsoid(hp([0, 1.588, -0.105]), hr([0.035, 0.012, 0.02])), 'head', SKIN, 0.01);
-  // 髪（頭の上半分を覆う帽子形＋房）
-  P('hair', ellipsoid(hp([0, 1.712, 0.016]), hr([0.128, 0.113, 0.125])), 'head', HAIR, 0.02);
-  const spike = (b0, t0, r) => P('hair', roundCone(hp(b0), hp(t0), hr(r), hr(0.006)), 'head', HAIR, 0.035);
-  spike([0, 1.79, 0.0], [0.0, 1.875, 0.03], 0.035); spike([0.05, 1.78, 0.0], [0.1, 1.86, 0.02], 0.032); spike([-0.05, 1.78, 0.0], [-0.1, 1.86, 0.02], 0.032);
-  spike([0, 1.77, 0.07], [0.0, 1.83, 0.16], 0.035); spike([0.06, 1.75, 0.07], [0.12, 1.8, 0.14], 0.03); spike([-0.06, 1.75, 0.07], [-0.12, 1.8, 0.14], 0.03);
-  spike([0, 1.7, 0.1], [0.0, 1.69, 0.19], 0.032); spike([0.09, 1.7, 0.06], [0.16, 1.7, 0.1], 0.026); spike([-0.09, 1.7, 0.06], [-0.16, 1.7, 0.1], 0.026);
-  spike([0.03, 1.79, -0.04], [0.06, 1.85, -0.1], 0.028); spike([-0.03, 1.79, -0.04], [-0.06, 1.85, -0.1], 0.028);
-  for (const [x, tx] of [[-0.05, -0.07], [0, 0.0], [0.05, 0.075]]) spike([x, 1.765, -0.08], [tx, 1.715, -0.135], 0.028);
-  // はちまき
-  P('band', torus(hp([0, 1.735, 0.006]), 0.124 * HK, 0.016 * HK, -0.12, 1.4), 'head', YEL, 0.006);
-  P('band', ellipsoid(hp([0, 1.725, 0.13]), hr([0.027, 0.023, 0.021])), 'head', YEL, 0.01);
-  const box = (lo, hi) => ({ lo, hi });
-  build('climber', { bones, layers: [
-    { group: 'skin', parts: L.skin, h: 0.0088, bmin: [-0.2, 1.38, -0.22], bmax: [0.2, 1.86, 0.2] },
-    { group: 'hair', parts: L.hair, h: 0.0098, bmin: [-0.24, 1.6, -0.22], bmax: [0.24, 2.0, 0.26] },
-    { group: 'band', parts: L.band, h: 0.0078, bmin: [-0.19, 1.66, -0.19], bmax: [0.19, 1.82, 0.21] },
-    { group: 'jacket', parts: L.jacket, h: 0.0125, bmin: [-0.6, 0.86, -0.2], bmax: [0.6, 1.56, 0.2] },
-    { group: 'pants', parts: L.pants, h: 0.0145, bmin: [-0.25, 0.02, -0.18], bmax: [0.25, 1.1, 0.18] },
-    { group: 'shoe', parts: L.shoe, h: 0.0095, bmin: [-0.22, -0.02, -0.25], bmax: [0.22, 0.17, 0.1] },
+  P('jacket', ellipsoid([0, 1.115, 0.0], [0.136, 0.132, 0.097]), 'spine', RED, 0.06);
+  P('jacket', ellipsoid([0, 1.0, 0.002], [0.146, 0.056, 0.108]), 'hips', RED, 0.03);
+  P('jacket', roundCone([-0.145, 1.42, 0.004], [0.145, 1.42, 0.004], 0.05, 0.05), 'chest', RED, 0.045);
+  P('jacket', torus([0, 1.478, 0.004], 0.06, 0.013, 0.2, 2.6), 'neck', RED, 0.012);                    // 立ち襟
+  for (const [A, s, S] of [[AL, -1, 'L'], [AR, 1, 'R']]) {
+    const at = (t, off = [0, 0, 0]) => add(lerp3(A.sh, A.wr, t), off), rz = s * ANG;
+    P('jacket', ellipsoid(add(A.sh, [s * 0.014, -0.012, 0.002]), [0.054, 0.066, 0.056], [0, 0, rz]), 'upper' + S, RED, 0.035); // 三角筋
+    P('jacket', roundCone(A.sh, A.el, 0.048, 0.041), 'upper' + S, RED, 0.03);
+    P('jacket', ellipsoid(add(lerp3(A.sh, A.el, 0.5), [0, 0, -0.016]), [0.04, 0.085, 0.04], [0, 0, rz]), 'upper' + S, RED, 0.03);  // 二頭
+    P('jacket', ellipsoid(add(lerp3(A.sh, A.el, 0.45), [0, 0, 0.02]), [0.038, 0.09, 0.036], [0, 0, rz]), 'upper' + S, RED, 0.03);  // 三頭
+    P('jacket', roundCone(A.el, A.wr, 0.042, 0.033), 'fore' + S, RED, 0.03);
+    P('jacket', ellipsoid(add(lerp3(A.el, A.wr, 0.28), [s * 0.004, 0, -0.004]), [0.041, 0.085, 0.039], [0, 0, rz]), 'fore' + S, RED, 0.03); // 前腕の張り
+    P('jacket', roundCone(sub(A.wr, mul(A.dir, 0.035)), sub(A.wr, mul(A.dir, 0.004)), 0.0365, 0.0355), 'fore' + S, RED, 0.008);    // 袖口
+  }
+  // ---- ズボン（骨盤・尻・大腿四頭筋・ハムストリング・膝・ふくらはぎ） ----
+  P('pants', ellipsoid([0, 0.965, 0.0], [0.142, 0.1, 0.106]), 'hips', CHAR, 0.05);
+  for (const [G, s, S] of [[LL, -1, 'L'], [LR, 1, 'R']]) {
+    P('pants', ellipsoid([s * 0.062, 0.925, 0.05], [0.078, 0.078, 0.068]), 'hips', CHAR, 0.045);       // 尻
+    P('pants', roundCone(G.hp, G.kn, 0.079, 0.054), 'thigh' + S, CHAR, 0.04);
+    P('pants', ellipsoid(add(lerp3(G.hp, G.kn, 0.45), [s * 0.006, 0, -0.022]), [0.058, 0.15, 0.052]), 'thigh' + S, CHAR, 0.04);  // 四頭筋
+    P('pants', ellipsoid(add(lerp3(G.hp, G.kn, 0.5), [0, 0, 0.026]), [0.052, 0.14, 0.046]), 'thigh' + S, CHAR, 0.04);           // ハム
+    P('pants', ellipsoid(add(G.kn, [0, 0.004, -0.03]), [0.036, 0.04, 0.03]), 'shin' + S, CHAR, 0.03);                             // 膝頭
+    P('pants', roundCone(G.kn, G.an, 0.052, 0.04), 'shin' + S, CHAR, 0.03);
+    P('pants', ellipsoid(add(lerp3(G.kn, G.an, 0.27), [0, 0, 0.026]), [0.047, 0.1, 0.046]), 'shin' + S, CHAR, 0.04);             // ふくらはぎ
+    P('pants', roundCone(add(G.an, [0, 0.085, 0]), add(G.an, [0, 0.05, 0]), 0.047, 0.048), 'shin' + S, CHAR, 0.008);             // 裾
+    // 靴（アプローチシューズ: 甲・つま先・かかと・厚い底・履き口）
+    P('shoe', ellipsoid(add(G.an, [0, -0.03, -0.04]), [0.049, 0.046, 0.108]), 'foot' + S, WHITE, 0.03);
+    P('shoe', ellipsoid(add(G.an, [0, -0.05, -0.118]), [0.047, 0.032, 0.058], [-0.22, 0, 0]), 'toe' + S, WHITE, 0.025);
+    P('shoe', ellipsoid(add(G.an, [0, -0.03, 0.036]), [0.04, 0.05, 0.04]), 'foot' + S, WHITE, 0.03);
+    P('shoe', ellipsoid(add(G.an, [0, -0.071, -0.045]), [0.054, 0.0165, 0.132]), 'foot' + S, WHITE, 0.008);
+    P('shoe', roundCone(add(G.an, [0, 0.04, 0.002]), add(G.an, [0, -0.005, 0.002]), 0.046, 0.05), 'foot' + S, WHITE, 0.012);
+    // ハーネスの脚の輪
+    P('harness', belt(add(lerp3(G.hp, G.kn, 0.2), [0, 0, 0.002]), 0.083, 0.08, 0.018, 0.004, 0), 'thigh' + S, BLK, 0.004);
+  }
+  // ---- ハーネス（腰のベルト・ビレイループ・ギアループ）とチョークバッグ ----
+  P('harness', belt([0, 1.025, 0.001], 0.148, 0.108, 0.026, 0.005), 'hips', BLK, 0.004);
+  P('harness', roundCone([0, 1.01, -0.11], [0, 0.9, -0.085], 0.011, 0.011), 'hips', YEL, 0.004);       // ビレイループ
+  for (const s of [-1, 1]) { P('harness', torus([s * 0.135, 0.985, 0.03], 0.03, 0.0045, Math.PI / 2 - 0.2), 'hips', YEL, 0.003); P('harness', roundCone([s * 0.06, 0.995, -0.1], [s * 0.088, 0.88, -0.03], 0.008, 0.008), 'hips', BLK, 0.004); }
+  P('bag', ellipsoid([0, 0.925, 0.135], [0.052, 0.07, 0.048]), 'bag', YEL, 0.02, { sigma: 0.004 });
+  P('bag', torus([0, 0.985, 0.135], 0.045, 0.008, 0, 1), 'bag', BLK, 0.006, { sigma: 0.004 });
+  const post = (p, g) => (g === 'skin' ? head.closeMouth(p) : p);
+  build('climber', { bones, post, morphs: head.morphs, layers: [
+    { group: 'skin', parts: L.skin, h: 0.0048, bmin: [-0.11, 1.36, -0.135], bmax: [0.11, 1.75, 0.13], ao: 1.0 },
+    { group: 'hair', parts: L.hair, h: 0.006, bmin: [-0.12, 1.55, -0.13], bmax: [0.12, 1.8, 0.15] },
+    { group: 'band', parts: L.band, h: 0.0046, bmin: [-0.11, 1.64, -0.12], bmax: [0.11, 1.74, 0.13] },
+    { group: 'jacket', parts: L.jacket, h: 0.0108, bmin: [-0.58, 0.9, -0.17], bmax: [0.58, 1.56, 0.17] },
+    { group: 'harness', parts: L.harness, h: 0.0062, bmin: [-0.2, 0.74, -0.15], bmax: [0.2, 1.08, 0.14] },
+    { group: 'pants', parts: L.pants, h: 0.0125, bmin: [-0.24, 0.02, -0.17], bmax: [0.24, 1.09, 0.17] },
+    { group: 'shoe', parts: L.shoe, h: 0.0072, bmin: [-0.2, -0.02, -0.24], bmax: [0.2, 0.16, 0.1] },
+    { group: 'bag', parts: L.bag, h: 0.006, bmin: [-0.08, 0.83, 0.06], bmax: [0.08, 1.02, 0.21] },
   ], extra: {
-    face: { eyeL: sub(hp([-0.044, 1.678, -0.106]), HP), eyeR: sub(hp([0.044, 1.678, -0.106]), HP), mouth: sub(hp([0, 1.604, -0.121]), HP), bandTail: sub(hp([0, 1.725, 0.15]), HP), scale: HK },
-    // 描画側の細部の色に使う結合姿勢の値
-    detail: { armL: [AL.sh, AL.wr], armR: [AR.sh, AR.wr], cheekL: hp([-0.062, 1.612, -0.1]), cheekR: hp([0.062, 1.612, -0.1]), lip: hp([0, 1.588, -0.115]) },
+    face: { eyeL: sub(head.eyeC[0], HP), eyeR: sub(head.eyeC[1], HP), eyeRadius: head.eyeR, mouth: sub(head.mouth, HP), mouthIn: sub(head.mouthIn, HP), bandTail: [0, 0.146, 0.105], front: -1 },
+    detail: { armL: [AL.sh, AL.wr], armR: [AR.sh, AR.wr], head: HP, kneeL: LL.kn, kneeR: LR.kn, elbowL: AL.el, elbowR: AR.el },
   } });
 }
 
 // =========================================================
-// 手袋（指 3 節 × 5 本）: 手首が原点、指は +Y、掌は -Z、右手は親指が +X。層: glove（白）/ cuff（黄色の袖口）
+// 手袋（クライミンググローブ・実寸の手）: 手首が原点、指は +Y、掌は -Z、右手は親指が +X。層: glove / strap
 // =========================================================
 function glove(side) {
   const s = side === 'L' ? -1 : 1, bones = [], B = {};
   const bone = (name, parent, pos) => { B[name] = bones.length; bones.push({ name, parent: parent == null ? -1 : B[parent], pos }); };
   bone('wrist', null, [0, 0, 0]);
-  const G = [], C = [], W = hex(0xf8f6f0);
-  const P = (arr, sh, b, k) => arr.push({ s: sh, bone: B[b], group: arr === G ? 'glove' : 'cuff', color: arr === G ? W : YEL, k });
-  P(G, ellipsoid([0, 0.052, -0.002], [0.048, 0.054, 0.024]), 'wrist', 0.02);
-  P(G, ellipsoid([0, 0.056, 0.006], [0.044, 0.046, 0.02]), 'wrist', 0.02);
-  P(G, roundCone([0, -0.01, 0.0], [0, 0.02, 0.0], 0.034, 0.038), 'wrist', 0.02);
-  P(C, roundCone([0, -0.04, 0.0], [0, 0.0, 0.0], 0.05, 0.041), 'wrist', 0.012);
-  const defs = [['index', 0.031 * s, [0.035, 0.025, 0.021], 0.0118], ['middle', 0.011 * s, [0.04, 0.028, 0.022], 0.0125], ['ring', -0.01 * s, [0.037, 0.026, 0.021], 0.012], ['pinky', -0.029 * s, [0.03, 0.021, 0.018], 0.0105]];
-  for (const [nm, x, Ls, r] of defs) {
-    let p0 = [x, 0.096, -0.002]; bone(nm + '1', 'wrist', p0);
-    for (let k = 0; k < 3; k++) { const p1 = add(p0, [0, Ls[k], 0]); if (k < 2) bone(nm + (k + 2), nm + (k + 1), p1); P(G, roundCone(p0, p1, r * (1 - k * 0.07), r * (0.93 - k * 0.1)), nm + (k + 1), 0.008); p0 = p1; }
+  const G = [], C = [], W = hex(0xeceae4);
+  const P = (arr, sh, b, k) => arr.push({ s: sh, bone: B[b], group: arr === G ? 'glove' : 'strap', color: arr === G ? W : BLK, k });
+  P(G, ellipsoid([0, 0.05, -0.001], [0.043, 0.05, 0.0165]), 'wrist', 0.014);                       // 手のひら
+  P(G, ellipsoid([0.018 * s, 0.03, -0.012], [0.02, 0.028, 0.013]), 'wrist', 0.014);                // 母指球
+  P(G, ellipsoid([-0.026 * s, 0.038, -0.009], [0.013, 0.03, 0.011]), 'wrist', 0.014);              // 小指球
+  P(G, ellipsoid([0, 0.058, 0.008], [0.04, 0.04, 0.012]), 'wrist', 0.012);                         // 手の甲
+  P(G, roundCone([0, -0.035, 0.0], [0, 0.012, 0.0], 0.031, 0.034), 'wrist', 0.014);                // 手首
+  P(C, belt([0, -0.012, 0], 0.034, 0.03, 0.013, 0.0035, Math.PI / 2 * 0), 'wrist', 0.003);
+  const defs = [['index', 0.0285 * s, 0.097, [0.04, 0.025, 0.021], 0.0098], ['middle', 0.0095 * s, 0.1, [0.044, 0.029, 0.022], 0.0102], ['ring', -0.0095 * s, 0.097, [0.04, 0.027, 0.021], 0.0096], ['pinky', -0.0275 * s, 0.089, [0.031, 0.02, 0.019], 0.0086]];
+  for (const [nm, x, y0, Ls, r] of defs) {
+    let p0 = [x, y0, 0.0]; bone(nm + '1', 'wrist', p0);
+    P(G, ellipsoid(add(p0, [0, 0.0, 0.006]), [r * 1.15, r * 1.1, r * 0.95]), 'wrist', 0.006);       // こぶし（指の付け根）
+    for (let k = 0; k < 3; k++) { const p1 = add(p0, [0, Ls[k], 0]); if (k < 2) bone(nm + (k + 2), nm + (k + 1), p1);
+      P(G, roundCone(p0, p1, r * (1 - k * 0.07), r * (0.94 - k * 0.09)), nm + (k + 1), 0.005);
+      if (k < 2) P(G, ellipsoid(p1, [r * 1.02, r * 0.8, r * 1.02]), nm + (k + 1), 0.004);             // 関節のふくらみ
+      p0 = p1; }
   }
-  const tb = [0.04 * s, 0.03, -0.008]; bone('thumb1', 'wrist', tb);
-  const td = norm([0.55 * s, 0.75, -0.35]), t1 = add(tb, mul(td, 0.03)); bone('thumb2', 'thumb1', t1);
-  const t2 = add(t1, mul(td, 0.026)); bone('thumb3', 'thumb2', t2); const t3 = add(t2, mul(td, 0.022));
-  P(G, roundCone(tb, t1, 0.015, 0.0135), 'thumb1', 0.012); P(G, roundCone(t1, t2, 0.0135, 0.0125), 'thumb2', 0.006); P(G, roundCone(t2, t3, 0.0125, 0.0105), 'thumb3', 0.006);
-  build('glove' + side, { bones, sigma: 0.006, layers: [
-    { group: 'glove', parts: G, h: 0.0042, bmin: [-0.075, -0.03, -0.06], bmax: [0.075, 0.2, 0.05] },
-    { group: 'cuff', parts: C, h: 0.0055, bmin: [-0.06, -0.06, -0.06], bmax: [0.06, 0.02, 0.06] },
+  const tb = [0.034 * s, 0.022, -0.012]; bone('thumb1', 'wrist', tb);
+  const td = norm([0.62 * s, 0.7, -0.36]), t1 = add(tb, mul(td, 0.036)); bone('thumb2', 'thumb1', t1);
+  const t2 = add(t1, mul(td, 0.03)); bone('thumb3', 'thumb2', t2); const t3 = add(t2, mul(td, 0.025));
+  P(G, roundCone(tb, t1, 0.0135, 0.012), 'thumb1', 0.01); P(G, roundCone(t1, t2, 0.0118, 0.0108), 'thumb2', 0.005); P(G, roundCone(t2, t3, 0.0108, 0.009), 'thumb3', 0.005);
+  build('glove' + side, { bones, sigma: 0.005, layers: [
+    { group: 'glove', parts: G, h: 0.0034, bmin: [-0.07, -0.05, -0.06], bmax: [0.07, 0.21, 0.04] },
+    { group: 'strap', parts: C, h: 0.004, bmin: [-0.05, -0.04, -0.05], bmax: [0.05, 0.02, 0.05] },
   ] });
 }
 
@@ -284,61 +419,65 @@ function glove(side) {
 function resident(kind) {
   const B = {}, bones = [];
   const bone = (name, parent, pos) => { B[name] = bones.length; bones.push({ name, parent: parent == null ? -1 : B[parent], pos }); };
-  bone('root', null, [0, 0, 0]); bone('chest', 'root', [0, 0.25, 0]); bone('head', 'chest', [0, 0.52, 0.02]);
-  const L = { skin: [], hair: [], cloth: [] }, P = (layer, sh, b, color, k) => L[layer].push({ s: sh, bone: B[b], group: layer, color, k });
-  const SK = kind === 'oyaji' ? hex(0xe9b48c) : hex(0xf2c6a2), CL = kind === 'oyaji' ? hex(0xf4f1e8) : hex(0xf2d7e6);
-  P('cloth', ellipsoid([0, 0.2, 0], [0.2, 0.2, 0.15]), 'chest', CL, 0.06);
-  if (kind === 'oyaji') { for (const s of [-1, 1]) P('cloth', roundCone([s * 0.09, 0.22, 0.0], [s * 0.09, 0.42, 0.0], 0.06, 0.05), 'chest', CL, 0.05); P('skin', roundCone([-0.16, 0.37, 0], [0.16, 0.37, 0], 0.07, 0.07), 'chest', SK, 0.05); }
-  else { P('cloth', roundCone([-0.17, 0.38, 0], [0.17, 0.38, 0], 0.075, 0.075), 'chest', CL, 0.05); P('cloth', ellipsoid([0, 0.22, 0.1], [0.165, 0.165, 0.065]), 'chest', hex(0xffffff), 0.02); }
-  P('skin', roundCone([0, 0.4, 0.01], [0, 0.52, 0.02], 0.056, 0.05), 'head', SK, 0.03);
-  P('skin', ellipsoid([0, 0.62, 0.02], [0.12, 0.13, 0.118]), 'head', SK, 0.04);
-  P('skin', ellipsoid([0, 0.56, 0.035], [0.105, 0.075, 0.1]), 'head', SK, 0.05);
-  P('skin', ellipsoid([0, 0.605, 0.145], [0.03, 0.028, 0.032]), 'head', hex(0xe8907a), 0.03);
-  for (const s of [-1, 1]) { P('skin', ellipsoid([s * 0.12, 0.615, 0.02], [0.022, 0.036, 0.016]), 'head', SK, 0.012); P('skin', ellipsoid([s * 0.045, 0.655, 0.115], [0.03, 0.012, 0.02], [0, 0, s * 0.2]), 'head', SK, 0.015); }
-  if (kind === 'oyaji') {
-    for (const s of [-1, 1]) P('hair', ellipsoid([s * 0.108, 0.635, -0.01], [0.03, 0.047, 0.062]), 'head', hex(0x9a958f), 0.02);
-    P('hair', ellipsoid([0, 0.582, 0.135], [0.06, 0.017, 0.026]), 'head', hex(0x4a4540), 0.015);
-  } else {
-    P('hair', ellipsoid([0, 0.668, -0.008], [0.133, 0.12, 0.128]), 'head', hex(0x5b4636), 0.02);
-    P('hair', ellipsoid([0, 0.735, -0.09], [0.06, 0.055, 0.055]), 'head', hex(0x5b4636), 0.02);
-    for (let i = 0; i < 6; i++) { const a = -1.1 + i * 0.44; P('cloth', roundCone([Math.sin(a) * 0.128 - 0.02, 0.735 - Math.abs(a) * 0.03, Math.cos(a) * 0.062 + 0.02], [Math.sin(a) * 0.128 + 0.02, 0.735 - Math.abs(a) * 0.03, Math.cos(a) * 0.062 + 0.02], 0.023, 0.023), 'head', hex(0xff8fc0), 0.004); }
-  }
+  const HP = [0, 0.5, 0.0];
+  bone('root', null, [0, 0, 0]); bone('chest', 'root', [0, 0.24, 0]); bone('head', 'chest', HP);
+  const L = { skin: [], hair: [], cloth: [], band: [] }, P = (layer, sh, b, color, k) => L[layer].push({ s: sh, bone: B[b], group: layer, color, k });
+  const oy = kind === 'oyaji';
+  const SK = oy ? hex(0xd9a078) : hex(0xe9b996), CL = oy ? hex(0xefece2) : hex(0xd9a3bd);
+  const tfH = (p) => [HP[0] + p[0], HP[1] + p[1], HP[2] - p[2]], invH = (p) => [p[0] - HP[0], p[1] - HP[1], -(p[2] - HP[2])];
+  const head = makeHead(oy ? { skin: SK, hair: 'bald', hairColor: hex(0x8f8a84), browColor: hex(0x4a4540), brow: 1.5, mustache: true, inv: invH, w: 1.06, jaw: 1.14, nose: 1.3, age: 0.8, eye: 0.95 }
+    : { skin: SK, hair: 'perm', hairColor: hex(0x4a3526), brow: 0.9, inv: invH, w: 1.03, jaw: 1.06, nose: 1.05, age: 0.6, eye: 1.0 }, tfH, B.head, L);
+  P('skin', roundCone([0, 0.39, 0.0], [0, 0.52, 0.0], 0.06, 0.054), 'head', SK, 0.03);
+  // 胴（太め）
+  P('cloth', ellipsoid([0, 0.2, 0.01], [0.185, 0.2, 0.155]), 'chest', CL, 0.05);
+  P('cloth', ellipsoid([0, 0.12, 0.05], [0.17, 0.14, 0.14]), 'root', CL, 0.06);                      // 腹
+  if (oy) { for (const s of [-1, 1]) P('cloth', roundCone([s * 0.085, 0.24, 0.0], [s * 0.092, 0.415, 0.0], 0.065, 0.045), 'chest', CL, 0.04); P('skin', roundCone([-0.165, 0.375, 0], [0.165, 0.375, 0], 0.068, 0.068), 'chest', SK, 0.05); P('skin', ellipsoid([0, 0.33, 0.07], [0.12, 0.07, 0.06]), 'chest', SK, 0.04); }
+  else { P('cloth', roundCone([-0.17, 0.38, 0], [0.17, 0.38, 0], 0.074, 0.074), 'chest', CL, 0.05); P('band', ellipsoid([0, 0.16, 0.075], [0.16, 0.2, 0.135]), 'chest', hex(0xf7f5ef), 0.02); }
   for (const [s, S] of [[-1, 'L'], [1, 'R']]) {
-    const sh = [s * 0.2, 0.38, 0], el = [s * 0.24, 0.14, 0.02], wr = [s * 0.25, -0.08, 0.06];
+    const sh = [s * 0.212, 0.375, 0], el = [s * 0.315, 0.15, 0.02], wr = [s * 0.36, -0.06, 0.05];
     bone('upper' + S, 'chest', sh); bone('fore' + S, 'upper' + S, el); bone('hand' + S, 'fore' + S, wr);
-    P(kind === 'oyaji' ? 'skin' : 'cloth', roundCone(sh, el, 0.058, 0.048), 'upper' + S, kind === 'oyaji' ? SK : CL, 0.03);
-    P('skin', roundCone(el, wr, 0.046, 0.04), 'fore' + S, SK, 0.03);
-    P('skin', ellipsoid(add(wr, [0, -0.04, 0.0]), [0.046, 0.052, 0.038]), 'hand' + S, SK, 0.025);
+    P(oy ? 'skin' : 'cloth', roundCone(sh, el, 0.06, 0.048), 'upper' + S, oy ? SK : CL, 0.03);
+    P('skin', roundCone(el, wr, 0.046, 0.034), 'fore' + S, SK, 0.03);
+    P('skin', ellipsoid(add(wr, [0, -0.045, 0.0]), [0.04, 0.05, 0.022]), 'hand' + S, SK, 0.02);        // 手のひら
+    for (let i = 0; i < 4; i++) P('skin', roundCone(add(wr, [s * (-0.027 + i * 0.018), -0.085, 0.004]), add(wr, [s * (-0.03 + i * 0.02), -0.118 + Math.abs(i - 1.5) * 0.008, 0.016]), 0.0095, 0.008), 'hand' + S, SK, 0.006);
+    P('skin', roundCone(add(wr, [s * 0.034, -0.03, 0.008]), add(wr, [s * 0.062, -0.075, 0.022]), 0.012, 0.0095), 'hand' + S, SK, 0.008);
   }
-  build('resident-' + kind, { bones, layers: [
-    { group: 'skin', parts: L.skin, h: 0.0125, bmin: [-0.36, -0.2, -0.2], bmax: [0.36, 0.8, 0.22] },
-    { group: 'hair', parts: L.hair, h: 0.0095, bmin: [-0.2, 0.5, -0.2], bmax: [0.2, 0.82, 0.2] },
-    { group: 'cloth', parts: L.cloth, h: 0.0145, bmin: [-0.36, -0.2, -0.2], bmax: [0.36, 0.8, 0.22] },
-  ], extra: { face: { eyeL: [-0.045, 0.105, 0.104], eyeR: [0.045, 0.105, 0.104], mouth: [0, 0.035, 0.118] } } });
+  build('resident-' + kind, { bones, sigma: 0.011, post: (p, g) => (g === 'skin' ? head.closeMouth(p) : p), morphs: head.morphs, layers: [
+    { group: 'skin', parts: L.skin, h: 0.0064, bmin: [-0.5, -0.3, -0.2], bmax: [0.5, 0.76, 0.2], ao: 1.0 },
+    { group: 'hair', parts: L.hair, h: 0.0064, bmin: [-0.14, 0.5, -0.14], bmax: [0.14, 0.78, 0.14] },
+    { group: 'cloth', parts: L.cloth, h: 0.013, bmin: [-0.46, -0.2, -0.2], bmax: [0.46, 0.56, 0.24] },
+    ...(oy ? [] : [{ group: 'band', parts: L.band, h: 0.0115, bmin: [-0.22, -0.08, -0.1], bmax: [0.22, 0.42, 0.26] }]),
+  ], extra: { face: { eyeL: sub(head.eyeC[0], HP), eyeR: sub(head.eyeC[1], HP), eyeRadius: head.eyeR, mouth: sub(head.mouth, HP), mouthIn: sub(head.mouthIn, HP), front: 1 } } });
 }
 
 // =========================================================
-// 鳥（カモメ風）: 前は +z。翼は 2 節。層: body / beak
+// 鳥（カモメ）: 前は +z。翼は 3 節（上腕・前腕・手）＋風切羽。層: body / beak
 // =========================================================
 function bird() {
   const B = {}, bones = [];
   const bone = (name, parent, pos) => { B[name] = bones.length; bones.push({ name, parent: parent == null ? -1 : B[parent], pos }); };
-  bone('root', null, [0, 0, 0]); bone('head', 'root', [0, 0.07, 0.17]); bone('tail', 'root', [0, 0.0, -0.18]);
-  const L = { body: [], beak: [] }, P = (layer, sh, b, color, k) => L[layer].push({ s: sh, bone: B[b], group: layer, color, k });
-  const WH = hex(0xf3f4f6), BE = hex(0xf6b21c);
-  P('body', ellipsoid([0, 0, 0], [0.12, 0.11, 0.22]), 'root', WH, 0.05);
-  P('body', ellipsoid([0, 0.09, 0.2], [0.085, 0.082, 0.088]), 'head', WH, 0.05);
-  P('beak', roundCone([0, 0.075, 0.25], [0, 0.06, 0.36], 0.027, 0.008), 'head', BE, 0.012);
-  P('body', roundCone([0, 0.0, -0.18], [0, 0.0, -0.32], 0.06, 0.02), 'tail', WH, 0.04);
+  bone('root', null, [0, 0, 0]); bone('neck', 'root', [0, 0.035, 0.13]); bone('head', 'neck', [0, 0.085, 0.2]); bone('tail', 'root', [0, 0.0, -0.17]);
+  const L = { body: [], beak: [] }, P = (layer, sh, b, color, k, extra = {}) => L[layer].push({ s: sh, bone: B[b], group: layer, color, k, ...extra });
+  const WH = hex(0xf4f4f2), BE = hex(0xeeb21a), FT = hex(0xe88a2a);
+  P('body', ellipsoid([0, 0, 0.0], [0.085, 0.082, 0.2]), 'root', WH, 0.05);
+  P('body', ellipsoid([0, -0.012, 0.06], [0.078, 0.07, 0.1]), 'root', WH, 0.05);                    // 胸
+  P('body', roundCone([0, 0.03, 0.13], [0, 0.082, 0.2], 0.052, 0.042), 'neck', WH, 0.04);
+  P('body', ellipsoid([0, 0.092, 0.215], [0.044, 0.042, 0.052]), 'head', WH, 0.03);
+  P('beak', roundCone([0, 0.086, 0.255], [0, 0.078, 0.325], 0.014, 0.008), 'head', BE, 0.008);
+  P('beak', ellipsoid([0, 0.07, 0.328], [0.0065, 0.011, 0.01], [0.5, 0, 0]), 'head', BE, 0.006);      // 先のかぎ
+  for (let i = -1; i <= 1; i++) P('body', ellipsoid([i * 0.035, 0.0, -0.27 - (1 - Math.abs(i)) * 0.02], [0.03, 0.006, 0.09], [0, i * 0.25, 0]), 'tail', WH, 0.012);
+  for (const s of [-1, 1]) P('beak', ellipsoid([s * 0.03, -0.075, -0.06], [0.012, 0.01, 0.035]), 'root', FT, 0.01);   // たたんだ足
   for (const [s, S] of [[-1, 'L'], [1, 'R']]) {
-    bone('wing1' + S, 'root', [s * 0.09, 0.05, 0.02]); bone('wing2' + S, 'wing1' + S, [s * 0.36, 0.05, 0.0]);
-    P('body', ellipsoid([s * 0.22, 0.05, 0.0], [0.15, 0.018, 0.1]), 'wing1' + S, WH, 0.03);
-    P('body', ellipsoid([s * 0.48, 0.05, -0.02], [0.14, 0.012, 0.075], [0, s * 0.15, 0]), 'wing2' + S, WH, 0.02);
+    bone('wing1' + S, 'root', [s * 0.07, 0.04, 0.05]); bone('wing2' + S, 'wing1' + S, [s * 0.27, 0.045, 0.06]); bone('wing3' + S, 'wing2' + S, [s * 0.5, 0.045, 0.02]);
+    P('body', ellipsoid([s * 0.17, 0.042, 0.03], [0.115, 0.016, 0.085]), 'wing1' + S, WH, 0.025);
+    P('body', ellipsoid([s * 0.385, 0.045, 0.015], [0.125, 0.012, 0.075], [0, s * 0.12, 0]), 'wing2' + S, WH, 0.02);
+    for (let i = 0; i < 5; i++) { const a = s * (0.15 + i * 0.16); P('body', ellipsoid([s * (0.56 + i * 0.03), 0.045, -0.005 - i * 0.03], [0.1 - i * 0.008, 0.0045, 0.02], [0, -a, 0]), 'wing3' + S, WH, 0.006, { sigma: 0.01 }); } // 初列風切
+    for (let i = 0; i < 4; i++) P('body', ellipsoid([s * (0.2 + i * 0.075), 0.04, -0.06], [0.04, 0.005, 0.05]), i < 2 ? 'wing1' + S : 'wing2' + S, WH, 0.008);                                                              // 次列風切
   }
-  build('bird', { bones, sigma: 0.025, layers: [
-    { group: 'body', parts: L.body, h: 0.0115, bmin: [-0.66, -0.15, -0.36], bmax: [0.66, 0.2, 0.32] },
-    { group: 'beak', parts: L.beak, h: 0.0055, bmin: [-0.05, 0.02, 0.2], bmax: [0.05, 0.12, 0.4] },
-  ], extra: { face: { eyeL: [-0.07, 0.04, 0.065], eyeR: [0.07, 0.04, 0.065] } } });
+  build('bird', { bones, sigma: 0.02, layers: [
+    { group: 'body', parts: L.body, h: 0.0082, bmin: [-0.8, -0.13, -0.4], bmax: [0.8, 0.17, 0.3] },
+    { group: 'beak', parts: L.beak, h: 0.0038, bmin: [-0.06, -0.1, -0.11], bmax: [0.06, 0.12, 0.36] },
+  ], extra: { face: { eyeL: [-0.036, 0.012, 0.03], eyeR: [0.036, 0.012, 0.03], eyeRadius: 0.0085, front: 1 } } });
 }
 
 const only = process.argv[2];

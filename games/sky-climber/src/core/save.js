@@ -3,7 +3,7 @@
 const PREFIX = 'skyclimber-yk.v1.';
 export const DEFAULT_SETTINGS = {
   difficulty: 'standard', vrControl: 'direct', gripMode: 'hold', stance: 'stand', height: 170, reach: 1.0, speed: 1.0, pull: 1.0, grabAssist: 1.0,
-  vignette: true, fallFx: true, audioMode: 'vr', vol: { master: 0.9, bgm: 0.7, sfx: 0.9, voice: 0.9, amb: 0.6, guide: 0.8 },
+  vignette: true, fallFx: true, audioMode: 'vr', soundSet: 'modern', /* 音源: audioMode 'vr'=モダン＋空間 / 'retrovr'=レトロ＋空間 / 'classic'=レトロ・モノラル（soundSet は記録用） */ vol: { master: 0.9, bgm: 0.7, sfx: 0.9, voice: 0.9, amb: 0.6, guide: 0.8 },
   mute: { master: false, bgm: false, sfx: false, voice: false, amb: false, guide: false }, quality: 'auto', guideRate: 1.0, markers: true, autoGrab: 'touch', /* 到達したらつかむ: 'touch'=タッチのときだけ / 'on' / 'off' */
 };
 const mem = {};

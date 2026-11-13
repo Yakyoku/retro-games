@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FLOOR_H, COL_W, WIN, colX, edgeX } from '../core/stages.js';
 import { makeWallTextures, makeTextTexture } from './textures.js';
 import { makeInteriorMaterial } from './interior.js';
+import { getGlowTexture } from './city.js';
 
 const WIN_H = WIN.y1 - WIN.y0;
 const REVEAL = 0.11; // 窓の奥行き（外壁の面から窓ガラスの面まで）
@@ -82,7 +83,9 @@ export class BuildingView {
     const wt = makeWallTextures(theme, { size: texSize, colW: COL_W, floorH: FLOOR_H, win: WIN, seed: st.seed });
     for (const t of [wt.map, wt.normalMap, wt.roughnessMap]) t.anisotropy = quality.aniso;
     this.wallMat = new THREE.MeshStandardMaterial({ map: wt.map, normalMap: wt.normalMap, roughnessMap: wt.roughnessMap, roughness: 1, metalness: 0, normalScale: new THREE.Vector2(1.2, 1.2), envMap, envMapIntensity: theme === 'night' ? 0.9 : 0.5 });
-    const sideMat = this.wallMat.clone(); sideMat.color = new THREE.Color(0.82, 0.82, 0.84);
+    // 側面と背面: 同じ素材を建物の大きさに合わせてくり返す（引きのばさない）
+    const sideMat = this.wallMat.clone(); sideMat.color = new THREE.Color(0.8, 0.8, 0.82);
+    for (const k of ['map', 'normalMap', 'roughnessMap']) { const t = wt[k].clone(); t.needsUpdate = true; t.repeat.set(Math.max(1, Math.round(W / wt.repeatW)), top / wt.repeatH); sideMat[k] = t; }
     // 1. 正面の外壁: 区画（窓 1 列 × 1 階）ごとの面。窓のある区画は穴あき
     const blockAt = (c, f) => st.blocks.find((k) => c >= k.c0 && c <= k.c1 && f >= k.f0 && f <= k.f1);
     const faces = [];
@@ -122,7 +125,10 @@ export class BuildingView {
     quad.setAttribute('aRoom', new THREE.InstancedBufferAttribute(room, 4));
     this.rooms = new THREE.InstancedMesh(quad, this.interiorMat, n); this.group.add(this.rooms);
     // 固定のガラス（開いている窓は上半分に引き上げた戸が重なる）と、動くガラス戸
-    this.glassMat = new THREE.MeshStandardMaterial({ color: 0xa8c4d8, metalness: 0.1, roughness: 0.04, transparent: true, opacity: theme === 'night' ? 0.22 : 0.32, envMap, envMapIntensity: 1.6, depthWrite: false });
+    // ガラス戸: 空を強く映し、雨だれ・ほこりの筋がうっすら付く（項目 10）
+    const dirt = makeTextTexture((ctx, cw, ch) => { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch); for (let i = 0; i < 70; i++) { const x = Math.random() * cw, l = ch * (0.2 + Math.random() * 0.8); const g = ctx.createLinearGradient(0, 0, 0, l); g.addColorStop(0, 'rgba(120,130,140,0)'); g.addColorStop(1, `rgba(120,130,140,${0.05 + Math.random() * 0.12})`); ctx.fillStyle = g; ctx.fillRect(x, 0, 1 + Math.random() * 3, l); }
+      for (let i = 0; i < (theme === 'night' ? 160 : 0); i++) { ctx.fillStyle = 'rgba(200,220,255,0.35)'; ctx.beginPath(); ctx.ellipse(Math.random() * cw, Math.random() * ch, 1.5, 2.5 + Math.random() * 3, 0, 0, 7); ctx.fill(); } }, 256, 256).tex;
+    this.glassMat = new THREE.MeshPhysicalMaterial({ color: 0xb4cfe2, map: dirt, metalness: 0.45, roughness: 0.03, transparent: true, opacity: theme === 'night' ? 0.3 : 0.4, envMap, envMapIntensity: 2.2, clearcoat: 1, depthWrite: false });
     this.sashGlass = new THREE.InstancedMesh(new THREE.PlaneGeometry(WIN.w - 0.06, WIN_H - 0.06), this.glassMat, n); this.sashGlass.renderOrder = 2; this.group.add(this.sashGlass);
     this.sashes = mk(makeSashGeo(), frameMat, false);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
@@ -177,6 +183,8 @@ export class BuildingView {
     this.group.add(this.makeRoof(b, envMap, th));
     // 9. 地上の入口
     this.group.add(this.makeLobby(b, envMap));
+    // 10. 装飾（非常階段・袖看板・軒飾り・屋上の柵と看板・ヘリポート灯・窓あかりの照り返し）
+    this.addDecor(b, th, envMap, theme);
   }
   // 窓の開閉（0=開・1=閉）。変化した窓だけ行列を書き換える
   updateSashes(closeOf, force = false) {
@@ -288,6 +296,81 @@ export class BuildingView {
     const sw = new THREE.Mesh(new THREE.BoxGeometry(b.cols * COL_W + 8, 0.15, 4), new THREE.MeshStandardMaterial({ color: 0xa9a59c, roughness: 0.85 }));
     sw.position.set(0, 0.075 - 0.15, 2); sw.receiveShadow = true; g.add(sw);
     return g;
+  }
+  // 装飾（項目 13〜17）。保持点のある面には置かず、建物の外側の端・屋上・帯の上だけに置く
+  addDecor(b, th, envMap, theme) {
+    const st = b.def, W = b.cols * COL_W, hw = W / 2, top = b.top, dark = theme === 'night' || theme === 'dusk';
+    const parts = [], cols = [];
+    const add = (g, c) => { const k = g.index ? g.toNonIndexed() : g; k.deleteAttribute('uv'); parts.push(k); cols.push(c); };
+    const IRON = 0x2c3138, RAIL = 0x4a525c;
+    if (theme !== 'practice') {
+      // 非常階段（右端の外側）: 各階の踊り場・手すり・はしご
+      const x0 = hw + 0.75;
+      for (let f = 1; f <= b.floors; f++) {
+        const y = f * FLOOR_H - 0.05;
+        if (f < b.floors) { add(place(new THREE.BoxGeometry(1.25, 0.05, 0.85), x0, y, 0.46), IRON);
+          for (let k = 0; k < 6; k++) add(place(new THREE.BoxGeometry(0.02, 0.04, 0.85), x0 - 0.55 + k * 0.22, y + 0.03, 0.46), RAIL);          // すのこ
+          add(place(new THREE.BoxGeometry(1.25, 0.03, 0.03), x0, y + 1.0, 0.87), RAIL); add(place(new THREE.BoxGeometry(1.25, 0.03, 0.03), x0, y + 0.55, 0.87), RAIL);
+          for (const px of [-0.61, 0, 0.61]) add(place(new THREE.BoxGeometry(0.03, 1.0, 0.03), x0 + px, y + 0.5, 0.87), RAIL);
+          add(place(new THREE.BoxGeometry(0.03, 0.03, 0.85), x0 + 0.61, y + 1.0, 0.46), RAIL); add(place(new THREE.BoxGeometry(0.03, 1.0, 0.03), x0 + 0.61, y + 0.5, 0.06), RAIL); }
+        // はしご（下の階から）
+        for (const lx of [-0.42, -0.12]) add(place(new THREE.BoxGeometry(0.03, FLOOR_H, 0.03), x0 + lx, y - FLOOR_H / 2, 0.2), IRON);
+        for (let k = 1; k < 8; k++) add(place(new THREE.BoxGeometry(0.3, 0.022, 0.022), x0 - 0.27, y - FLOOR_H + k * 0.32, 0.2), RAIL);
+      }
+      // 壁の換気口（付け柱のうち、雨どいの無い所の中ほど）
+      for (let bi = 1; bi < b.cols; bi++) { if (st.pipes.includes(bi)) continue; for (let f = 2; f < b.floors; f += 3) { add(place(bevelBox(0.14, 0.2, 0.05, 0.008), edgeX(st, bi), f * FLOOR_H + 1.45, 0.07), 0x8a9098); for (let k = 0; k < 4; k++) add(place(new THREE.BoxGeometry(0.11, 0.012, 0.02), edgeX(st, bi), f * FLOOR_H + 1.39 + k * 0.04, 0.1), 0x4a4f55); } }
+    }
+    // 最上部の軒飾り（屋上の縁のすぐ下）
+    add(place(bevelBox(W + 0.5, 0.2, 0.22, 0.03), 0, top - 0.2, 0.06), th.trim); add(place(bevelBox(W + 0.36, 0.1, 0.14, 0.02), 0, top - 0.36, 0.04), th.trim);
+    for (let x = -hw + 0.2; x <= hw - 0.2 + 1e-6; x += 0.425) add(place(new THREE.BoxGeometry(0.1, 0.1, 0.1), x, top - 0.33, 0.13), th.trim);   // 歯飾り
+    // 屋上の柵と、看板の骨組み
+    for (let x = -hw; x <= hw + 1e-6; x += W / Math.round(W / 1.6)) add(place(new THREE.BoxGeometry(0.05, 1.3, 0.05), x, top + 0.65, -11.4), RAIL);
+    for (const y of [0.5, 0.9, 1.3]) add(place(new THREE.BoxGeometry(W, 0.035, 0.035), 0, top + y, -11.4), RAIL);
+    for (const sx of [-1, 1]) { for (let z = -11.4; z <= -0.6; z += 1.8) add(place(new THREE.BoxGeometry(0.05, 1.3, 0.05), sx * hw, top + 0.65, z), RAIL); for (const y of [0.9, 1.3]) add(place(new THREE.BoxGeometry(0.035, 0.035, 10.8), sx * hw, top + y, -6), RAIL); }
+    const bw = Math.min(W - 1.5, 7.5), bh = 2.0, by = top + 3.4, bz = -1.9;
+    for (const sx of [-1, 1]) { add(place(new THREE.BoxGeometry(0.1, by - top + 0.6, 0.1), sx * (bw / 2 - 0.4), (by + top) / 2 - 0.2, bz - 0.15), IRON); add(place(new THREE.BoxGeometry(0.08, 2.6, 0.08), sx * (bw / 2 - 0.4), top + 1.3, bz - 0.9, -0.6), IRON); }
+    add(place(new THREE.BoxGeometry(bw + 0.16, bh + 0.16, 0.12), 0, by, bz - 0.07), IRON);
+    // 屋上の配管
+    for (let i = 0; i < 3; i++) add(place(new THREE.CylinderGeometry(0.06, 0.06, W * 0.6, 8), -W * 0.1, top + 0.12 + i * 0.02, -10.4 + i * 0.25, 0, 0, Math.PI / 2), 0x8f9aa5);
+    const geos = parts.map((g, i) => { const c = new THREE.Color(cols[i]).convertSRGBToLinear(), n = g.attributes.position.count, a = new Float32Array(n * 3); for (let k = 0; k < n; k++) a.set([c.r, c.g, c.b], k * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; });
+    const decor = new THREE.Mesh(mergeGeometries(geos), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.4, envMap, envMapIntensity: 0.6 }));
+    decor.castShadow = true; decor.receiveShadow = true; this.group.add(decor);
+    // 屋上の看板（題名。夜は自分で光る）
+    const sign = makeTextTexture((ctx, cw, ch) => { const g = ctx.createLinearGradient(0, 0, 0, ch); g.addColorStop(0, '#12254a'); g.addColorStop(1, '#0a1226'); ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#ffd34a'; ctx.font = `900 ${ch * 0.46}px sans-serif`; ctx.fillText('SKY CLIMBER', cw / 2, ch * 0.6); ctx.fillStyle = '#7fd0ff'; ctx.font = `700 ${ch * 0.16}px sans-serif`; ctx.fillText(st.en, cw / 2, ch * 0.86);
+      ctx.strokeStyle = '#ffd34a'; ctx.lineWidth = ch * 0.03; ctx.strokeRect(ch * 0.06, ch * 0.06, cw - ch * 0.12, ch - ch * 0.12); }, 1024, Math.round(1024 * bh / bw)).tex;
+    this.roofSign = new THREE.Mesh(new THREE.PlaneGeometry(bw, bh), new THREE.MeshStandardMaterial({ map: sign, roughness: 0.5, emissive: 0xffffff, emissiveMap: sign, emissiveIntensity: dark ? 1.5 : 0.15 }));
+    this.roofSign.position.set(0, by, bz); this.group.add(this.roofSign);
+    // 袖看板（左端の外側。英字の架空の店名）
+    if (theme !== 'practice') {
+      const words = ['HOTEL', 'CAFE', 'BAR', 'SPA'], hues = ['#ff4fa0', '#4fe3ff', '#ffd34a', '#7dffb0'];
+      this.blades = [];
+      for (let i = 0; i < Math.min(4, Math.floor(b.floors / 4)); i++) {
+        const tex = makeTextTexture((ctx, cw, ch) => { ctx.fillStyle = '#0c0e16'; ctx.fillRect(0, 0, cw, ch); ctx.fillStyle = hues[i]; ctx.shadowColor = hues[i]; ctx.shadowBlur = cw * 0.2; ctx.textAlign = 'center'; ctx.font = `900 ${cw * 0.62}px sans-serif`;
+          [...words[i]].forEach((chx, k, arr) => ctx.fillText(chx, cw / 2, ch * (k + 0.8) / (arr.length + 0.2))); ctx.shadowBlur = 0; ctx.strokeStyle = hues[i]; ctx.lineWidth = 6; ctx.strokeRect(6, 6, cw - 12, ch - 12); }, 128, 512).tex;
+        const m = new THREE.Mesh(bevelBox(0.14, 2.2, 0.62, 0.02), new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.5 }));
+        const y = (2.5 + i * 4) * FLOOR_H; m.position.set(-hw - 0.2, y, 0.45); this.group.add(m);
+        for (const sx of [-1, 1]) { const f = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 2.1), new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: dark ? 2.4 : 0.5, roughness: 0.4 })); f.position.set(-hw - 0.2 + sx * 0.072, y, 0.45); f.rotation.y = sx * Math.PI / 2; this.group.add(f); this.blades.push(f); }
+      }
+    }
+    // ヘリポートの灯（輪になって順に光る）と、夜の窓あかりが壁を照らす照り返し
+    const glow = getGlowTexture();
+    const N = 16, hp = []; for (let i = 0; i < N; i++) { const a = (i / N) * Math.PI * 2; hp.push(Math.cos(a) * 2.55, top + 0.08, -5.5 + Math.sin(a) * 2.55); }
+    const hg = new THREE.BufferGeometry(); hg.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3)); hg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 3).fill(1), 3));
+    this.heliLights = new THREE.Points(hg, new THREE.PointsMaterial({ size: dark ? 0.9 : 0.45, map: glow, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })); this.group.add(this.heliLights);
+    if (dark) {
+      const lit = b.windows.filter((w) => (theme === 'night' ? w.lit : w.lit && w.room > 0.4));
+      const spill = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glow, color: 0xffb060, transparent: true, opacity: theme === 'night' ? 0.2 : 0.12, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), lit.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+      lit.forEach((w, i) => spill.setMatrixAt(i, m4.compose(new THREE.Vector3(w.x, w.y + WIN.y0 + WIN_H / 2, 0.011), q, new THREE.Vector3(2.6, 3.0, 1))));
+      spill.renderOrder = 1; this.group.add(spill);
+    }
+  }
+  update(dt, cam) {
+    this.t = (this.t || 0) + dt;
+    this.interiorMat.uniforms.uTime.value = this.t;
+    if (this.heliLights) { const c = this.heliLights.geometry.attributes.color, n = c.count, head = Math.floor(this.t * 8) % n; for (let i = 0; i < n; i++) { const d = (head - i + n) % n, v = d < 4 ? 1 - d / 4 : 0.12; c.setXYZ(i, 0.3 + v, 0.9 * v + 0.1, 0.25 * v + 0.05); } c.needsUpdate = true; }
+    if (this.blades) this.blades.forEach((f, i) => { const k = Math.floor(i / 2); const fl = Math.sin(this.t * 3 + k * 2.1) > -0.92 ? 1 : 0.25; f.material.emissiveIntensity = (f.userData.base ??= f.material.emissiveIntensity) * fl; });
   }
   setFog(color, density) { this.interiorMat.uniforms.uFogColor.value.copy(color); this.interiorMat.uniforms.uFogDensity.value = density; }
   dispose() { this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) { for (const k of ['map', 'normalMap', 'roughnessMap', 'emissiveMap']) m[k]?.dispose(); m.dispose(); } } }); }

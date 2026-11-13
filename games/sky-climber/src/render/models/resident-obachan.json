@@ -1,8 +1,8 @@
 {
  "name": "resident-obachan",
  "generator": "tools/build-characters.mjs（Claude Code で制作）",
- "vertices": 12378,
- "triangles": 24732,
+ "vertices": 28679,
+ "triangles": 57340,
  "bones": [
   {
    "name": "root",
@@ -18,7 +18,7 @@
    "parent": 0,
    "pos": [
     0,
-    0.25,
+    0.24,
     0
    ]
   },
@@ -27,16 +27,16 @@
    "parent": 1,
    "pos": [
     0,
-    0.52,
-    0.02
+    0.5,
+    0
    ]
   },
   {
    "name": "upperL",
    "parent": 1,
    "pos": [
-    -0.2,
-    0.38,
+    -0.212,
+    0.375,
     0
    ]
   },
@@ -44,8 +44,8 @@
    "name": "foreL",
    "parent": 3,
    "pos": [
-    -0.24,
-    0.14,
+    -0.315,
+    0.15,
     0.02
    ]
   },
@@ -53,17 +53,17 @@
    "name": "handL",
    "parent": 4,
    "pos": [
-    -0.25,
-    -0.08,
-    0.06
+    -0.36,
+    -0.06,
+    0.05
    ]
   },
   {
    "name": "upperR",
    "parent": 1,
    "pos": [
-    0.2,
-    0.38,
+    0.212,
+    0.375,
     0
    ]
   },
@@ -71,8 +71,8 @@
    "name": "foreR",
    "parent": 6,
    "pos": [
-    0.24,
-    0.14,
+    0.315,
+    0.15,
     0.02
    ]
   },
@@ -80,9 +80,9 @@
    "name": "handR",
    "parent": 7,
    "pos": [
-    0.25,
-    -0.08,
-    0.06
+    0.36,
+    -0.06,
+    0.05
    ]
   }
  ],
@@ -90,71 +90,169 @@
   {
    "name": "skin",
    "start": 0,
-   "count": 25020
+   "count": 81684
   },
   {
    "name": "hair",
-   "start": 25020,
-   "count": 20736
+   "start": 81684,
+   "count": 29256
   },
   {
    "name": "cloth",
-   "start": 45756,
-   "count": 28440
+   "start": 110940,
+   "count": 38148
+  },
+  {
+   "name": "band",
+   "start": 149088,
+   "count": 22932
+  }
+ ],
+ "morphs": [
+  {
+   "name": "blinkL",
+   "count": 79
+  },
+  {
+   "name": "blinkR",
+   "count": 80
+  },
+  {
+   "name": "jaw",
+   "count": 8205
+  },
+  {
+   "name": "smile",
+   "count": 1984
+  },
+  {
+   "name": "browUp",
+   "count": 1063
+  },
+  {
+   "name": "browDown",
+   "count": 659
   }
  ],
  "layout": {
   "position": {
    "offset": 0,
-   "length": 37134,
+   "length": 86037,
    "type": "Float32Array"
   },
   "normal": {
-   "offset": 148536,
-   "length": 49512,
+   "offset": 344148,
+   "length": 114716,
    "type": "Int8Array"
   },
   "color": {
-   "offset": 198048,
-   "length": 49512,
+   "offset": 458864,
+   "length": 114716,
    "type": "Uint8Array"
   },
   "uv": {
-   "offset": 247560,
-   "length": 24756,
+   "offset": 573580,
+   "length": 57358,
    "type": "Float32Array"
   },
   "skinIndex": {
-   "offset": 346584,
-   "length": 49512,
+   "offset": 803012,
+   "length": 114716,
    "type": "Uint8Array"
   },
   "skinWeight": {
-   "offset": 396096,
-   "length": 49512,
+   "offset": 917728,
+   "length": 114716,
    "type": "Uint8Array"
   },
   "index": {
-   "offset": 445608,
-   "length": 74196,
+   "offset": 1032444,
+   "length": 172020,
    "type": "Uint16Array"
+  },
+  "mi_blinkL": {
+   "offset": 1376484,
+   "length": 79,
+   "type": "Uint32Array"
+  },
+  "md_blinkL": {
+   "offset": 1376800,
+   "length": 237,
+   "type": "Float32Array"
+  },
+  "mi_blinkR": {
+   "offset": 1377748,
+   "length": 80,
+   "type": "Uint32Array"
+  },
+  "md_blinkR": {
+   "offset": 1378068,
+   "length": 240,
+   "type": "Float32Array"
+  },
+  "mi_jaw": {
+   "offset": 1379028,
+   "length": 8205,
+   "type": "Uint32Array"
+  },
+  "md_jaw": {
+   "offset": 1411848,
+   "length": 24615,
+   "type": "Float32Array"
+  },
+  "mi_smile": {
+   "offset": 1510308,
+   "length": 1984,
+   "type": "Uint32Array"
+  },
+  "md_smile": {
+   "offset": 1518244,
+   "length": 5952,
+   "type": "Float32Array"
+  },
+  "mi_browUp": {
+   "offset": 1542052,
+   "length": 1063,
+   "type": "Uint32Array"
+  },
+  "md_browUp": {
+   "offset": 1546304,
+   "length": 3189,
+   "type": "Float32Array"
+  },
+  "mi_browDown": {
+   "offset": 1559060,
+   "length": 659,
+   "type": "Uint32Array"
+  },
+  "md_browDown": {
+   "offset": 1561696,
+   "length": 1977,
+   "type": "Float32Array"
   }
  },
  "face": {
   "eyeL": [
-   -0.045,
-   0.105,
-   0.104
+   -0.0318,
+   0.10299999999999998,
+   0.0705
   ],
   "eyeR": [
-   0.045,
-   0.105,
-   0.104
+   0.0318,
+   0.10299999999999998,
+   0.0705
   ],
+  "eyeRadius": 0.0128,
   "mouth": [
    0,
-   0.035,
-   0.118
-  ]
+   0.037800000000000056,
+   0.092
+  ],
+  "mouthIn": [
+   0,
+   0.037800000000000056,
+   0.078
+  ],
+  "front": 1
  }
 }

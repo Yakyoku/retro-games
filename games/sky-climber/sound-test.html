@@ -26,9 +26,10 @@
 <body>
 <main>
   <h1>サウンドテスト</h1>
-  <p>すべての曲・効果音・掛け声は、このページを開いた端末の中で合成しています（AY-3-8910 系の矩形波 3 声＋ノイズを再現したソフトウェア音源と、フォルマント合成の声）。録音や原作の音は含みません。<a href="index.html">← ゲームへ</a> ／ <a href="credits.html">クレジット</a></p>
+  <p>すべての曲・効果音・掛け声は、このページを開いた端末の中で合成しています。モダン音源（シンセとドラムを重ねたステム分けの曲・層を重ねた効果音）と、レトロ音源（AY-3-8910 系の矩形波 3 声＋ノイズの再現）を切り替えられます。声はフォルマント合成です。録音や原作の音は含みません。<a href="index.html">← ゲームへ</a> ／ <a href="credits.html">クレジット</a></p>
   <section>
-    <div class="row"><b>音響モード</b><button id="m-vr">VR 音響（空間に置く）</button><button id="m-classic">クラシック音響（モノラル・残響なし）</button><button id="stop">すべて止める</button><span id="mode"></span></div>
+    <div class="row"><b>音響モード</b><button id="m-vr">モダン音源（空間・残響）</button><button id="m-retro">レトロ音源（空間）</button><button id="m-classic">クラシック音響（モノラル・残響なし）</button><button id="stop">すべて止める</button><span id="mode"></span></div>
+    <div class="row" style="margin:8px 0"><b>適応型音楽</b><label>高さ <input id="i-h" type="range" min="0" max="1" step="0.01" value="1"></label><button id="i-one">片手が続く</button><button id="i-danger">危険が近い</button><button id="i-lives">残機 1</button><button id="i-tape">落下（テープ停止）</button><button id="i-pause">一時停止（こもる）</button></div>
     <canvas id="wave" width="1600" height="200"></canvas>
     <div class="row" id="info" style="margin-top:8px;color:#b9c7d8"></div>
   </section>

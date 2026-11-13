@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05050a">
+<title>月影の魔城 — 3D / VR 版</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<script src="../shared/error-overlay.js"></script>
+<style>
+  html, body { margin:0; height:100%; background:#05050a; color:#f2ead8; overflow:hidden; overscroll-behavior:none; }
+  body { position:fixed; inset:0; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:none; }
+  #host { position:absolute; inset:0; } #host canvas { position:absolute; left:0; top:0; display:block; } #ui { z-index:2; }
+  #loading { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; font:600 20px "Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; background:#05050a; z-index:5; text-align:center; padding:24px; }
+  #loading .credit { font-size:16px; color:#b9b2a2; }
+  #loading button { font:700 18px sans-serif; padding:12px 28px; border-radius:99px; border:1px solid #f3c86a; background:#1a1628; color:#fff8e6; cursor:pointer; }
+  #touch.menu .t-zone, #touch.menu .t-jump, #touch.menu .t-attack { display:none; }
+</style>
+</head>
+<body>
+<div id="host" aria-label="月影の魔城 ゲーム画面"></div>
+<div id="loading" role="status"><div id="ld-msg">読み込み中…</div><div class="credit">本作は、Claude Codeのクラウドセッションで制作しました。</div></div>
+<script type="module">
+  // 読み込み失敗時は理由と再試行を出す（画面が固まったままにしない）
+  const msg = document.getElementById('ld-msg');
+  const timer = setTimeout(() => { msg.textContent = '読み込みに時間がかかっています…'; }, 8000);
+  import('./main.js').then((m) => { clearTimeout(timer); return m.start(); }).then(() => { document.getElementById('loading').remove(); })
+    .catch((err) => {
+      clearTimeout(timer);
+      msg.innerHTML = '';
+      const t = document.createElement('div'); t.textContent = '読み込みに失敗しました: ' + (err && err.message || err); msg.appendChild(t);
+      const b = document.createElement('button'); b.textContent = '再試行'; b.onclick = () => location.reload(); msg.appendChild(b);
+    });
+</script>
+</body>
+</html>

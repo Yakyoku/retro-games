@@ -90,7 +90,7 @@ export const ENEMY = {
       const tgt = clamp(want, lo, hi);
       e.aim += clamp(tgt - e.aim, -0.06, 0.06);
       const iv = g.fireInterval(e.rate ?? 120);
-      if ((e.t + e.id * 17) % iv === 0) g.fire(e, { ang: e.aim, x: e.x + Math.cos(e.aim) * 0.7, y: e.y + Math.sin(e.aim) * 0.7, sfx: null });
+      if ((e.t + e.id * 17) % iv === 0) g.fire(e, { ang: e.aim, x: e.x + Math.cos(e.aim) * 0.7, y: e.y + Math.sin(e.aim) * 0.7, sfx: 'turret_fire' });
       if (e.x < g.camX - 3) g.escape(e);
     },
   },
@@ -265,6 +265,7 @@ export const ENEMY = {
       e.warn = cyc < 30 ? 1 : 0;
       const tgt = cyc < 30 ? 0.08 : cyc < 45 ? (cyc - 30) / 15 : cyc < 90 ? 1 : Math.max(0, 1 - (cyc - 90) / 50);
       e.ext = tgt;
+      if (cyc === 45 && g.onScreen(e.x, e.y, 2)) g.emit({ t: 'sfx', n: 'piston_slam', x: e.x });   // 音だけ（伸びきった瞬間）
       const dir = e.anchor === 'f' ? 1 : -1;
       e.len = 1 + e.ext * e.maxExt;
       e.y = e.root + dir * e.len / 2;
@@ -305,7 +306,7 @@ export const ENEMY = {
     },
     update(e, g) {
       this.layout(e, g);
-      if ((e.t + e.id * 9) % g.fireInterval(130) === 0) g.fire(e, { spread: [-0.2, 0, 0.2], speed: 7.5 });
+      if ((e.t + e.id * 9) % g.fireInterval(130) === 0) g.fire(e, { spread: [-0.2, 0, 0.2], speed: 7.5, sfx: 'tentacle' });
       if (e.root.x < g.camX - 4) g.escape(e);
     },
     hitboxes(e) {
@@ -351,7 +352,7 @@ export const ENEMY = {
     onHit(e, g, dmg, part, hx, hy, hz) {
       const c = e.cells[part]; if (!c || c.hp <= 0) return;
       c.hp -= dmg; e.flash = 1;
-      if (c.hp <= 0) { c.regen = 0; g.score += SCORE.tiny; g.emit({ t: 'explode', x: hx, y: hy, z: hz, size: 's', kind: 'cell', quiet: true }); g.emit({ t: 'sfx', n: 'explode_s' }); }
+      if (c.hp <= 0) { c.regen = 0; g.score += SCORE.tiny; g.emit({ t: 'explode', x: hx, y: hy, z: hz, size: 's', kind: 'cell', quiet: true }); g.emit({ t: 'sfx', n: 'cell_pop', x: hx }); }
     },
   },
   // 細胞: 撃つと 2 つに分かれる
@@ -384,7 +385,7 @@ export const ENEMY = {
       e.aim += clamp(d, -0.04, 0.04);
       const cyc = (e.t + e.id * 13) % g.fireInterval(150);
       e.charge = cyc > 100 && cyc < 120 ? 1 : 0;
-      if (cyc === 120 || cyc === 128 || cyc === 136) g.fire(e, { ang: e.aim, x: e.x + Math.cos(e.aim) * 1.1, y: e.y + Math.sin(e.aim) * 1.1, speed: 10 });
+      if (cyc === 120 || cyc === 128 || cyc === 136) g.fire(e, { ang: e.aim, x: e.x + Math.cos(e.aim) * 1.1, y: e.y + Math.sin(e.aim) * 1.1, speed: 10, sfx: 'turret_fire' });
       if (e.x < g.camX - 3) g.escape(e);
     },
   },
@@ -397,7 +398,8 @@ export const ENEMY = {
       const cyc = (e.t + (e.phase0 ?? 0)) % g.fireInterval(180);
       e.warn = cyc >= 60 && cyc < 110 ? 1 : 0;
       e.beam = cyc >= 110 && cyc < 150 ? 1 : 0;
-      if (cyc === 110) g.emit({ t: 'sfx', n: 'laser' });
+      if (cyc === 60 && g.onScreen(e.x, e.y, 2)) g.emit({ t: 'sfx', n: 'zap_warn', x: e.x });      // 音だけ（予告）
+      if (cyc === 110) g.emit({ t: 'sfx', n: 'zap_beam', x: e.x });
       if (e.x < g.camX - 3) g.escape(e);
     },
     hitboxes(e) {

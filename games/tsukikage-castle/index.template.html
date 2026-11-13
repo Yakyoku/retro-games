@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="generator" content="Claude Code">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="月影の魔城 — 鎧の騎士が魔城を攻略する横スクロール・アクション（{{VARIANT_TITLE}}）。本作は、Claude Codeのクラウドセッションで制作しました。">
+<title>月影の魔城 — {{VARIANT_TITLE}}</title>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<script src="shared/error-overlay.js"></script>
+<style>
+  :root { --bg:#06071a; --ink:#f2ead8; --dim:#b9b2a2; --gold:#f3c86a; --line:rgba(243,200,106,.35); }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.7 "Hiragino Sans","Yu Gothic UI","Meiryo","Noto Sans JP",system-ui,sans-serif; }
+  body { min-height:100vh; display:flex; flex-direction:column; }
+  .sky { position:fixed; inset:0; z-index:-1; background:radial-gradient(900px 600px at 78% 12%, rgba(200,220,255,.18), transparent 60%), linear-gradient(#070b24, #17214f 55%, #2a2350); }
+  .moon { position:fixed; right:9vw; top:7vh; width:min(22vw,180px); aspect-ratio:1; border-radius:50%; background:radial-gradient(circle at 38% 35%, #fffdf2, #b9c6ea 70%); box-shadow:0 0 80px 20px rgba(190,210,255,.25); z-index:-1; }
+  .hills { position:fixed; left:0; right:0; bottom:0; height:34vh; z-index:-1; background:#0d1128; clip-path:polygon(0 60%,8% 52%,15% 58%,24% 40%,30% 48%,38% 36%,46% 50%,55% 38%,61% 20%,63% 14%,65% 20%,67% 10%,69% 20%,72% 30%,80% 46%,90% 40%,100% 52%,100% 100%,0 100%); }
+  header { padding:clamp(36px,9vh,110px) clamp(20px,7vw,110px) 10px; }
+  h1 { margin:0; font:700 clamp(52px,10vw,132px)/1.05 "Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif; letter-spacing:.08em;
+    background:linear-gradient(#f6f0ff,#b9c9ef 60%,#7f8fc0); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 0 24px rgba(150,190,255,.35)); }
+  .sub { margin:14px 0 0; color:var(--gold); font:600 clamp(16px,1.6vw,22px) "Hiragino Mincho ProN","Yu Mincho",serif; letter-spacing:.1em; }
+  .lead { max-width:62ch; color:var(--dim); margin:18px 0 0; }
+  /* 制作注記: 開始前に必ず見える位置・十分な大きさとコントラスト */
+  .credit { margin:22px 0 0; padding:14px 18px; max-width:62ch; border:1px solid var(--line); border-radius:12px; background:rgba(6,8,22,.72); }
+  .credit .made { font-weight:700; color:var(--ink); font-size:clamp(16px,1.4vw,19px); }
+  .credit .ref { color:var(--dim); font-size:15px; margin-top:4px; }
+  main { padding:18px clamp(20px,7vw,110px) 40px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  a.play { display:inline-block; padding:18px 40px; border-radius:99px; text-decoration:none; color:#140c00; font:700 22px "Hiragino Mincho ProN","Yu Mincho",serif; background:linear-gradient(#ffe7a6,#d8a33a); box-shadow:0 10px 40px -10px rgba(243,200,106,.6); }
+  a.play:focus-visible, a.other:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+  a.other { padding:14px 26px; border-radius:99px; text-decoration:none; color:var(--ink); border:1px solid var(--line); background:rgba(10,12,30,.7); }
+  .desc { flex-basis:100%; color:var(--dim); max-width:62ch; margin:0; }
+  section.how { padding:0 clamp(20px,7vw,110px) 40px; max-width:1100px; }
+  .how h2 { font:700 20px "Hiragino Mincho ProN","Yu Mincho",serif; color:var(--gold); margin:0 0 8px; }
+  .how ul { margin:0; padding-left:1.2em; color:#d8d2c4; }
+  footer { margin-top:auto; padding:16px clamp(20px,7vw,110px) calc(16px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); color:var(--dim); font-size:14px; background:rgba(4,5,16,.8); display:flex; flex-wrap:wrap; gap:6px 24px; justify-content:space-between; }
+  footer strong { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="sky"></div><div class="moon"></div><div class="hills"></div>
+<header>
+  <h1>月影の魔城</h1>
+  <p class="sub">{{VARIANT_TITLE}}　横スクロール・アクション</p>
+  <p class="lead">鎧の騎士となり、月夜の墓地から魔城の中枢まで全 6 ステージを攻略する。鎧は 1 回だけ攻撃に耐え、次に当たれば倒れる。槍・短剣・斧・火炎を拾い替えながら、敵の予兆を見て、跳んで、投げる。</p>
+  <div class="credit" id="credit">
+    <div class="made">本作は、Claude Codeのクラウドセッションで制作しました。</div>
+    <div class="ref">参考作品：1985年アーケード版『魔界村』／非公式作品（原作の名称・絵・音楽は使っていない新規制作です）</div>
+  </div>
+</header>
+<main>
+  <a class="play" href="{{PLAY_HREF}}" id="play">{{PLAY_LABEL}}</a>
+  <a class="other" href="{{OTHER_HREF}}" id="other" {{OTHER_HIDDEN}}>{{OTHER_LABEL}}</a>
+  <p class="desc">{{PLAY_DESC}}</p>
+</main>
+<section class="how">
+  <h2>操作</h2>
+  <ul>
+    <li>キーボード: ←→ / A D 移動・↑↓ / W S はしご・↓ / S しゃがむ・Space / X ジャンプ・Z / J 攻撃（長押しで連射）・Esc ポーズ</li>
+    <li>コントローラー: 十字キー / 左スティック・下ボタン（A / ×）ジャンプ・左ボタン（X / □）攻撃・Start ポーズ（タイトルから再挑戦までコントローラーだけで操作できます）</li>
+    <li>タッチ: 左の円で移動、右の「跳」「投」、右上の II でポーズ（同時押し可）</li>
+    <li>Meta Quest 3: 左スティック移動・右 A ジャンプ・右トリガー攻撃・右 B ポーズ（設定で左利きに切替）</li>
+  </ul>
+</section>
+<footer>
+  <span><strong>本作は、Claude Codeのクラウドセッションで制作しました。</strong>　参考作品：1985年アーケード版『魔界村』／非公式作品</span>
+  <span>build {{BUILD}}</span>
+</footer>
+</body>
+</html>

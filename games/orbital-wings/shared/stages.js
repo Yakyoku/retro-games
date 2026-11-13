@@ -111,7 +111,7 @@ function stage1() {
   return {
     id: 1, name: '火山帯', en: 'VOLCANIC BELT', length: L, scroll: 2.6, checkpoints: [0, 230, L - 30], boss: 'ignis', terrain,
     events: m.done(), music: 'stage1',
-    pal: { sky: ['#05030c', '#2a0a10'], far: '#3b1414', ground: ['#5a2b1c', '#c8612a', '#241010'], edge: '#ff9a3c', glow: '#ff5a1e', fog: '#2a0a10', stars: 0.8 },
+    pal: { sky: ['#05030c', '#2a0a10'], far: '#3b1414', ground: ['#5a2b1c', '#c8612a', '#241010'], edge: '#ffa24a', glow: '#ff5a1e', fog: '#2a0a10', stars: 0.8, haze: '#8a2a12', neb: ['#8a2030', '#4a1c58', '#c84a1e'], comp: '#5a86c8', mist: '#5a2018' },
   };
 }
 
@@ -161,7 +161,7 @@ function stage2() {
   return {
     id: 2, name: '古代遺跡', en: 'SUNKEN RUINS', length: L, scroll: 2.5, checkpoints: [0, 195, L - 30], boss: 'warden', terrain,
     events: m.done(), music: 'stage2',
-    pal: { sky: ['#02060e', '#0c1a2a'], far: '#18283a', ground: ['#6e6650', '#b9ae86', '#2c2a22'], edge: '#e8dcae', glow: '#58d2ff', fog: '#0c1a2a', stars: 0.6 },
+    pal: { sky: ['#02060e', '#0c1a2a'], far: '#18283a', ground: ['#6e6650', '#b9ae86', '#2c2a22'], edge: '#e8dcae', glow: '#58d2ff', fog: '#0c1a2a', stars: 0.6, haze: '#1f5a78', neb: ['#1c5a88', '#2a2c78', '#3ac0c8'], comp: '#e8c88a', mist: '#6ac4e8' },
   };
 }
 
@@ -200,7 +200,7 @@ function stage3() {
   return {
     id: 3, name: '巨大石像', en: 'STONE COLOSSI', length: L, scroll: 2.5, checkpoints: [0, 210, L - 30], boss: 'colossus', terrain,
     events: m.done(), music: 'stage3',
-    pal: { sky: ['#06040e', '#1c1430'], far: '#2a2240', ground: ['#5c5a66', '#a8a4b4', '#22202a'], edge: '#d8d2ea', glow: '#ff7ad0', fog: '#1c1430', stars: 1.0 },
+    pal: { sky: ['#06040e', '#1c1430'], far: '#2a2240', ground: ['#5c5a66', '#a8a4b4', '#22202a'], edge: '#d8d2ea', glow: '#ffd27a', fog: '#1c1430', stars: 1.0, haze: '#a85040', neb: ['#5a2a80', '#2a2a70', '#b04a60'], comp: '#ffb060', mist: '#7a4a78' },
   };
 }
 
@@ -243,7 +243,7 @@ function stage4() {
   return {
     id: 4, name: '地形の難所', en: 'IRON GAUNTLET', length: L, scroll: 2.6, checkpoints: [0, 220, L - 30], boss: 'crusher', terrain,
     events: m.done(), music: 'stage4',
-    pal: { sky: ['#030508', '#121a1e'], far: '#1f2a2c', ground: ['#4a4038', '#9c7c56', '#1c1612'], edge: '#ffcf7a', glow: '#ff9a2a', fog: '#121a1e', stars: 0.5 },
+    pal: { sky: ['#030508', '#121a1e'], far: '#1f2a2c', ground: ['#3e4846', '#8a9a8e', '#141a1a'], edge: '#ffd890', glow: '#ff8a1e', fog: '#121a1e', stars: 0.5, haze: '#3a5a50', neb: ['#1c4a44', '#2a3a30', '#6a5a20'], comp: '#ff8a1e', mist: '#5a7a6a' },
   };
 }
 
@@ -280,7 +280,7 @@ function stage5() {
   return {
     id: 5, name: '生体要塞', en: 'FLESH BASTION', length: L, scroll: 2.4, checkpoints: [0, 220, L - 30], boss: 'hydra', terrain,
     events: m.done(), music: 'stage5',
-    pal: { sky: ['#0a0206', '#2a0818'], far: '#3a0e20', ground: ['#7a2a3a', '#d86a7a', '#2a0a12'], edge: '#ffb0c0', glow: '#ff4a6a', fog: '#2a0818', stars: 0.3, organic: true },
+    pal: { sky: ['#0a0206', '#2a0818'], far: '#3a0e20', ground: ['#6a2430', '#b85a58', '#240a10'], edge: '#f0b49a', glow: '#ffb040', fog: '#2a0818', stars: 0.3, haze: '#5a1830', neb: ['#6a1838', '#3a1450', '#a03020'], comp: '#ffb040', mist: '#7a2a40', organic: true },
   };
 }
 
@@ -317,7 +317,7 @@ function stage6() {
   return {
     id: 6, name: '細胞空間', en: 'CELL SEA', length: L, scroll: 2.4, checkpoints: [0, 210, L - 30], boss: 'nucleus', terrain,
     events: m.done(), music: 'stage6',
-    pal: { sky: ['#020a08', '#06261e'], far: '#0a3a2c', ground: ['#2a6a4a', '#7adcae', '#0a2216'], edge: '#c8ffe8', glow: '#5affc0', fog: '#06261e', stars: 0.2, organic: true },
+    pal: { sky: ['#020a08', '#06261e'], far: '#0a3a2c', ground: ['#2a6a4a', '#7adcae', '#0a2216'], edge: '#c8ffe8', glow: '#5affc0', fog: '#06261e', stars: 0.2, haze: '#0e5a48', neb: ['#0e5a4a', '#1a3a60', '#3ac8a0'], comp: '#ffe08a', mist: '#3ab090', organic: true },
   };
 }
 
@@ -363,7 +363,7 @@ function stage7() {
   return {
     id: 7, name: '機械要塞', en: 'IRON CITADEL', length: L, scroll: 2.5, checkpoints: [0, 230, L - 30], boss: 'omega', terrain,
     events: m.done(), music: 'stage7',
-    pal: { sky: ['#020308', '#0a1020'], far: '#141c34', ground: ['#3a4256', '#8898ba', '#141822'], edge: '#bfe0ff', glow: '#4ab0ff', fog: '#0a1020', stars: 0.7, metal: true },
+    pal: { sky: ['#020308', '#0a1020'], far: '#141c34', ground: ['#3a4256', '#8898ba', '#141822'], edge: '#bfe0ff', glow: '#4ab0ff', fog: '#0a1020', stars: 0.7, haze: '#1c3264', neb: ['#1c3a80', '#3a2a78', '#3a90c8'], comp: '#ffb040', mist: '#3a5a98', metal: true },
   };
 }
 

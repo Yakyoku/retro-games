@@ -1,0 +1,840 @@
+// 月影の魔城 — 2D 描画（Canvas 2D）。盤面は常に 16:9（縦 13.5u）で、余白は黒帯＋装飾。HUD とメニューは同じキャンバスに実画素で描く。
+// 地形は「タイルの絵」をステージごとに 1 回だけ作り、毎フレームは見えるタイルだけを並べる（4K でも軽い）。
+import { T as TT } from '../shared/stages.js';
+import { QUALITY } from '../shared/config.js';
+import { setView, surfaceBelow } from '../shared/core.js';
+import { knightPose, knightJoints, STRIDE } from '../shared/anim.js';
+import { UI } from '../shared/ui.js';
+import { setOutlinePx } from './figures.js';
+import { skyExtras, lightning, backExtras, frontExtras, bossTint } from './ambience.js';
+import { drawKnight, drawShot, drawBurn, drawEnemy, drawEShot, drawItem, drawBoss, fireBlob, PAL } from './art.js';
+
+const TAU = Math.PI * 2;
+const VW = 24, VH = 13.5;
+function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
+const lin = (ctx, x0, y0, x1, y1, stops) => { const g = ctx.createLinearGradient(x0, y0, x1, y1); stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c)); return g; };
+
+export const THEMES = {
+  graveyard: { sky: ['#070b24', '#17214f', '#3b3f72'], moon: [0.78, 0.2, 1.0], far: '#1a1f3f', mid: '#10142c', fog: 'rgba(150,170,220,0.10)',
+    rock: ['#4a3b30', '#33281f', '#211913'], top: ['#3a5a48', '#24392e'], plat: ['#6a5034', '#3e2c1c'], tint: 'rgba(40,60,140,0.16)' },
+  village: { sky: ['#140a24', '#3a1d48', '#7a3e52'], moon: [0.2, 0.24, 0.8], far: '#261632', mid: '#1a0f22', fog: 'rgba(220,150,170,0.07)',
+    rock: ['#5a4c44', '#3c322c', '#26201c'], top: ['#6a5a4a', '#4a3e34'], plat: ['#7a5a3a', '#4a3420'], tint: 'rgba(90,40,90,0.14)' },
+  cave: { sky: ['#03070e', '#0a1824', '#10283a'], moon: null, far: '#0c1a26', mid: '#08121c', fog: 'rgba(90,170,200,0.08)',
+    rock: ['#41505e', '#2b3642', '#1a222c'], top: ['#55707a', '#3a4c56'], plat: ['#4a5a68', '#2a3642'], tint: 'rgba(20,80,110,0.18)' },
+  tower: { sky: ['#0a0818', '#1c1834', '#2e2648'], moon: [0.5, 0.15, 0.7], far: '#1c1830', mid: '#141022', fog: 'rgba(170,150,220,0.06)',
+    rock: ['#5c5868', '#3e3a4a', '#26232e'], top: ['#77728a', '#4c485a'], plat: ['#6a5034', '#3e2c1c'], tint: 'rgba(60,40,120,0.14)' },
+  fortress: { sky: ['#1a0604', '#4a140a', '#8a3414'], moon: [0.85, 0.22, 0.9], far: '#2a0e0a', mid: '#1c0806', fog: 'rgba(255,120,60,0.08)',
+    rock: ['#5a3430', '#3c2220', '#241412'], top: ['#7a4a3a', '#4a2a22'], plat: ['#5a4038', '#36241e'], tint: 'rgba(140,40,10,0.14)' },
+  citadel: { sky: ['#06020e', '#1a0a2e', '#3a1446'], moon: [0.5, 0.18, 1.2], far: '#1a0c28', mid: '#10071a', fog: 'rgba(200,120,255,0.07)',
+    rock: ['#3a3048', '#241e30', '#16121e'], top: ['#5a4a70', '#3a2e4a'], plat: ['#4a3a5a', '#2a2036'], tint: 'rgba(80,20,120,0.16)' },
+};
+
+export class Renderer2D {
+  constructor(canvas, app) {
+    this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false }); this.app = app; this.ui = new UI();
+    this.parts = []; this.shake = 0; this.time = 0; this.quality = app.save.quality; this.reserve = { bottom: 0, right: 0 };
+    this.fps = 60; this.frameMs = []; this.tiles = null; this.def = null; this.trails = new WeakMap(); this.faceAnim = new WeakMap(); this.born = new WeakMap();
+    this.resize();
+    addEventListener('resize', () => this.resize());
+  }
+  setQuality(q) { this.quality = q; this.resize(); }
+  resize() {
+    const dpr = window.devicePixelRatio || 1, cw = Math.max(1, this.cv.clientWidth), ch = Math.max(1, this.cv.clientHeight);
+    let q = this.quality === 'auto' ? this.autoQ || 'ultra' : this.quality;
+    const Q = QUALITY[q] || QUALITY.ultra;
+    let scale = dpr * Q.scale;
+    if (cw * ch * scale * scale > Q.maxPixels) scale = Math.sqrt(Q.maxPixels / (cw * ch));
+    const W = Math.round(cw * scale), H = Math.round(ch * scale);
+    if (this.cv.width !== W || this.cv.height !== H) { this.cv.width = W; this.cv.height = H; }
+    this.W = W; this.H = H; this.pxScale = scale;
+    // 画面いっぱいに使う。最低 24×13.5u は必ず見せ、横長・縦長の画面では見える範囲を広げる（最大 32×18u）
+    const zoom = ch < 600 ? 0.85 : 1; // 背の低い画面（横向きのスマホ・タブレットの Safari）は 15% 寄せてキャラクターを大きく
+    let T = Math.min(W / (VW * zoom), H / (VH * zoom));
+    if (W / T > 32) T = W / 32;
+    if (H / T > 18) T = H / 18;
+    this.viewW = W / T; this.viewH = H / T;
+    this.MW = W; this.MH = H;
+    // アーケードのドット表示: 世界を「1 タイル ≒ 24 ドット」の低い解像度で描き、整数倍に拡大する（ドットがにじまない）
+    this.pixel = (this.app.save.display || 'pixel') === 'pixel';
+    const S = this.pixel ? Math.max(1, Math.round(T / 24)) : 1;
+    this.S = S;
+    const lw = Math.ceil(W / S), lh = Math.ceil(H / S);
+    if (S > 1) {
+      if (!this.lowCv) { this.lowCv = document.createElement('canvas'); this.lowCtx = this.lowCv.getContext('2d', { willReadFrequently: true }); }
+      if (this.lowCv.width !== lw || this.lowCv.height !== lh) { this.lowCv.width = lw; this.lowCv.height = lh; }
+      this.wctx = this.lowCtx;
+    } else this.wctx = this.ctx;
+    this.T = T / S; this.W = lw; this.H = lh;
+    this.field = { x: 0, y: 0, w: lw, h: lh };
+    setOutlinePx(this.pixel && S > 1 ? 1.05 / this.T : 0); // ドット表示では輪郭を最低 1 ドットに
+    this.info = { css: `${cw}×${ch}`, dpr, internal: `${W}×${H}${S > 1 ? `（世界 ${lw}×${lh}×${S}）` : ''}`, field: `${this.viewW.toFixed(1)}×${this.viewH.toFixed(1)}u`, tilePx: this.T.toFixed(1), quality: q };
+    if (this.def) this.buildStage(this.def);
+  }
+  setStage(g) { if (this.def !== g.def || !this.tiles) { this.def = g.def; this.buildStage(g.def); } this.parts = []; }
+  // ---------------------------------------------------------------- ステージの準備（タイルの絵・背景）
+  buildStage(def) {
+    const th = THEMES[def.theme], T = Math.ceil(this.T);
+    this.th = th; this.grassy = def.theme === 'graveyard' || def.theme === 'village';
+    const mk = (fn) => { const c = document.createElement('canvas'); c.width = c.height = T; const x = c.getContext('2d'); x.scale(T, T); fn(x); return c; };
+    const r = rng(def.id * 977);
+    const solid = (top) => (x) => {
+      x.fillStyle = lin(x, 0, 0, 0, 1, [th.rock[0], th.rock[1]]); x.fillRect(0, 0, 1, 1);
+      // 石積み（テーマごとに形を変える）
+      const brick = def.theme === 'tower' || def.theme === 'fortress' || def.theme === 'citadel' || def.theme === 'village';
+      x.strokeStyle = 'rgba(0,0,0,0.45)'; x.lineWidth = 0.04;
+      if (brick) { x.beginPath(); x.moveTo(0, 0.5); x.lineTo(1, 0.5); x.moveTo(0.5 + (r() - 0.5) * 0.1, 0); x.lineTo(0.5, 0.5); x.moveTo(0.15, 0.5); x.lineTo(0.15, 1); x.stroke(); x.strokeStyle = 'rgba(255,255,255,0.09)'; x.beginPath(); x.moveTo(0.02, 0.54); x.lineTo(0.98, 0.54); x.stroke(); }
+      else for (let i = 0; i < 5; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},${0.05 + r() * 0.08})`; x.beginPath(); x.ellipse(r(), r(), 0.08 + r() * 0.14, 0.05 + r() * 0.08, r() * 3, 0, TAU); x.fill(); }
+      if (def.theme === 'citadel') { x.fillStyle = 'rgba(216,178,90,0.25)'; x.fillRect(0, 0.96, 1, 0.04); }
+      if (top) {
+        x.fillStyle = lin(x, 0, 0, 0, 0.28, [th.top[0], th.top[1]]); x.fillRect(0, 0, 1, 0.24);
+        x.fillStyle = 'rgba(200,220,255,0.28)'; x.fillRect(0, 0, 1, 0.035); // 月光の縁
+        if (def.theme === 'graveyard') for (let i = 0; i < 6; i++) { x.fillStyle = r() < 0.5 ? '#2a4a38' : '#4a6a52'; const gx = r(); x.beginPath(); x.moveTo(gx - 0.04, 0.02); x.lineTo(gx, -0.12 - r() * 0.1); x.lineTo(gx + 0.04, 0.02); x.fill(); }
+      }
+    };
+    this.tiles = {
+      top: [0, 1, 2].map(() => mk(solid(true))), mid: [0, 1, 2].map(() => mk(solid(false))),
+      plat: mk((x) => {
+        x.fillStyle = lin(x, 0, 0, 0, 0.35, th.plat); x.fillRect(0, 0, 1, 0.32);
+        x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 0.04; x.strokeRect(0.02, 0.02, 0.96, 0.28);
+        x.fillStyle = 'rgba(255,240,220,0.18)'; x.fillRect(0, 0, 1, 0.04);
+        x.fillStyle = 'rgba(0,0,0,0.35)'; x.fillRect(0.1, 0.32, 0.08, 0.2); x.fillRect(0.82, 0.32, 0.08, 0.2);
+      }),
+      ladder: mk((x) => {
+        x.fillStyle = '#6a4a2a'; x.fillRect(0.14, 0, 0.12, 1); x.fillRect(0.74, 0, 0.12, 1);
+        x.fillStyle = '#8a6a40'; for (const y of [0.2, 0.7]) x.fillRect(0.14, y, 0.72, 0.09);
+        x.fillStyle = 'rgba(255,255,255,0.15)'; x.fillRect(0.14, 0, 0.03, 1); x.fillRect(0.74, 0, 0.03, 1);
+      }),
+    };
+    this.bg = this.buildBackground(def);
+    // 墓石など、飾りの絵が地形の代わりになるタイル（地形の四角を描かない）
+    this.skip = new Set();
+    for (const d of def.deco || []) if (d.type === 'grave') for (let k = 0; k < (d.h || 1); k++) this.skip.add((d.y + k) * def.W + d.x);
+  }
+  buildBackground(def) {
+    // 遠景・中景を「横に繰り返せる」1 枚ずつのキャンバスに焼く（高さは盤面の 1.6 倍で縦スクロールにも対応）
+    const th = this.th, fw = this.field.w, fh = this.field.h;
+    const W = Math.round(fw * 1.5), H = Math.round(fh * 1.6);
+    const layer = (fn) => { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); fn(x, W, H); return c; };
+    const r = rng(def.id * 131 + 7);
+    const far = layer((x, W, H) => {
+      x.fillStyle = th.far;
+      const base = H * 0.72;
+      x.beginPath(); x.moveTo(0, H);
+      for (let i = 0; i <= 24; i++) { const px = (i / 24) * W; x.lineTo(px, base - (Math.sin(i * 0.9 + def.id) * 0.5 + 0.5) * H * 0.12 - (i % 5 === 2 ? H * 0.05 : 0)); }
+      x.lineTo(W, H); x.closePath(); x.fill();
+      // 遠くの魔城（どのステージからも見える目標）
+      if (def.theme !== 'cave' && def.theme !== 'tower') {
+        const cx = W * 0.68, cy = base - H * 0.1, s = H * 0.24;
+        x.fillStyle = th.far;
+        for (const [dx, w, h] of [[-0.35, 0.12, 0.7], [-0.15, 0.1, 1.0], [0, 0.16, 1.25], [0.18, 0.1, 0.85], [0.33, 0.12, 0.6]]) {
+          x.fillRect(cx + dx * s - (w * s) / 2, cy - h * s, w * s, h * s + H * 0.1);
+          x.beginPath(); x.moveTo(cx + dx * s - (w * s) / 2 - s * 0.02, cy - h * s); x.lineTo(cx + dx * s, cy - h * s - s * 0.25); x.lineTo(cx + dx * s + (w * s) / 2 + s * 0.02, cy - h * s); x.fill();
+        }
+        x.fillStyle = 'rgba(255,200,120,0.55)'; for (let i = 0; i < 9; i++) x.fillRect(cx + (r() - 0.5) * s * 0.7, cy - r() * s * 0.9, s * 0.012, s * 0.03);
+      }
+      if (def.theme === 'cave') { x.fillStyle = 'rgba(90,200,255,0.25)'; for (let i = 0; i < 30; i++) { const px = r() * W, py = H * (0.3 + r() * 0.5); x.beginPath(); x.moveTo(px, py); x.lineTo(px + 6, py - 18); x.lineTo(px + 12, py); x.fill(); } }
+    });
+    const mid = layer((x, W, H) => {
+      x.fillStyle = th.mid;
+      const base = H * 0.86, U = this.T;
+      const t = def.theme;
+      const wrap = (fn) => { for (const off of [-W, 0, W]) { x.save(); x.translate(off, 0); fn(); x.restore(); } };
+      wrap(() => {
+        const rr = rng(def.id * 53);
+        if (t === 'graveyard') {
+          for (let i = 0; i < 9; i++) { const px = rr() * W, h = U * (3 + rr() * 3); deadTree(x, px, base, h, rr); }
+          for (let i = 0; i < 26; i++) { const px = rr() * W, h = U * (0.6 + rr() * 0.6); if (rr() < 0.5) { x.fillRect(px, base - h, U * 0.12, h); x.fillRect(px - U * 0.25, base - h * 0.75, U * 0.62, U * 0.12); } else { x.beginPath(); x.moveTo(px, base); x.lineTo(px, base - h); x.arc(px + U * 0.3, base - h, U * 0.3, Math.PI, 0); x.lineTo(px + U * 0.6, base); x.fill(); } }
+        } else if (t === 'village') {
+          for (let i = 0; i < 8; i++) { const px = rr() * W, w = U * (3 + rr() * 3), h = U * (3 + rr() * 3); x.fillRect(px, base - h, w, h); x.beginPath(); x.moveTo(px - U * 0.4, base - h); x.lineTo(px + w * 0.5, base - h - U * (1.5 + rr())); x.lineTo(px + w + U * 0.4, base - h); x.fill(); x.fillStyle = 'rgba(255,180,90,0.35)'; if (rr() < 0.6) x.fillRect(px + w * 0.3, base - h * 0.6, U * 0.4, U * 0.5); x.fillStyle = th.mid; }
+        } else if (t === 'cave') {
+          for (let i = 0; i < 16; i++) { const px = rr() * W, h = U * (2 + rr() * 5); x.beginPath(); x.moveTo(px - U, base); x.lineTo(px, base - h); x.lineTo(px + U, base); x.fill(); x.beginPath(); x.moveTo(px - U * 0.7, 0); x.lineTo(px + U * 0.3, h * 0.8); x.lineTo(px + U, 0); x.fill(); }
+        } else if (t === 'tower') {
+          x.fillStyle = '#1a1628'; x.fillRect(0, 0, W, H);
+          x.strokeStyle = 'rgba(0,0,0,0.5)'; x.lineWidth = 2; for (let yy = 0; yy < H; yy += U * 0.8) { x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); }
+          for (let i = 0; i < 6; i++) { const px = (i + 0.5) * (W / 6), py = H * (0.15 + (i % 3) * 0.28); x.fillStyle = '#2e3870'; x.beginPath(); x.moveTo(px - U * 0.6, py + U * 1.6); x.lineTo(px - U * 0.6, py); x.arc(px, py, U * 0.6, Math.PI, 0); x.lineTo(px + U * 0.6, py + U * 1.6); x.fill(); x.fillStyle = 'rgba(200,220,255,0.6)'; x.beginPath(); x.arc(px + U * 0.15, py + U * 0.2, U * 0.18, 0, TAU); x.fill(); }
+        } else if (t === 'fortress') {
+          for (let i = 0; i < 7; i++) { const px = rr() * W, w = U * (3 + rr() * 4), h = U * (4 + rr() * 4); x.fillRect(px, base - h, w, h); for (let k = 0; k < w / U; k += 1) x.fillRect(px + k * U, base - h - U * 0.6, U * 0.55, U * 0.6); x.fillStyle = 'rgba(255,120,40,0.4)'; x.fillRect(px + w * 0.4, base - h * 0.5, U * 0.3, U * 0.6); x.fillStyle = th.mid; }
+        } else if (t === 'citadel') {
+          for (let i = 0; i < 7; i++) { const px = (i / 7) * W, w = U * 1.4, h = H * 0.8; x.fillRect(px, base - h, w, h); x.beginPath(); x.arc(px + W / 14 + w / 2, base - h, W / 14, Math.PI, 0); x.lineWidth = U * 0.6; x.strokeStyle = th.mid; x.stroke(); }
+          x.fillStyle = 'rgba(200,120,255,0.25)'; for (let i = 0; i < 14; i++) x.fillRect(rr() * W, base - rr() * H * 0.6, U * 0.08, U * 0.3);
+        }
+      });
+    });
+    // 遠景・中景の影絵の上の縁に月光（上に何もない画素だけを細く明るく）
+    for (const [cv, a] of [[far, 0.35], [mid, 0.5]]) {
+      const rim = document.createElement('canvas'); rim.width = W; rim.height = H; const x = rim.getContext('2d');
+      x.drawImage(cv, 0, 0); x.globalCompositeOperation = 'destination-out'; x.drawImage(cv, 0, Math.max(2, Math.round(this.T * 0.08)));
+      x.globalCompositeOperation = 'source-in'; x.fillStyle = `rgba(175,200,255,${a})`; x.fillRect(0, 0, W, H);
+      cv.getContext('2d').drawImage(rim, 0, 0);
+    }
+    // 近景の層: 中景を 1.4 倍にして、霧の色で暗く塗り直す（大気の遠近: 近いほど濃く暗い）
+    const near = document.createElement('canvas'); near.width = W; near.height = H;
+    { const x = near.getContext('2d'); x.save(); x.translate(0, H); x.scale(1.4, 1.4); x.translate(0, -H); x.drawImage(mid, 0, 0); x.drawImage(mid, -W / 1.4 * 0.6, 0); x.restore();
+      x.globalCompositeOperation = 'source-in'; x.fillStyle = 'rgba(4,4,12,0.96)'; x.fillRect(0, 0, W, H); }
+    return { far, mid, near, W, H };
+  }
+
+  // ---------------------------------------------------------------- 毎フレーム
+  render(g, alpha, dt) {
+    const t0 = performance.now();
+    this.time += dt; this.lastDt = dt;
+    const ctx = this.wctx, F = this.field;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#05050a'; ctx.fillRect(0, 0, this.W, this.H);
+    if (!g || !this.def) { this.drawTitleBack(ctx); }
+    else {
+      if (!g.view || Math.abs(g.view.w - this.viewW) > 0.01 || Math.abs(g.view.h - this.viewH) > 0.01) setView(g, this.viewW, this.viewH);
+      let cx = g.pcam.x + (g.cam.x - g.pcam.x) * alpha, cy = g.pcam.y + (g.cam.y - g.pcam.y) * alpha;
+      // カメラのばね（臨界減衰）: 論理カメラを追うが、急な動きは丸める。プレイヤーが画面外に出ない範囲で
+      if (!this.cam || Math.hypot(this.cam.x - cx, this.cam.y - cy) > 6) this.cam = { x: cx, y: cy, vx: 0, vy: 0 };
+      { const w = 11, c = this.cam, d = Math.min(0.05, dt); c.vx += (-(c.x - cx) * w * w - 2 * w * c.vx) * d; c.vy += (-(c.y - cy) * w * w - 2 * w * c.vy) * d; c.x += c.vx * d; c.y += c.vy * d; cx = Math.min(cx + 1.2, Math.max(cx - 1.2, c.x)); cy = Math.min(cy + 0.8, Math.max(cy - 0.8, c.y)); }
+      this.shake = Math.max(0, this.shake - dt);
+      const sh = this.shake > 0 ? Math.pow(this.shake, 1.5) * 0.7 : 0;
+      const T = this.T;
+      ctx.save(); ctx.beginPath(); ctx.rect(F.x, F.y, F.w, F.h); ctx.clip();
+      this.drawSky(ctx, cx, cy);
+      const nz = (a) => Math.sin(this.time * a) * 0.6 + Math.sin(this.time * a * 1.73 + 1.3) * 0.4; // 揺れは周期の違う正弦の和（ガタつかない）
+      const ox = Math.round(F.x + F.w / 2 - cx * T + nz(47) * sh * T * 0.3), oy = Math.round(F.y + F.h / 2 + cy * T + nz(53) * sh * T * 0.3);
+      this.view = { ox, oy, T, x0: cx - this.viewW / 2 - 1, x1: cx + this.viewW / 2 + 1, y0: cy - this.viewH / 2 - 1, y1: cy + this.viewH / 2 + 1 };
+      this.drawWorld(ctx, g, alpha);
+      ctx.restore();
+    }
+    // ドット表示: 色を段階に丸め（4×4 の網点で中間色を表す）、整数倍で画面へ拡大
+    const mctx = this.ctx;
+    if (this.wctx !== this.ctx) {
+      if (this.app.save.dither !== false) this.quantize(this.lowCtx, this.W, this.H);
+      mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.imageSmoothingEnabled = false;
+      mctx.drawImage(this.lowCv, 0, 0, this.W * this.S, this.H * this.S);
+      if (this.app.save.scanlines) this.scanlines(mctx);
+    }
+    // HUD・メニュー（実画素の画面に描く。文字はにじまない）
+    const rect = { x: 0, y: 0, w: this.MW, h: this.MH };
+    this.ui.draw(mctx, this.app, rect, { reserveBottom: this.reserve.bottom * this.pxScale, reserveRight: (this.reserve.right || 0) * this.pxScale, debugText: this.debugText(g) });
+    const ms = performance.now() - t0;
+    this.frameMs.push(ms); if (this.frameMs.length > 120) this.frameMs.shift();
+  }
+  // 各色を 11 段階へ丸める。4×4 の Bayer 網点で境目をならす（当時の基板の限られた色数の質感）
+  quantize(ctx, w, h) {
+    if (!this.qLut) {
+      const L = 11, B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 11 段階・網点は弱め（画面全体のざらつきを抑える）
+      this.qLut = new Uint8Array(256 * 16);
+      for (let t = 0; t < 16; t++) for (let v = 0; v < 256; v++) { const d = (B[t] / 16 - 0.5) * (255 / (L - 1)) * 0.7; this.qLut[t * 256 + v] = Math.round(Math.min(L - 1, Math.max(0, Math.round(((v + d) / 255) * (L - 1))))) * (255 / (L - 1)); }
+    }
+    const img = ctx.getImageData(0, 0, w, h), a = img.data, lut = this.qLut;
+    for (let y = 0; y < h; y++) {
+      const row = (y & 3) << 2;
+      for (let x = 0, i = y * w * 4; x < w; x++, i += 4) { const o = (row | (x & 3)) << 8; a[i] = lut[o | a[i]]; a[i + 1] = lut[o | a[i + 1]]; a[i + 2] = lut[o | a[i + 2]]; }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  // 走査線（任意）: 拡大後のドットの段ごとに薄い暗い線
+  scanlines(ctx) {
+    if (!this.scanPat || this.scanS !== this.S) { const c = document.createElement('canvas'); c.width = 1; c.height = this.S; const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(0, this.S - 1, 1, 1); this.scanPat = ctx.createPattern(c, 'repeat'); this.scanS = this.S; }
+    ctx.fillStyle = this.scanPat; ctx.fillRect(0, 0, this.MW, this.MH);
+  }
+  debugText(g) {
+    if (!this.app.debug) return '';
+    const avg = this.frameMs.reduce((a, b) => a + b, 0) / (this.frameMs.length || 1);
+    return `FPS ${this.fps.toFixed(0)}  描画 ${avg.toFixed(1)}ms\n画面 ${this.info.css}(css) dpr ${this.info.dpr} → 内部 ${this.info.internal}  盤面 ${this.info.field}  1u=${this.info.tilePx}px  ${this.info.quality}` +
+      (g ? `\n敵 ${g.enemies.length} 弾 ${g.eshots.length} 粒子 ${this.parts.length} x ${g.player.x.toFixed(2)} y ${g.player.y.toFixed(2)} ${g.player.state}` : '');
+  }
+  // 空（グラデーション・月・暈）と、手前の霧・夜の色味・周辺減光は、盤面の大きさの絵に 1 回だけ焼く（毎フレームの全画面塗りを減らす）
+  bakeSky() {
+    const F = this.field, th = this.th, c = document.createElement('canvas'); c.width = F.w; c.height = F.h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = lin(ctx, 0, 0, 0, F.h, th.sky); ctx.fillRect(0, 0, F.w, F.h);
+    if (th.moon) {
+      const [mx, my, ms] = th.moon, R = F.h * 0.09 * ms, x = F.w * mx, y = F.h * my;
+      const halo = ctx.createRadialGradient(x, y, R * 0.8, x, y, R * 4); halo.addColorStop(0, 'rgba(200,220,255,0.35)'); halo.addColorStop(1, 'rgba(200,220,255,0)');
+      ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, R * 4, 0, TAU); ctx.fill();
+      const mg = ctx.createRadialGradient(x - R * 0.3, y - R * 0.3, R * 0.1, x, y, R); mg.addColorStop(0, '#fffdf2'); mg.addColorStop(1, this.def.theme === 'fortress' ? '#ff9a6a' : '#c8d4f0');
+      ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(120,130,170,0.25)'; for (const [a, b, r] of [[0.3, -0.2, 0.2], [-0.35, 0.25, 0.14], [0.1, 0.4, 0.1]]) { ctx.beginPath(); ctx.arc(x + a * R, y + b * R, r * R, 0, TAU); ctx.fill(); }
+    }
+    this.skyImg = c;
+    const o = document.createElement('canvas'); o.width = F.w; o.height = F.h; const x = o.getContext('2d');
+    const fg = x.createLinearGradient(0, F.h * 0.45, 0, F.h); fg.addColorStop(0, 'rgba(0,0,0,0)'); fg.addColorStop(1, th.fog);
+    x.fillStyle = fg; x.fillRect(0, F.h * 0.45, F.w, F.h * 0.55);
+    this.fogImg = o;
+    const v = document.createElement('canvas'); v.width = F.w; v.height = F.h; const y2 = v.getContext('2d');
+    y2.fillStyle = th.tint; y2.fillRect(0, 0, F.w, F.h);
+    { const cg = y2.createLinearGradient(0, 0, 0, F.h); cg.addColorStop(0, 'rgba(40,70,160,0.10)'); cg.addColorStop(0.55, 'rgba(0,0,0,0)'); cg.addColorStop(1, 'rgba(120,60,30,0.08)'); y2.fillStyle = cg; y2.fillRect(0, 0, F.w, F.h); }
+    const vg = y2.createRadialGradient(F.w / 2, F.h / 2, F.h * 0.45, F.w / 2, F.h / 2, F.w * 0.65); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,10,0.5)');
+    y2.fillStyle = vg; y2.fillRect(0, 0, F.w, F.h);
+    this.tintImg = v;
+  }
+  drawSky(ctx, cx, cy) {
+    const F = this.field, th = this.th, bg = this.bg;
+    if (!this.skyImg || this.skyImg.width !== F.w || this.skyTheme !== th) { this.bakeSky(); this.skyTheme = th; }
+    ctx.drawImage(this.skyImg, F.x, F.y);
+    skyExtras(this, ctx, cx, cy);
+    // 雲（ゆっくり流れる）
+    ctx.fillStyle = 'rgba(160,170,210,0.07)';
+    for (let i = 0; i < 5; i++) { const w = F.w * 0.4, x = F.x + ((((i * 0.31 + this.time * 0.004 - cx * 0.002) % 1) + 1) % 1) * (F.w + w) - w, y = F.y + F.h * (0.12 + i * 0.07); ctx.beginPath(); ctx.ellipse(x + w / 2, y, w / 2, F.h * 0.02, 0, 0, TAU); ctx.fill(); }
+    const T = this.T, vert = this.def.vertical;
+    const par = (img, k, ky) => {
+      const off = ((-(cx * T * k) % bg.W) + bg.W) % bg.W;
+      const yy = F.y + F.h - bg.H + (vert ? ((cy * T * ky) % (bg.H * 0.375)) : (cy - this.viewH / 2) * T * ky) + bg.H * 0.32;
+      for (let x = F.x + off - bg.W; x < F.x + F.w; x += bg.W) ctx.drawImage(img, Math.round(x), Math.round(yy));
+    };
+    // 月の光の筋（ゆっくり回る）と、月の前を流れる雲
+    if (th.moon) {
+      const [mx, my, ms] = th.moon, R = F.h * 0.09 * ms, x = F.x + F.w * mx, y = F.y + F.h * my;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 9; i++) { const a = this.time * 0.02 + i * 0.7, w = 0.05 + (i % 3) * 0.025, L = F.h * (0.9 + (i % 2) * 0.4);
+        ctx.fillStyle = `rgba(190,210,255,${0.025 + (i % 3) * 0.01})`; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a - w) * L, y + Math.sin(a - w) * L); ctx.lineTo(x + Math.cos(a + w) * L, y + Math.sin(a + w) * L); ctx.closePath(); ctx.fill(); }
+      ctx.restore();
+      for (let i = 0; i < 3; i++) { const cw = R * (3 + i), cx2 = x + ((((this.time * (6 + i * 3) + i * 400) % (F.w + cw * 2)) + F.w + cw * 2) % (F.w + cw * 2)) - F.w / 2 - cw, cy2 = y + R * (0.3 - i * 0.45);
+        const gr = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, cw); gr.addColorStop(0, `rgba(10,12,30,${0.55 - i * 0.12})`); gr.addColorStop(1, 'rgba(10,12,30,0)');
+        ctx.fillStyle = gr; ctx.save(); ctx.translate(cx2, cy2); ctx.scale(1, 0.22); ctx.translate(-cx2, -cy2); ctx.beginPath(); ctx.arc(cx2, cy2, cw, 0, TAU); ctx.fill(); ctx.restore(); }
+    }
+    par(bg.far, 0.12, 0.05);
+    { const hz = ctx.createLinearGradient(0, F.y + F.h * 0.45, 0, F.y + F.h * 0.85); hz.addColorStop(0, 'rgba(0,0,0,0)'); hz.addColorStop(0.6, th.fog.replace(/[\d.]+\)$/, '0.22)')); hz.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = hz; ctx.fillRect(F.x, F.y + F.h * 0.45, F.w, F.h * 0.4); }
+    par(bg.mid, 0.35, vert ? 0.35 : 0.15);
+    if (bg.near && ['graveyard', 'cave', 'fortress'].includes(this.def.theme)) { ctx.globalAlpha = 0.72; par(bg.near, 0.58, vert ? 0.55 : 0.25); ctx.globalAlpha = 1; } // 壁で埋まる中景（塔・魔城・村）には使わない
+    ctx.drawImage(this.fogImg, F.x, F.y);
+  }
+  // ワールド座標（u）→ 画面の変換を設定。face で左右反転
+  at(ctx, x, y, face = 1, s = 1) { const v = this.view; ctx.setTransform(v.T * face * s, 0, 0, -v.T * s, v.ox + x * v.T, v.oy - y * v.T); }
+  drawWorld(ctx, g, alpha) {
+    const v = this.view, def = g.def, time = this.time;
+    const lerpP = (o) => [o.px + (o.x - o.px) * alpha, o.py + (o.y - o.py) * alpha];
+    // 背景側の飾り（地下墓所の壁・塔の柱など）
+    for (const d of def.deco) if (d.x + (d.w || 3) > v.x0 - 3 && d.x < v.x1 + 3) this.decoBack(ctx, d, g);
+    backExtras(this, ctx, g);
+    this.drawTiles(ctx, g);
+    this.drawLiquids(ctx, g);
+    for (const d of def.deco) if (d.x + (d.w || 3) > v.x0 - 3 && d.x < v.x1 + 3) this.decoFront(ctx, d, g);
+    // 移動床
+    for (const m of g.movers) { const x = m.pcx + (m.cx - m.pcx) * alpha, y = m.pcy + (m.cy - m.pcy) * alpha; this.at(ctx, x, y); this.moverArt(ctx, m); }
+    // 炎の柱
+    for (const j of g.jets) this.jetArt(ctx, j, time);
+    // アイテム
+    for (const it of g.items) { const q = Math.min(1, (it.t || 1) / 0.3), pop = q < 1 ? 1 + Math.sin(q * Math.PI) * 0.35 : 1; this.at(ctx, it.x, it.y); ctx.scale(pop, pop); drawItem(ctx, it, time); }
+    // 燃える火
+    for (const f of g.burns) { this.at(ctx, f.x, f.y); drawBurn(ctx, f, time); }
+    // 接地の影（キャラクターの足元。空中にいると小さく薄く）
+    this.shadow(ctx, g, ...lerpP(g.player), 0.42);
+    for (const e of g.enemies) if (e.type !== 'imp' && e.type !== 'turret' && !(e.type === 'hopper' && e.water) && !(e.type === 'caster' && e.st === 'hidden')) this.shadow(ctx, g, ...lerpP(e), e.w * 0.55);
+    if (g.boss && g.boss.st !== 'submerged' && g.boss.st !== 'ripple') this.shadow(ctx, g, ...lerpP(g.boss), g.boss.w * 0.6);
+    // 敵
+    for (const e of g.enemies) {
+      const [x, y] = lerpP(e);
+      if (e.type === 'hopper' && e.st === 'hop' && e.landX != null) { this.at(ctx, e.landX, Math.round(e.home ? e.home.y : y)); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(0, 0.02, 0.5, 0.1, 0, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(255,120,80,0.6)'; ctx.lineWidth = 0.03; ctx.stroke(); }
+      // 出現は小さく弾むように（0.25 秒の行き過ぎて戻る拡大）、振り向きは横幅をつぶして返す
+      let fa = this.faceAnim.get(e); fa = fa == null ? (e.face || 1) : fa + ((e.face || 1) - fa) * Math.min(1, (this.lastDt || 0.016) * 18); this.faceAnim.set(e, fa);
+      const born = this.born.get(e) ?? (this.born.set(e, this.time), this.time), age = this.time - born;
+      const pop = age < 0.25 && e.type !== 'ghoul' ? (() => { const q = age / 0.25; return 1 + 2.2 * Math.pow(q - 1, 3) + 1.2 * Math.pow(q - 1, 2); })() : 1;
+      this.at(ctx, x, y, Math.sign(fa) || 1); ctx.scale(Math.max(0.2, Math.abs(fa)) * pop, pop); drawEnemy(ctx, e, time);
+    }
+    // ボス
+    const b = g.boss;
+    if (b) {
+      if (b.type === 'riverbeast' && b.st === 'ripple') { this.at(ctx, b.wx, 2); for (let i = 0; i < 3; i++) { const k = ((time * 1.5 + i / 3) % 1); ctx.strokeStyle = `rgba(200,240,255,${1 - k})`; ctx.lineWidth = 0.05; ctx.beginPath(); ctx.ellipse(0, 0, 0.3 + k * 1.2, 0.08 + k * 0.2, 0, 0, TAU); ctx.stroke(); } for (let i = 0; i < 5; i++) { const k = (time * 2 + i * 0.2) % 1; ctx.fillStyle = 'rgba(220,250,255,0.8)'; ctx.beginPath(); ctx.arc((i - 2) * 0.3, k * 1.2, 0.06 * (1 - k) + 0.02, 0, TAU); ctx.fill(); } }
+      const [x, y] = lerpP(b); this.drawBossLit(ctx, b, x, y, time);
+    }
+    // プレイヤー
+    const p = g.player;
+    {
+      const [x, y] = lerpP(p);
+      const fx = this.knightFX(g, p, x, y);
+      if (!(p.inv > 0 && g.mode === 'play' && Math.floor(time * 20) % 2 === 0)) {
+        const up = p.state === 'jump' ? Math.min(1, p.vy / 9) : 0, land = p.landT > 0 ? p.landT / 0.12 : 0;
+        const sy = 1 + up * 0.07 - land * 0.08, sx = 1 / Math.sqrt(sy);
+        // 振り向きは一瞬で反転せず、横幅をつぶして返す（0.08 秒）
+        this.kf = this.kf == null ? p.face : this.kf + (p.face - this.kf) * Math.min(1, (this.lastDt || 0.016) * 26);
+        const fs = Math.abs(this.kf) < 0.2 ? 0.2 : Math.abs(this.kf);
+        this.at(ctx, x, y, Math.sign(this.kf) || p.face); ctx.scale(sx * fs, sy); drawKnight(ctx, p, time, { weapon: g.weapon, time, ...fx });
+      }
+    }
+    // 弾
+    for (const s of g.shots) {
+      const [x, y] = lerpP(s);
+      // 軌跡（回る斧・火炎は弧、槍と短剣は直線の残像）
+      const tr = this.trails.get(s) || []; tr.push([x, y]); if (tr.length > 8) tr.shift(); this.trails.set(s, tr);
+      if (tr.length > 2) { this.at(ctx, 0, 0); ctx.lineCap = 'round'; for (let i = 1; i < tr.length; i++) { const k = i / tr.length; ctx.strokeStyle = s.kind === 'torch' ? `rgba(255,150,50,${k * 0.5})` : `rgba(200,225,255,${k * 0.45})`; ctx.lineWidth = (s.kind === 'axe' || s.kind === 'torch' ? 0.22 : 0.09) * k; ctx.beginPath(); ctx.moveTo(...tr[i - 1]); ctx.lineTo(...tr[i]); ctx.stroke(); } }
+      this.at(ctx, x, y, s.face); drawShot(ctx, s, time);
+    }
+    for (const s of g.eshots) { const [x, y] = lerpP(s); this.at(ctx, x, y, s.kind === 'beam' || s.kind === 'wave' ? 1 : 1); drawEShot(ctx, s, time); }
+    // 粒子と得点
+    this.drawParticles(ctx, alpha);
+    for (const f of g.fx) if (f.kind === 'score') { const q = 1 - f.t / 0.9, up = 1 - Math.pow(1 - q, 3), sc = q < 0.15 ? 0.6 + (q / 0.15) * 0.7 : 1.3 - Math.min(0.3, (q - 0.15) * 1.5); this.at(ctx, f.x, f.y + up * 1.0); ctx.scale(sc, -sc); ctx.globalAlpha = Math.min(1, f.t * 3); ctx.font = '700 0.42px ui-monospace,Consolas,monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText(f.n, 0.03, 0.03); ctx.fillStyle = '#ffe9a0'; ctx.fillText(f.n, 0, 0); ctx.globalAlpha = 1; }
+    else if (f.kind === 'shake') this.shake = Math.max(this.shake, f.t);
+    frontExtras(this, ctx, g);
+    this.drawLights(ctx, g);
+    this.drawAmbient(ctx, g);
+    this.drawForeground(ctx, g);
+    // 夜の色味と周辺減光
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const F = this.field;
+    ctx.drawImage(this.tintImg, F.x, F.y);
+    bossTint(this, ctx, g); lightning(this, ctx);
+    if (g.mode === 'dying' && g.player.deadT > 0.5) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.85, (g.player.deadT - 0.5) * 1.8)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
+    // 暗転からの明転（ステージ開始・復活）と、クリア後の暗転
+    if (g.mode === 'ready') { const k = Math.max(0, Math.min(1, (g.modeT - (g.cp >= 0 ? 0.6 : 2.0)) / 0.4)); if (k > 0) { ctx.fillStyle = `rgba(0,0,0,${k})`; ctx.fillRect(F.x, F.y, F.w, F.h); } }
+    if (g.mode === 'clear' && g.tally && g.tally.doneT && g.tally.phase > g.tally.doneT + 1.6) { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, (g.tally.phase - g.tally.doneT - 1.6) / 0.6)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
+  }
+  // ---------------------------------------------------------------- 地形（6×6 タイルの区画ごとに「描いた地面」を焼いて使い回す）
+  drawTiles(ctx, g) {
+    const v = this.view, C = 6, def = g.def;
+    if (this.chunkTiles !== g.tiles || this.chunkT !== v.T || this.chunkLock !== g.lockCam) { this.chunks = new Map(); this.chunkTiles = g.tiles; this.chunkT = v.T; this.chunkLock = g.lockCam; }
+    const cx0 = Math.floor(Math.max(0, v.x0) / C), cx1 = Math.floor(Math.min(def.W - 1, v.x1) / C), cy0 = Math.floor(Math.max(0, v.y0) / C), cy1 = Math.floor(Math.min(def.H - 1, v.y1) / C);
+    const m = 0.5;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const key = cx + ',' + cy;
+      let c = this.chunks.get(key);
+      if (!c) { c = this.paintChunk(g, cx, cy, C, m, v.T); this.chunks.set(key, c); if (this.chunks.size > 80) this.chunks.delete(this.chunks.keys().next().value); }
+      else { this.chunks.delete(key); this.chunks.set(key, c); }
+      if (c) ctx.drawImage(c, Math.round(v.ox + (cx * C - m) * v.T), Math.round(v.oy - ((cy + 1) * C + m) * v.T));
+    }
+    ctx.restore();
+    // 揺れる草（上面の縁）
+    if (this.grassy) {
+      const x0 = Math.max(0, Math.floor(v.x0)), x1 = Math.min(def.W - 1, Math.ceil(v.x1)), y0 = Math.max(0, Math.floor(v.y0)), y1 = Math.min(def.H - 2, Math.ceil(v.y1));
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) if (g.tiles[ty * def.W + tx] === TT.SOLID && g.tiles[(ty + 1) * def.W + tx] !== TT.SOLID && !this.skip.has(ty * def.W + tx)) this.grass(ctx, v.ox + tx * v.T, v.oy - (ty + 1) * v.T, v.T, tx, ty);
+      ctx.restore();
+    }
+  }
+  paintChunk(g, cx, cy, C, m, T) {
+    const def = g.def, W = def.W, H = def.H, th = this.th, theme = def.theme;
+    const x0 = cx * C, y0 = cy * C, x1 = x0 + C, y1 = y0 + C;
+    const tileAt = (x, y) => (x < 0 || x >= W ? TT.SOLID : y < 0 ? TT.SOLID : y >= H ? 0 : g.tiles[y * W + x]);
+    const solid = (x, y) => tileAt(x, y) === TT.SOLID && !this.skip.has(y * W + x);
+    let any = false;
+    for (let y = y0 - 1; y <= y1 && !any; y++) for (let x = x0 - 1; x <= x1; x++) if (x >= 0 && x < W && y >= 0 && y < H && g.tiles[y * W + x]) { any = true; break; }
+    if (!any) return null;
+    const cv = document.createElement('canvas'); cv.width = Math.ceil((C + 2 * m) * T); cv.height = cv.width;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(T, 0, 0, -T, (m - x0) * T, (y1 + m) * T);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 - m, y0 - m, C + 2 * m, C + 2 * m); ctx.clip();
+    const brick = theme === 'tower' || theme === 'fortress' || theme === 'citadel' || theme === 'village';
+    const R = (x, y, s = 0) => { let h = (x * 374761393 + y * 668265263 + s * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+    const deep = th.rock[2], mid = th.rock[0];
+    // ① 固い地面: 列ごとに「上面からの深さ」で暗くなる縦のグラデーション（継ぎ目なし）
+    for (let x = x0 - 1; x <= x1; x++) {
+      let y = y1;
+      while (y >= y0 - 1) {
+        if (!solid(x, y)) { y--; continue; }
+        let top = y; while (solid(x, top + 1) && top + 1 <= y1 + 6) top++;
+        let bot = y; while (bot - 1 >= y0 - 1 && solid(x, bot - 1)) bot--;
+        const surf = top + 1;
+        const gr = ctx.createLinearGradient(0, surf, 0, surf - 4.5);
+        gr.addColorStop(0, mid); gr.addColorStop(0.35, th.rock[1]); gr.addColorStop(1, deep);
+        ctx.fillStyle = gr; ctx.fillRect(x - 0.01, bot, 1.02, y - bot + 1);
+        y = bot - 1;
+      }
+    }
+    // ② 質感: 煉瓦（城のテーマ）または埋まった石・根・骨
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      if (!solid(x, y)) continue;
+      if (brick) {
+        for (let row = 0; row < 2; row++) {
+          const by = y + row * 0.5, off = ((y * 2 + row) % 2) * 0.5;
+          for (let k = -1; k < 2; k++) {
+            const bx = x + off + k * 1.0 - 0.5; if (bx + 1 < x || bx > x + 1) continue;
+            const r = R(Math.floor(bx * 2), y * 2 + row, 3), c0 = Math.max(x, bx + 0.02), c1 = Math.min(x + 1, bx + 0.98);
+            if (c1 <= c0) continue;
+            ctx.fillStyle = `rgba(${r < 0.5 ? '255,240,220' : '0,0,10'},${0.04 + r * 0.06})`; ctx.fillRect(c0, by + 0.03, c1 - c0, 0.44);
+            ctx.fillStyle = 'rgba(255,240,230,0.10)'; ctx.fillRect(c0, by + 0.43, c1 - c0, 0.035);
+          }
+          ctx.fillStyle = 'rgba(0,0,8,0.45)'; ctx.fillRect(x, by, 1, 0.035);
+        }
+        ctx.fillStyle = 'rgba(0,0,8,0.4)'; for (let row = 0; row < 2; row++) { const off = ((y * 2 + row) % 2) * 0.5; for (const bx of [x + off, x + off - 1 + 1]) if (bx > x && bx < x + 1) ctx.fillRect(bx - 0.018, y + row * 0.5, 0.036, 0.5); }
+        if (theme === 'citadel' && R(x, y, 9) < 0.15) { ctx.fillStyle = 'rgba(216,178,90,0.35)'; ctx.fillRect(x, y + 0.48, 1, 0.04); }
+        if (theme === 'fortress' && R(x, y, 7) < 0.12) { ctx.strokeStyle = 'rgba(255,110,40,0.35)'; ctx.lineWidth = 0.025; ctx.beginPath(); ctx.moveTo(x + 0.2, y + 0.8); ctx.lineTo(x + 0.45, y + 0.5); ctx.lineTo(x + 0.4, y + 0.2); ctx.stroke(); }
+      } else {
+        const n = 2 + Math.floor(R(x, y) * 3);
+        for (let i = 0; i < n; i++) {
+          const sx = x + R(x, y, i * 3 + 1), sy = y + R(x, y, i * 3 + 2), rx = 0.08 + R(x, y, i * 3 + 3) * 0.16, ry = rx * (0.55 + R(x, y, i) * 0.3);
+          const gr = ctx.createLinearGradient(sx, sy + ry, sx, sy - ry); gr.addColorStop(0, 'rgba(255,255,255,0.16)'); gr.addColorStop(1, 'rgba(0,0,10,0.28)');
+          ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(sx, sy, rx, ry, R(x, y, i + 9) * 3, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,10,0.35)'; ctx.lineWidth = 0.015; ctx.stroke();
+        }
+        if (R(x, y, 5) < 0.12) { ctx.strokeStyle = theme === 'graveyard' ? 'rgba(90,60,40,0.7)' : 'rgba(30,40,50,0.6)'; ctx.lineWidth = 0.03; ctx.beginPath(); ctx.moveTo(x + 0.1, y + 0.9); ctx.quadraticCurveTo(x + 0.5, y + 0.6, x + 0.85, y + 0.75); ctx.stroke(); }
+        if (theme === 'graveyard' && R(x, y, 11) < 0.05) { ctx.fillStyle = 'rgba(230,220,195,0.55)'; ctx.beginPath(); ctx.ellipse(x + 0.5, y + 0.4, 0.14, 0.03, 0.4, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(x + 0.36, y + 0.34, 0.04, 0, Math.PI * 2); ctx.arc(x + 0.64, y + 0.46, 0.04, 0, Math.PI * 2); ctx.fill(); }
+        if (theme === 'cave' && R(x, y, 13) < 0.06) { ctx.fillStyle = 'rgba(110,220,255,0.6)'; ctx.beginPath(); ctx.moveTo(x + 0.4, y + 0.3); ctx.lineTo(x + 0.47, y + 0.55); ctx.lineTo(x + 0.54, y + 0.3); ctx.closePath(); ctx.fill(); }
+      }
+    }
+    // ③ 縁: 空いている横は内側に影、空いている下は暗い庇と垂れる根、上面は張り出す縁（草・苔・石の笠木）と月光
+    const lipC = { graveyard: ['#4c7a5c', '#22402e'], village: ['#8a7a62', '#4a3e30'], cave: ['#5f8a8a', '#2a4248'], tower: ['#9a94ac', '#5a566a'], fortress: ['#9a6a54', '#5a3426'], citadel: ['#7a6a98', '#3a2e50'] }[theme];
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      if (!solid(x, y)) continue;
+      if (!solid(x - 1, y)) { const gr = ctx.createLinearGradient(x, 0, x + 0.25, 0); gr.addColorStop(0, 'rgba(0,0,8,0.55)'); gr.addColorStop(1, 'rgba(0,0,8,0)'); ctx.fillStyle = gr; ctx.fillRect(x, y, 0.25, 1); ctx.fillStyle = 'rgba(160,190,240,0.18)'; ctx.fillRect(x, y, 0.03, 1); }
+      if (!solid(x + 1, y)) { const gr = ctx.createLinearGradient(x + 1, 0, x + 0.75, 0); gr.addColorStop(0, 'rgba(0,0,8,0.6)'); gr.addColorStop(1, 'rgba(0,0,8,0)'); ctx.fillStyle = gr; ctx.fillRect(x + 0.75, y, 0.25, 1); }
+      if (!solid(x, y - 1) && y > 0) {
+        ctx.fillStyle = 'rgba(0,0,8,0.55)'; ctx.fillRect(x, y, 1, 0.12);
+        if (!brick && R(x, y, 21) < 0.5) { ctx.strokeStyle = 'rgba(40,30,25,0.8)'; ctx.lineWidth = 0.025; ctx.beginPath(); const rx = x + R(x, y, 22); ctx.moveTo(rx, y); ctx.quadraticCurveTo(rx + 0.05, y - 0.2, rx - 0.04, y - 0.35 * R(x, y, 23) - 0.1); ctx.stroke(); }
+      }
+      if (!solid(x, y + 1) && tileAt(x, y + 1) !== TT.SOLID) {
+        const s = y + 1;
+        // 張り出した縁（波打つ下端）
+        ctx.beginPath(); ctx.moveTo(x - 0.04, s + 0.06);
+        for (let i = 0; i <= 6; i++) { const px = x - 0.04 + i * (1.08 / 6); ctx.lineTo(px, s - 0.16 - R(x, y, 30 + i) * (brick ? 0.03 : 0.12)); }
+        ctx.lineTo(x + 1.04, s + 0.06); ctx.closePath();
+        const gr = ctx.createLinearGradient(0, s + 0.06, 0, s - 0.28); gr.addColorStop(0, lipC[0]); gr.addColorStop(1, lipC[1]);
+        ctx.fillStyle = gr; ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,8,0.35)'; ctx.fillRect(x, s - 0.3, 1, 0.1); // 縁の下の影
+        ctx.fillStyle = 'rgba(200,225,255,0.45)'; ctx.fillRect(x - 0.02, s + 0.02, 1.04, 0.035); // 月光
+        if (!solid(x - 1, y) && tileAt(x - 1, y + 1) !== TT.SOLID) { ctx.beginPath(); ctx.arc(x, s - 0.08, 0.13, Math.PI / 2, Math.PI * 1.5); ctx.fillStyle = lipC[0]; ctx.fill(); }
+        if (!solid(x + 1, y) && tileAt(x + 1, y + 1) !== TT.SOLID) { ctx.beginPath(); ctx.arc(x + 1, s - 0.08, 0.13, -Math.PI / 2, Math.PI / 2); ctx.fillStyle = lipC[0]; ctx.fill(); }
+      }
+    }
+    // ④ 片側足場（板・梁）とはしご
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) {
+      const t = tileAt(x, y);
+      if (t === TT.PLAT && y >= 0) {
+        const top = y + 1, base = th.plat[0];
+        const gr = ctx.createLinearGradient(0, top, 0, top - 0.32); gr.addColorStop(0, base); gr.addColorStop(1, th.plat[1]);
+        ctx.fillStyle = gr; ctx.fillRect(x - 0.005, top - 0.3, 1.01, 0.3);
+        ctx.fillStyle = 'rgba(255,235,210,0.3)'; ctx.fillRect(x, top - 0.03, 1, 0.03);
+        ctx.strokeStyle = 'rgba(40,20,10,0.5)'; ctx.lineWidth = 0.012; for (const yy of [top - 0.1, top - 0.2]) { ctx.beginPath(); ctx.moveTo(x, yy + (R(x, y, 40) - 0.5) * 0.03); ctx.quadraticCurveTo(x + 0.5, yy + (R(x, y, 41) - 0.5) * 0.05, x + 1, yy); ctx.stroke(); }
+        if (R(x, y, 42) < 0.5) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 0.98, top - 0.3, 0.025, 0.3); }
+        ctx.fillStyle = '#c8c8d0'; ctx.beginPath(); ctx.arc(x + 0.15, top - 0.15, 0.025, 0, Math.PI * 2); ctx.arc(x + 0.85, top - 0.15, 0.025, 0, Math.PI * 2); ctx.fill();
+        if (tileAt(x - 1, y) !== TT.PLAT || tileAt(x + 1, y) !== TT.PLAT) { ctx.strokeStyle = th.plat[1]; ctx.lineWidth = 0.06; const ex = tileAt(x - 1, y) !== TT.PLAT ? x + 0.2 : x + 0.8; ctx.beginPath(); ctx.moveTo(ex, top - 0.3); ctx.lineTo(ex + (tileAt(x - 1, y) !== TT.PLAT ? 0.3 : -0.3), top - 0.75); ctx.stroke(); }
+        ctx.fillStyle = 'rgba(0,0,8,0.35)'; ctx.fillRect(x, top - 0.36, 1, 0.06);
+      } else if (t === TT.LADDER && y >= 0) {
+        for (const rx of [x + 0.18, x + 0.78]) { const gr = ctx.createLinearGradient(rx, 0, rx + 0.07, 0); gr.addColorStop(0, '#a07a48'); gr.addColorStop(1, '#4a3018'); ctx.fillStyle = gr; ctx.fillRect(rx, y - 0.005, 0.07, 1.01); }
+        for (const ry of [y + 0.22, y + 0.72]) {
+          const gr = ctx.createLinearGradient(0, ry + 0.07, 0, ry); gr.addColorStop(0, '#b08a58'); gr.addColorStop(1, '#5a3a20'); ctx.fillStyle = gr; ctx.fillRect(x + 0.2, ry, 0.62, 0.07);
+          ctx.strokeStyle = 'rgba(210,190,140,0.8)'; ctx.lineWidth = 0.018; for (const rx of [x + 0.215, x + 0.815]) { ctx.beginPath(); ctx.moveTo(rx - 0.04, ry + 0.09); ctx.lineTo(rx + 0.04, ry - 0.02); ctx.moveTo(rx - 0.04, ry - 0.02); ctx.lineTo(rx + 0.04, ry + 0.09); ctx.stroke(); }
+        }
+      }
+    }
+    ctx.restore();
+    return cv;
+  }
+  drawLiquids(ctx, g) {
+    const v = this.view, time = this.time;
+    for (const d of g.def.deco) {
+      if (d.type !== 'lava' && d.type !== 'water') continue;
+      if (d.x + d.w < v.x0 || d.x > v.x1) continue;
+      const surf = d.type === 'water' ? 2 : d.y;
+      this.at(ctx, d.x, 0);
+      if (d.type === 'water') {
+        ctx.fillStyle = lin(ctx, 0, surf, 0, -1, ['rgba(40,120,150,0.9)', 'rgba(5,20,40,1)']); ctx.fillRect(0, -1.5, d.w, surf + 1.5);
+        ctx.strokeStyle = 'rgba(190,240,255,0.7)'; ctx.lineWidth = 0.05; ctx.beginPath();
+        for (let x = 0; x <= d.w; x += 0.25) ctx.lineTo(x, surf - 0.05 + Math.sin(x * 3 + time * 3) * 0.05);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)'; for (let i = 0; i < d.w; i++) ctx.fillRect(i + ((time * 0.6 + i * 0.37) % 1) * 0.7, surf - 0.25, 0.3, 0.03);
+      } else {
+        ctx.fillStyle = lin(ctx, 0, surf, 0, -1, ['#ffcf4a', '#ff5a1a', '#7a1004']); ctx.fillRect(0, -1.5, d.w, surf + 1.5);
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const gl = ctx.createLinearGradient(0, surf, 0, surf + 2.5); gl.addColorStop(0, 'rgba(255,120,30,0.45)'); gl.addColorStop(1, 'rgba(255,60,10,0)');
+        ctx.fillStyle = gl; ctx.fillRect(0, surf, d.w, 2.5);
+        for (let i = 0; i < d.w * 1.5; i++) { const k = (time * 0.7 + i * 0.61) % 1; ctx.fillStyle = `rgba(255,240,180,${1 - k})`; ctx.beginPath(); ctx.arc((i * 0.67) % d.w, surf - 0.1 + k * 0.4, 0.08 * (1 - k) + 0.03, 0, TAU); ctx.fill(); }
+        ctx.restore();
+        ctx.strokeStyle = '#fff2a0'; ctx.lineWidth = 0.05; ctx.beginPath(); for (let x = 0; x <= d.w; x += 0.25) ctx.lineTo(x, surf - 0.04 + Math.sin(x * 2.3 + time * 2) * 0.05); ctx.stroke();
+      }
+    }
+  }
+  decoBack(ctx, d, g) {
+    const th = this.th;
+    this.at(ctx, d.x, d.y);
+    if (d.type === 'catacomb') {
+      ctx.fillStyle = 'rgba(20,16,22,0.92)'; ctx.fillRect(0, 0, d.w, d.h);
+      for (let x = 1; x < d.w; x += 3) { ctx.fillStyle = '#0a080c'; ctx.beginPath(); ctx.moveTo(x, 1.4); ctx.lineTo(x, 2.6); ctx.arc(x + 0.6, 2.6, 0.6, Math.PI, 0, true); ctx.lineTo(x + 1.2, 1.4); ctx.fill(); ctx.fillStyle = 'rgba(230,220,190,0.55)'; ctx.beginPath(); ctx.arc(x + 0.6, 1.75, 0.2, 0, TAU); ctx.fill(); ctx.fillStyle = '#0a080c'; ctx.fillRect(x + 0.48, 1.7, 0.09, 0.08); ctx.fillRect(x + 0.63, 1.7, 0.09, 0.08); }
+      for (let x = 2; x < d.w; x += 9) { const fl = 0.8 + 0.2 * Math.sin(this.time * 9 + x); fireBlob(ctx, x, 3.3, 0.12 * fl, this.time, 0.9); ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x - 0.05, 2.9, 0.1, 0.35); }
+    } else if (d.type === 'house') {
+      ctx.fillStyle = 'rgba(40,30,36,0.95)'; ctx.fillRect(0, 0, d.w, d.h);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 0.05; for (let y = 0.6; y < d.h; y += 0.6) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(d.w, y); ctx.stroke(); }
+      ctx.fillStyle = '#20141a'; ctx.beginPath(); ctx.moveTo(-0.6, d.h); ctx.lineTo(d.w / 2, d.h + 2.4); ctx.lineTo(d.w + 0.6, d.h); ctx.fill();
+      if (d.broken) { ctx.fillStyle = this.th.sky[1]; ctx.beginPath(); ctx.moveTo(d.w * 0.55, d.h + 1.8); ctx.lineTo(d.w * 0.7, d.h + 0.4); ctx.lineTo(d.w * 0.9, d.h + 0.9); ctx.lineTo(d.w * 0.8, d.h + 1.6); ctx.fill(); }
+      for (let i = 1; i < d.w - 1; i += 3) { ctx.fillStyle = 'rgba(255,190,100,0.55)'; ctx.fillRect(i, 1.2, 0.8, 1.0); ctx.fillStyle = '#20141a'; ctx.fillRect(i + 0.37, 1.2, 0.06, 1.0); }
+    } else if (d.type === 'crypt') {
+      ctx.fillStyle = lin(ctx, 0, d.h, 0, 0, ['#6a6470', '#3a3640']); ctx.fillRect(0, 0, d.w, d.h);
+      ctx.fillStyle = '#16121a'; ctx.beginPath(); ctx.moveTo(1.6, 0); ctx.lineTo(1.6, 1.8); ctx.arc(2.5, 1.8, 0.9, Math.PI, 0, true); ctx.lineTo(3.4, 0); ctx.fill();
+      ctx.fillStyle = '#8a8490'; ctx.fillRect(-0.2, d.h - 0.3, d.w + 0.4, 0.3);
+      ctx.fillStyle = '#4a4650'; ctx.beginPath(); ctx.moveTo(2.2, d.h); ctx.lineTo(2.5, d.h + 0.9); ctx.lineTo(2.8, d.h); ctx.fill(); ctx.fillRect(2.45, d.h, 0.1, 1.1); ctx.fillRect(2.2, d.h + 0.65, 0.6, 0.1);
+    } else if (d.type === 'battlement' || d.type === 'pillars') {
+      // 盤面の奥の壁（数 u ごと）
+      const v = this.view, x0 = Math.floor((v.x0 - d.x) / 6) * 6;
+      for (let x = Math.max(0, x0); x < Math.min(d.w, v.x1 - d.x + 6); x += 6) {
+        if (d.type === 'battlement') { ctx.fillStyle = 'rgba(30,10,8,0.85)'; ctx.fillRect(x, 0, 4, 6); for (let k = 0; k < 4; k += 1.4) ctx.fillRect(x + k, 6, 0.8, 0.7); ctx.fillStyle = 'rgba(255,140,50,0.35)'; ctx.fillRect(x + 1.7, 3, 0.5, 1); }
+        else { ctx.fillStyle = 'rgba(24,14,34,0.9)'; ctx.fillRect(x + 1, 0, 1.2, 12); ctx.fillStyle = 'rgba(216,178,90,0.25)'; ctx.fillRect(x + 0.9, 11.6, 1.4, 0.3); ctx.fillRect(x + 0.9, 0, 1.4, 0.3); }
+      }
+    } else if (d.type === 'stalactites') {
+      const v = this.view;
+      for (let x = Math.max(0, Math.floor(v.x0 - d.x)); x < Math.min(d.w, v.x1 - d.x); x++) { const h = 0.4 + ((x * 37) % 7) / 7; ctx.fillStyle = th.rock[1]; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 0.5, -h); ctx.lineTo(x + 1, 0); ctx.fill(); }
+    } else if (d.type === 'tree') {
+      ctx.fillStyle = '#120e14';
+      const s = d.s || 1;
+      deadTreeU(ctx, 0, 0, 4 * s, rng(d.x * 31 + 5));
+    } else if (d.type === 'fence') {
+      const gr = ctx.createLinearGradient(0, 1.3, 0, 0); gr.addColorStop(0, '#5a4a52'); gr.addColorStop(1, '#14101a'); ctx.fillStyle = gr;
+      for (let x = 0; x < d.w; x += 0.5) { ctx.fillRect(x, 0, 0.07, 1.1); ctx.beginPath(); ctx.moveTo(x - 0.05, 1.1); ctx.lineTo(x + 0.035, 1.32); ctx.lineTo(x + 0.12, 1.1); ctx.fill(); ctx.fillStyle = 'rgba(150,80,40,0.5)'; ctx.fillRect(x + 0.01, 0.3 + ((x * 7) % 3) * 0.2, 0.05, 0.12); ctx.fillStyle = gr; }
+      ctx.fillRect(0, 0.75, d.w, 0.06); ctx.fillRect(0, 0.3, d.w, 0.06); ctx.fillStyle = 'rgba(190,215,255,0.35)'; ctx.fillRect(0, 0.8, d.w, 0.015);
+    } else if (d.type === 'well') {
+      ctx.fillStyle = '#4a4040'; ctx.fillRect(-0.3, 0, 0.3, 1); ctx.fillRect(d.w, 0, 0.3, 1); ctx.fillStyle = '#2a2020'; ctx.fillRect(-0.1, 1, 0.12, 1.6); ctx.fillRect(d.w, 1, 0.12, 1.6); ctx.fillRect(-0.4, 2.6, d.w + 0.8, 0.2);
+    }
+  }
+  decoFront(ctx, d, g) {
+    this.at(ctx, d.x, d.y);
+    if (d.type === 'grave') {
+      // 風化した墓石: 形 3 種・苔・ひび・刻んだ十字・台座・月光の縁
+      const h = d.h || 1, v = d.v, r = (k) => ((d.x * 9301 + k * 49297) % 233280) / 233280;
+      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.rect(-0.02, 0, 1.04, 0.14); ctx.fillStyle = '#4a4656'; ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = 0.03; ctx.stroke();
+      ctx.beginPath();
+      if (v === 0) { ctx.moveTo(0.1, 0.12); ctx.lineTo(0.1, h * 0.7); ctx.bezierCurveTo(0.1, h + 0.25, 0.9, h + 0.25, 0.9, h * 0.7); ctx.lineTo(0.9, 0.12); }
+      else if (v === 1) { ctx.moveTo(0.4, 0.12); ctx.lineTo(0.4, h * 0.62); ctx.lineTo(0.14, h * 0.62); ctx.lineTo(0.14, h * 0.86); ctx.lineTo(0.4, h * 0.86); ctx.lineTo(0.4, h + 0.32); ctx.lineTo(0.6, h + 0.32); ctx.lineTo(0.6, h * 0.86); ctx.lineTo(0.86, h * 0.86); ctx.lineTo(0.86, h * 0.62); ctx.lineTo(0.6, h * 0.62); ctx.lineTo(0.6, 0.12); }
+      else { ctx.moveTo(0.06, 0.12); ctx.lineTo(0.12, h + 0.02); ctx.lineTo(0.5, h + 0.14); ctx.lineTo(0.9, h + 0.04); ctx.lineTo(0.95, 0.12); }
+      ctx.closePath();
+      const gr = ctx.createLinearGradient(0.9, h + 0.3, 0.1, 0); gr.addColorStop(0, '#c4c0d0'); gr.addColorStop(0.4, '#8a8698'); gr.addColorStop(1, '#3e3a4a');
+      ctx.fillStyle = gr; ctx.fill(); ctx.strokeStyle = PAL.outline; ctx.lineWidth = 0.04; ctx.stroke();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = 'rgba(70,110,70,0.6)'; for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(0.15 + r(i) * 0.7, 0.15 + r(i + 5) * 0.35, 0.12 + r(i + 2) * 0.1, 0.06, 0, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = 'rgba(20,18,30,0.65)'; ctx.lineWidth = 0.02; ctx.beginPath(); ctx.moveTo(0.3 + r(7) * 0.4, h); ctx.lineTo(0.4 + r(8) * 0.2, h * 0.6); ctx.lineTo(0.35 + r(9) * 0.3, h * 0.35); ctx.stroke();
+      if (v !== 1) { ctx.strokeStyle = 'rgba(20,18,30,0.55)'; ctx.lineWidth = 0.035; ctx.beginPath(); ctx.moveTo(0.5, h * 0.82); ctx.lineTo(0.5, h * 0.42); ctx.moveTo(0.36, h * 0.7); ctx.lineTo(0.64, h * 0.7); ctx.stroke(); ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 0.012; ctx.beginPath(); ctx.moveTo(0.52, h * 0.82); ctx.lineTo(0.52, h * 0.42); ctx.stroke(); }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(190,215,255,0.55)'; ctx.lineWidth = 0.035; ctx.beginPath(); if (v === 0) { ctx.moveTo(0.1, h * 0.7); ctx.bezierCurveTo(0.1, h + 0.2, 0.6, h + 0.2, 0.75, h + 0.12); } else { ctx.moveTo(0.12, h * 0.4); ctx.lineTo(0.12, h); } ctx.stroke();
+    } else if (d.type === 'gate') {
+      const closed = g.lockCam ? 1 : 0;
+      this.gateK = (this.gateK ?? 0) + (closed - (this.gateK ?? 0)) * 0.12;
+      const k = this.gateK;
+      ctx.fillStyle = '#3a3440'; ctx.fillRect(-0.6, 0, 0.5, 6); ctx.fillRect(1.1, 0, 0.5, 6); ctx.fillRect(-0.6, 5.6, 2.2, 0.6);
+      ctx.strokeStyle = '#1a1820'; ctx.lineWidth = 0.1;
+      const top = 5.6, bottom = top - k * 5.6;
+      for (let x = -0.05; x < 1.1; x += 0.28) { ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); }
+      for (let y = top - 0.5; y > bottom; y -= 0.9) { ctx.beginPath(); ctx.moveTo(-0.1, y); ctx.lineTo(1.1, y); ctx.stroke(); }
+      if (k > 0.05) { ctx.fillStyle = '#8a8490'; for (let x = -0.05; x < 1.1; x += 0.28) { ctx.beginPath(); ctx.moveTo(x - 0.06, bottom); ctx.lineTo(x, bottom - 0.25); ctx.lineTo(x + 0.06, bottom); ctx.fill(); } }
+    } else if (d.type === 'rubble') {
+      ctx.fillStyle = '#4a3e3a'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.ellipse((i % 3) + 0.5, Math.floor(i / 3) * 1.2 + 0.5, 0.6, 0.45, i, 0, TAU); ctx.fill(); }
+    }
+  }
+  moverArt(ctx, m) {
+    const th = this.th;
+    ctx.fillStyle = lin(ctx, 0, 0, 0, -0.5, th.plat); ctx.fillRect(0, -0.45, m.w, 0.45);
+    ctx.fillStyle = 'rgba(255,240,220,0.2)'; ctx.fillRect(0, -0.05, m.w, 0.05);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 0.05; ctx.strokeRect(0, -0.45, m.w, 0.45);
+    ctx.fillStyle = '#2a2a30'; for (const x of [0.25, m.w - 0.25]) { ctx.beginPath(); ctx.arc(x, -0.22, 0.09, 0, TAU); ctx.fill(); }
+    if (m.ay) { ctx.strokeStyle = 'rgba(30,30,36,0.8)'; ctx.lineWidth = 0.04; for (const x of [0.3, m.w - 0.3]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 12); ctx.stroke(); } }
+  }
+  jetArt(ctx, j, time) {
+    this.at(ctx, j.x, j.y);
+    ctx.fillStyle = '#2a1a18'; ctx.fillRect(0.15, -0.05, 0.7, 0.18); ctx.fillStyle = '#ff6a20'; ctx.fillRect(0.3, 0.06, 0.4, 0.05);
+    if (j.warn) { for (let i = 0; i < 5; i++) { const k = (time * 3 + i * 0.2) % 1; ctx.fillStyle = `rgba(255,200,90,${1 - k})`; ctx.fillRect(0.4 + Math.sin(i * 7 + time * 10) * 0.25, 0.1 + k * 0.9, 0.06, 0.06); } }
+    if (j.on) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 4; i++) { const ph = time * 20 + i; const w = 0.45 + 0.1 * Math.sin(ph); const g = ctx.createLinearGradient(0, 0, 0, j.h); g.addColorStop(0, 'rgba(255,250,210,0.95)'); g.addColorStop(0.5, 'rgba(255,140,40,0.75)'); g.addColorStop(1, 'rgba(200,30,10,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0.5 - w / 2, 0); ctx.quadraticCurveTo(0.5 + Math.sin(ph) * 0.2, j.h * 0.6, 0.5, j.h + 0.3); ctx.quadraticCurveTo(0.5 - Math.sin(ph) * 0.2, j.h * 0.5, 0.5 + w / 2, 0); ctx.fill(); }
+      ctx.restore();
+    }
+  }
+  drawTitleBack(ctx) {
+    if (!this.titleDef) { this.titleDef = { id: 1, theme: 'graveyard', vertical: false, deco: [], W: 200, H: 20 }; this.def = this.titleDef; this.buildStage(this.titleDef); this.def = null; }
+    const keep = this.def; this.def = this.titleDef; this.th = THEMES.graveyard;
+    ctx.save(); this.fieldBackup = this.field; this.field = { x: 0, y: 0, w: this.W, h: this.H }; const skyKeep = [this.skyImg, this.fogImg, this.tintImg, this.skyTheme]; [this.skyImg, this.fogImg, this.tintImg, this.skyTheme] = this.titleSky || [];
+    if (!this.titleBg || this.titleBg.W !== Math.round(this.W * 1.5)) { const T0 = this.T; this.T = this.H / VH; this.titleBg = this.buildBackground(this.titleDef); this.T = T0; }
+    const bgKeep = this.bg; this.bg = this.titleBg;
+    this.drawSky(ctx, this.time * 0.6, VH / 2);
+    this.titleSky = [this.skyImg, this.fogImg, this.tintImg, this.skyTheme]; [this.skyImg, this.fogImg, this.tintImg, this.skyTheme] = skyKeep;
+    this.bg = bgKeep; this.field = this.fieldBackup; this.def = keep;
+    ctx.fillStyle = 'rgba(0,0,10,0.25)'; ctx.fillRect(0, 0, this.W, this.H);
+    // 丘と、その上で月を見上げる騎士（マントと羽根は風で揺れる）
+    const W = this.W, H = this.H, U = H / 13.5, hx = W * 0.8, hy = H * 0.86;
+    ctx.save(); ctx.fillStyle = '#05060f'; ctx.beginPath(); ctx.moveTo(W * 0.52, H); ctx.quadraticCurveTo(W * 0.66, hy - U * 0.1, hx, hy); ctx.quadraticCurveTo(W * 0.95, hy + U * 0.2, W * 1.02, hy + U * 0.6); ctx.lineTo(W * 1.02, H); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(170,205,255,0.35)'; ctx.lineWidth = U * 0.04; ctx.beginPath(); ctx.moveTo(W * 0.62, hy + U * 0.6); ctx.quadraticCurveTo(W * 0.7, hy, hx, hy); ctx.stroke(); ctx.restore();
+    const tp = { state: 'idle', st: 0, walkPhase: 0, climbPhase: 0, throwT: 0, landT: 0, turnT: 0, armor: true, deadT: 0, face: -1, vx: -2.5 * (1 + Math.sin(this.time * 0.7)), vy: 0, x: 0, y: 0 };
+    ctx.save(); ctx.setTransform(-U * 1.6, 0, 0, -U * 1.6, hx, hy);
+    const fakeG = null; void fakeG;
+    const P = knightPose(tp, this.time), J = knightJoints(P, 1);
+    this.titleCape = this.titleCape || Array.from({ length: 7 }, (_, i) => [J.sh[0] - 0.12 - i * 0.06, J.sh[1] - i * 0.12]);
+    const C = this.titleCape; for (let i = 1; i < C.length; i++) { const wv = Math.sin(this.time * 2.2 - i * 0.6) * 0.05 * i; C[i] = [J.sh[0] - 0.12 - i * (0.07 + Math.sin(this.time * 0.7) * 0.02) - 0.02 * i * i, J.sh[1] - i * 0.115 + wv]; }
+    drawKnight(ctx, tp, this.time, { pose: P, cape: C, plume: 0.35 + Math.sin(this.time * 2.5) * 0.12 });
+    ctx.restore();
+    // 流れる霧の帯
+    for (let i = 0; i < 3; i++) { const yy = H * (0.78 + i * 0.07), off = ((this.time * (20 + i * 12)) % W); const gr = ctx.createLinearGradient(0, yy - U, 0, yy + U); gr.addColorStop(0, 'rgba(150,170,220,0)'); gr.addColorStop(0.5, `rgba(150,170,220,${0.08 + i * 0.03})`); gr.addColorStop(1, 'rgba(150,170,220,0)'); ctx.fillStyle = gr; for (const dx of [-W, 0]) { ctx.beginPath(); ctx.ellipse(off + dx + W * 0.3, yy, W * 0.45, U * 0.8, 0, 0, TAU); ctx.ellipse(off + dx + W * 0.85, yy + U * 0.2, W * 0.35, U * 0.6, 0, 0, TAU); ctx.fill(); } }
+    ctx.restore();
+  }
+  // ボスは別のキャンバスに描き、月光色の影絵を左上へずらして後ろに置く（縁が光って見える）
+  drawBossLit(ctx, b, x, y, time) {
+    // 予告の線（狙いの線・光線の高さ）は盤面を横切るので、その間は直接描く
+    if ((b.type === 'lord' && b.st === 'sweepWind') || (b.type === 'warden' && b.st === 'diveWind')) { this.at(ctx, x, y, b.face || -1); drawBoss(ctx, b, time); return; }
+    const T = this.view.T, S = 9, px = Math.ceil(S * T);
+    if (!this.bossCv || this.bossCv.width !== px) { this.bossCv = document.createElement('canvas'); this.bossCv.width = this.bossCv.height = px; this.rimCv = document.createElement('canvas'); this.rimCv.width = this.rimCv.height = px; }
+    const c = this.bossCv.getContext('2d'), r = this.rimCv.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, px, px);
+    const f = b.face || -1;
+    c.setTransform(T * f, 0, 0, -T, px / 2, px - T * 1.2); drawBoss(c, b, time);
+    r.setTransform(1, 0, 0, 1, 0, 0); r.clearRect(0, 0, px, px); r.globalCompositeOperation = 'source-over'; r.drawImage(this.bossCv, 0, 0);
+    r.globalCompositeOperation = 'source-in'; r.fillStyle = 'rgba(170,205,255,0.9)'; r.fillRect(0, 0, px, px);
+    const v = this.view, sx = v.ox + x * T - px / 2, sy = v.oy - y * T - (px - T * 1.2);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.rimCv, sx - T * 0.05, sy - T * 0.05);
+    ctx.drawImage(this.bossCv, sx, sy);
+    ctx.restore();
+  }
+  // ---------------------------------------------------------------- 騎士の補間・マント・羽根
+  knightFX(g, p, x, y) {
+    const dt = Math.min(0.05, this.lastDt || 1 / 60), target = knightPose(p, this.time);
+    if (!this.kp || p.state === 'dead' && this.kp.dead === 0 && target.dead === 0) this.kp = JSON.parse(JSON.stringify(target));
+    const k = 1 - Math.exp(-dt * (p.state === 'hurt' || p.state === 'dead' ? 24 : 15));
+    const P = this.kp;
+    for (const key of Object.keys(target)) {
+      const v = target[key];
+      if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) P[key][i] += (v[i] - P[key][i]) * k; }
+      else if (typeof v === 'number' && key !== 'throwK' && key !== 'dead') P[key] += (v - P[key]) * k;
+      else P[key] = v;
+    }
+    // 走り出しは前へ、急に止まると後ろへ傾く（勢いの表現）
+    const run = p.state === 'run';
+    if (run && !this.wasRun) this.startT = 0.16; if (!run && this.wasRun && p.ground) this.skidT = 0.18; this.wasRun = run;
+    this.startT = Math.max(0, (this.startT || 0) - dt); this.skidT = Math.max(0, (this.skidT || 0) - dt);
+    P.lean += 0.22 * (this.startT / 0.16) - 0.28 * (this.skidT / 0.18);
+    // 羽根: 速度に引かれて後ろへなびき、ばねで戻る（少し揺れが残る）
+    const want = -(p.vx * p.face) * 0.05 - p.vy * 0.025;
+    this.plV = (this.plV || 0) + ((want - (this.plA || 0)) * 160 - (this.plV || 0) * 9) * dt; this.plA = (this.plA || 0) + this.plV * dt;
+    // マント: 肩から 7 点の鎖。重力・慣性・風で揺れ、体の前には回らない
+    const J = knightJoints(P, 1), face = p.face;
+    const ax = x + (J.sh[0] - 0.12) * face, ay = y + J.sh[1] + 0.02;
+    let C = this.cape;
+    if (!C || Math.hypot(C[0].x - ax, C[0].y - ay) > 2) { C = this.cape = Array.from({ length: 7 }, (_, i) => ({ x: ax - face * 0.02 * i, y: ay - i * 0.14, px: ax - face * 0.02 * i, py: ay - i * 0.14 })); }
+    C[0].x = ax; C[0].y = ay; C[0].px = ax; C[0].py = ay;
+    const wind = Math.sin(this.time * 1.7) * 0.6;
+    for (let i = 1; i < C.length; i++) { const c = C[i]; const vx = (c.x - c.px) * 0.94, vy = (c.y - c.py) * 0.94; c.px = c.x; c.py = c.y; c.x += vx + wind * dt * dt * 6; c.y += vy - 16 * dt * dt; }
+    for (let it = 0; it < 6; it++) for (let i = 1; i < C.length; i++) {
+      const a = C[i - 1], b = C[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-6, diff = (d - 0.14) / d;
+      if (i === 1) { b.x -= dx * diff; b.y -= dy * diff; } else { a.x += dx * diff * 0.5; a.y += dy * diff * 0.5; b.x -= dx * diff * 0.5; b.y -= dy * diff * 0.5; }
+      const lx = (b.x - x) * face; if (lx > J.sh[0] - 0.05) b.x = x + (J.sh[0] - 0.05) * face; // 体の前に回らない
+      if (b.y < y + 0.02) b.y = y + 0.02;
+    }
+    // 走りの足音の土煙（半歩ごと）・振り向きの土煙
+    const stepI = Math.floor(p.walkPhase / (STRIDE / 2));
+    if (p.state === 'run' && p.ground && stepI !== this.stepI) this.dust(x - face * 0.1, y, 2);
+    this.stepI = stepI;
+    if (p.turnT > 0 && !this.turning && p.ground) this.dust(x, y, 4);
+    this.turning = p.turnT > 0;
+    return { pose: P, plume: this.plA, cape: C.map((c) => [(c.x - x) * face, c.y - y]) };
+  }
+  shadow(ctx, g, x, y, r) {
+    const sy = surfaceBelow(g, x, y + 0.05, 10);
+    if (sy == null) return;
+    const h = Math.max(0, y - sy), k = Math.max(0, 1 - h / 6);
+    this.at(ctx, x, sy);
+    const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, r * (0.6 + 0.4 * k));
+    gr.addColorStop(0, `rgba(0,0,8,${0.5 * k})`); gr.addColorStop(1, 'rgba(0,0,8,0)');
+    ctx.fillStyle = gr; ctx.save(); ctx.scale(1, 0.22); ctx.beginPath(); ctx.arc(0, 0, r * (0.6 + 0.4 * k), 0, TAU); ctx.fill(); ctx.restore();
+  }
+  grass(ctx, sx, sy, Tp, tx, ty) {
+    ctx.strokeStyle = this.def.theme === 'village' ? 'rgba(120,110,80,0.8)' : 'rgba(70,120,90,0.85)'; ctx.lineWidth = Math.max(1, Tp * 0.025);
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const bx = sx + ((tx * 31 + i * 17) % 97) / 97 * Tp, h = Tp * (0.08 + ((tx * 13 + i * 7) % 5) * 0.02), sw = Math.sin(this.time * 2.2 + tx * 0.7 + i) * Tp * 0.03;
+      ctx.moveTo(bx, sy + Tp * 0.03); ctx.quadraticCurveTo(bx + sw * 0.5, sy - h * 0.5, bx + sw, sy - h);
+    }
+    ctx.stroke(); void ty;
+  }
+  // 火・溶岩・松明の光が周りを照らす（加算の暖色）
+  drawLights(ctx, g) {
+    const v = this.view, src = [];
+    for (const f of g.burns) src.push([f.x, f.y + 0.5, 2.6, 0.35]);
+    for (const j of g.jets) if (j.on) src.push([j.x + 0.5, j.y + 1.5, 3.2, 0.4]);
+    for (const s of g.eshots) if (s.kind === 'fireball' || (s.kind === 'wave' && s.fire)) src.push([s.x, s.y, 2.0, 0.3]);
+    for (const s of g.shots) if (s.kind === 'torch') src.push([s.x, s.y, 1.8, 0.3]);
+    for (const d of g.def.deco) { if (d.type === 'lava' && d.x + d.w > v.x0 && d.x < v.x1) for (let x = d.x + 1; x < d.x + d.w; x += 3) src.push([x, d.y + 0.6, 3.5, 0.28]); if (d.type === 'catacomb') for (let x = d.x + 2; x < d.x + d.w; x += 9) if (x > v.x0 - 3 && x < v.x1 + 3) src.push([x, d.y + 3.3, 3, 0.3]); }
+    if (!src.length) return;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'lighter';
+    for (const [x, y, r, a] of src) {
+      if (x < v.x0 - r || x > v.x1 + r) continue;
+      const sx = v.ox + x * v.T, sy = v.oy - y * v.T, R = r * v.T, fl = 0.9 + 0.1 * Math.sin(this.time * 11 + x);
+      const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, R); gr.addColorStop(0, `rgba(255,150,60,${a * fl})`); gr.addColorStop(1, 'rgba(255,90,20,0)');
+      ctx.fillStyle = gr; ctx.fillRect(sx - R, sy - R, R * 2, R * 2);
+    }
+    ctx.restore();
+  }
+  // テーマごとの漂う粒子（蛍・火の粉・しずく・塵）
+  drawAmbient(ctx, g) {
+    const v = this.view, th = this.def.theme, n = 36;
+    if (!this.amb || this.ambTheme !== th) { this.ambTheme = th; this.amb = Array.from({ length: n }, (_, i) => ({ x: Math.random(), y: Math.random(), s: 0.5 + Math.random(), ph: Math.random() * TAU })); }
+    const kind = { graveyard: 'fly', village: 'dust', cave: 'drip', tower: 'dust', fortress: 'ember', citadel: 'mote' }[th];
+    const W = v.x1 - v.x0, H = v.y1 - v.y0, t = this.time;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = kind === 'drip' ? 'source-over' : 'lighter';
+    for (const a of this.amb) {
+      let wx, wy;
+      if (kind === 'ember') { wy = ((a.y + t * 0.05 * a.s) % 1); wx = a.x + Math.sin(t + a.ph) * 0.01; }
+      else if (kind === 'drip') { wy = 1 - ((a.y + t * 0.25 * a.s) % 1); wx = a.x; }
+      else { wx = a.x + Math.sin(t * 0.3 * a.s + a.ph) * 0.02; wy = a.y + Math.cos(t * 0.4 * a.s + a.ph) * 0.02; }
+      const x = v.x0 + (((wx + v.x0 * 0.0) % 1) + 1) % 1 * W, y = v.y0 + wy * H;
+      const sx = v.ox + x * v.T, sy = v.oy - y * v.T;
+      const blink = kind === 'fly' ? Math.max(0, Math.sin(t * 2 * a.s + a.ph)) : 1;
+      const col = { fly: `rgba(200,255,120,${0.8 * blink})`, ember: 'rgba(255,150,60,0.85)', drip: 'rgba(170,220,255,0.7)', dust: 'rgba(220,210,190,0.25)', mote: `rgba(200,140,255,${0.5 * blink + 0.2})` }[kind];
+      const r = v.T * (kind === 'fly' ? 0.05 : kind === 'drip' ? 0.025 : 0.03) * a.s;
+      ctx.fillStyle = col; ctx.beginPath(); if (kind === 'drip') ctx.ellipse(sx, sy, r, r * 2.5, 0, 0, TAU); else ctx.arc(sx, sy, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // 手前の暗い影（草・柵・岩）。カメラより速く流れて奥行きを出す。画面の下 1 割だけ
+  drawForeground(ctx, g) {
+    const v = this.view, th = this.def.theme, cx = (v.x0 + v.x1) / 2, k = 1.45;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = 'rgba(4,4,10,0.92)';
+    const base = this.H + v.T * 0.15, step = 7;
+    const off = cx * k;
+    for (let i = Math.floor((off - 30) / step); i < (off + 30) / step; i++) {
+      const wx = i * step - off, sx = this.W / 2 + wx * v.T, r = rng(i * 977 + 13);
+      if (sx < -v.T * 4 || sx > this.W + v.T * 4) continue;
+      ctx.beginPath();
+      if (th === 'graveyard' || th === 'village') { for (let b = 0; b < 9; b++) { const bx = sx + (r() - 0.5) * v.T * 2.5, h = v.T * (0.3 + r() * 0.6), sw = Math.sin(this.time * 1.5 + b + i) * v.T * 0.06; ctx.moveTo(bx - v.T * 0.05, base); ctx.quadraticCurveTo(bx + sw, base - h * 0.6, bx + sw * 2, base - h); ctx.lineTo(bx + v.T * 0.05, base); } }
+      else { const w = v.T * (1 + r() * 1.5), h = v.T * (0.35 + r() * 0.4); ctx.moveTo(sx - w, base); ctx.quadraticCurveTo(sx - w * 0.6, base - h, sx, base - h * 1.1); ctx.quadraticCurveTo(sx + w * 0.6, base - h, sx + w, base); }
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // ---------------------------------------------------------------- 粒子（出来事から作る）
+  onEvents(evs, g) {
+    for (const e of evs) {
+      if (e.type === 'enemyDie') { this.burst(e.x, e.y, e.strong ? 18 : 10, ['#d8d0e0', '#8a7a9a', '#ffe9a0'], 5, 'puff'); for (let i = 0; i < (e.strong ? 7 : 4); i++) this.parts.push({ kind: 'soul', x: e.x + (Math.random() - 0.5) * 0.8, y: e.y + (Math.random() - 0.3) * 0.6, vx: (Math.random() - 0.5) * 0.4, vy: 1.2 + Math.random() * 1.2, t: -i * 0.05, life: 0.9 + Math.random() * 0.4, s: 0.18 + Math.random() * 0.12, c: '#b8a0ff', rot: Math.random() * 6, vr: 0 }); }
+      else if (e.type === 'enemyHit' || e.type === 'bossHit') this.burst(e.x ?? g.boss.x, e.y ?? g.boss.y + 1, 6, ['#fff6d0', '#ffcf6a'], 6, 'spark');
+      else if (e.type === 'armorBreak') { this.burst(e.x, e.y, 14, ['#eef4ff', '#9fb2c8', '#5a6a80'], 8, 'shard'); this.shake = 0.2; }
+      else if (e.type === 'bossDie') { for (let i = 0; i < 6; i++) setTimeout(() => this.burst(e.x + (Math.random() - 0.5) * 3, e.y + (Math.random() - 0.5) * 3, 24, ['#fff6d0', '#ff9a40', '#ff4020'], 9, 'puff'), i * 280); this.shake = 1.2; }
+      else if (e.type === 'ghoulEmerge') this.burst(e.x, e.y + 0.1, 10, ['#6a5238', '#4b3a2a'], 4, 'dirt');
+      else if (e.type === 'splash') this.burst(e.x, e.y, 14, ['#cfefff', '#7ac8ff'], 6, 'drop');
+      else if (e.type === 'clink') this.burst(e.x, e.y, 5, ['#ffffff', '#ffe9a0'], 4, 'spark');
+      else if (e.type === 'death' && (e.cause === 'enemy' || e.cause === 'shot' || e.cause === 'boss' || e.cause === 'fire')) this.burst(e.x, e.y + 0.8, 16, ['#d23a3a', '#ffe9a0', '#cfe0ff'], 6, 'spark');
+      else if (e.type === 'burn') this.burst(e.x, e.y + 0.2, 8, ['#ffcf6a', '#ff6a20'], 3, 'spark');
+      else if (e.type === 'land') this.dust(g.player.x, g.player.y, 7);
+      if (e.type === 'enemyHit' || e.type === 'bossHit' || e.type === 'enemyDie') this.parts.push({ kind: 'ring', x: e.x ?? g.boss.x, y: e.y ?? g.boss.y + 1, t: 0, life: 0.28, s: e.type === 'enemyDie' ? 1.1 : 0.6, c: '#fff4d0', vx: 0, vy: 0, rot: 0, vr: 0 });
+    }
+  }
+  dust(x, y, n) { for (let i = 0; i < n && this.parts.length < 400; i++) { const d = (Math.random() - 0.5) * 2; this.parts.push({ x: x + d * 0.3, y: y + 0.05, vx: d * 1.6, vy: 0.4 + Math.random() * 0.6, t: 0, life: 0.45 + Math.random() * 0.3, c: 'rgba(190,180,170,0.55)', s: 0.1 + Math.random() * 0.1, kind: 'puff', rot: 0, vr: 0 }); } }
+  burst(x, y, n, cols, sp, kind) {
+    for (let i = 0; i < n && this.parts.length < 400; i++) {
+      const a = Math.random() * TAU, v = sp * (0.3 + Math.random() * 0.7);
+      this.parts.push({ x, y, px: x, py: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + (kind === 'shard' || kind === 'dirt' || kind === 'drop' ? 3 : 0), t: 0, life: kind === 'puff' ? 0.6 + Math.random() * 0.4 : 0.5 + Math.random() * 0.6,
+        c: cols[i % cols.length], s: kind === 'puff' ? 0.15 + Math.random() * 0.25 : kind === 'shard' ? 0.12 + Math.random() * 0.1 : 0.06, kind, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 20 });
+    }
+  }
+  drawParticles(ctx, alpha) {
+    const dt = 1 / 60;
+    for (const q of this.parts) {
+      q.t += dt * (this.app.screen === 'play' ? 1 : 0);
+      const grav = q.kind === 'soul' ? -0.5 : q.kind === 'puff' || q.kind === 'ring' ? -1 : q.kind === 'spark' ? 6 : 18;
+      q.vy -= grav * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.vr * dt;
+      if (q.kind === 'puff') { q.vx *= 0.94; q.vy *= 0.94; } else if (q.kind === 'spark') { q.vx *= 0.96; q.vy *= 0.96; } // 粒子は減速しながら散る
+      const k = 1 - q.t / q.life;
+      this.at(ctx, q.x, q.y);
+      ctx.globalAlpha = Math.max(0, k);
+      if (q.kind === 'soul') { if (q.t < 0) { ctx.globalAlpha = 1; continue; } ctx.globalCompositeOperation = 'lighter'; const w = Math.sin(this.time * 9 + q.rot) * 0.06, r = q.s * (0.6 + k * 0.6); ctx.beginPath(); ctx.moveTo(-r, 0); ctx.quadraticCurveTo(-r, r * 1.3, w, r * 2.6); ctx.quadraticCurveTo(r, r * 1.3, r, 0); ctx.arc(0, 0, r, 0, Math.PI, true); const gr = ctx.createLinearGradient(0, -r, 0, r * 2.6); gr.addColorStop(0, `rgba(230,220,255,${k})`); gr.addColorStop(0.5, `rgba(150,110,255,${k * 0.7})`); gr.addColorStop(1, 'rgba(90,60,200,0)'); ctx.fillStyle = gr; ctx.fill(); ctx.globalCompositeOperation = 'source-over'; }
+      else if (q.kind === 'ring') { ctx.strokeStyle = q.c; ctx.lineWidth = 0.06 * k; ctx.beginPath(); ctx.arc(0, 0, q.s * (1 - k * 0.8), 0, TAU); ctx.stroke(); for (let i = 0; i < 6; i++) { const a = i * 1.047 + 0.3, r0 = q.s * (1 - k), r1 = r0 + 0.25 * k; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke(); } }
+      else if (q.kind === 'puff') { ctx.fillStyle = q.c; ctx.beginPath(); ctx.arc(0, 0, q.s * (1.5 - k), 0, TAU); ctx.fill(); }
+      else if (q.kind === 'shard') { ctx.rotate(q.rot); ctx.fillStyle = q.c; ctx.beginPath(); ctx.moveTo(-q.s, -q.s * 0.5); ctx.lineTo(q.s, -q.s * 0.3); ctx.lineTo(0, q.s); ctx.fill(); }
+      else { ctx.fillStyle = q.c; ctx.fillRect(-q.s / 2, -q.s / 2, q.s, q.s); }
+      ctx.globalAlpha = 1;
+    }
+    this.parts = this.parts.filter((q) => q.t < q.life);
+  }
+}
+
+function deadTree(x, px, base, h, r) {
+  x.save(); x.translate(px, base); x.scale(h / 4, -h / 4); deadTreeU(x, 0, 0, 4, r); x.restore();
+}
+// 枯れ木（u 単位。上向き）
+function deadTreeU(ctx, x, y, h, r) {
+  const br = (x0, y0, ang, len, w, depth) => {
+    const x1 = x0 + Math.sin(ang) * len, y1 = y0 + Math.cos(ang) * len;
+    ctx.beginPath(); ctx.moveTo(x0 - w / 2, y0); ctx.quadraticCurveTo(x0 + Math.sin(ang) * len * 0.5 + (r() - 0.5) * 0.3, y0 + Math.cos(ang) * len * 0.5, x1, y1); ctx.lineTo(x0 + w / 2, y0); ctx.fill();
+    if (depth > 0) { const n = 2 + (r() < 0.4 ? 1 : 0); for (let i = 0; i < n; i++) br(x1, y1, ang + (r() - 0.5) * 1.6, len * (0.55 + r() * 0.2), w * 0.55, depth - 1); }
+  };
+  br(x, y, (r() - 0.5) * 0.2, h * 0.45, h * 0.09, 4);
+}

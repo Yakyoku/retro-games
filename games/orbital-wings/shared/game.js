@@ -220,7 +220,7 @@ export class Game {
       this.ebullets.push({ id: this.nextId++, kind: o.kind ?? 'b', x: ox, y: oy, z: oz, px: ox, py: oy, pz: oz, vx, vy, vz,
         r: o.r ?? 0.24, hp: o.hp ?? 0, t: 0, life: o.life ?? 600, grow: o.grow ?? 0, terrain: o.terrain !== false });
     }
-    if (o.sfx) this.emit({ t: 'sfx', n: o.sfx });
+    if (o.sfx) this.emit({ t: 'sfx', n: o.sfx, x: ox });
     e.lastFire = this.tickN;
     return true;
   }

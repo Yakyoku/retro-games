@@ -4,9 +4,10 @@
 // 音符: { t: 拍（4 分音符 = 1）, dur: 拍, midi, vol, duty, gate }
 const NOTE = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
-export function parseMML(src) {
+// strictBars: true のとき、| の位置が小節（4 拍）の境目でなければエラーにする（モダン音源の楽譜の書きまちがい検出）
+export function parseMML(src, { strictBars = false } = {}) {
   const out = []; let pos = 0, oct = 4, len = 4, vol = 12, duty = 1, gate = 7, tempo = 140, loopAt = null, tie = false;
-  const s = src.replace(/\|/g, ' ');
+  const s = src;
   let i = 0;
   const num = () => { let m = /^\d+/.exec(s.slice(i)); if (!m) return null; i += m[0].length; return +m[0]; };
   const length = () => {
@@ -19,6 +20,7 @@ export function parseMML(src) {
     if (raw === 'L') { loopAt = pos; continue; }
     const c = raw.toLowerCase();
     if (c === ' ' || c === '\n' || c === '\t') continue;
+    if (c === '|') { if (strictBars && Math.abs(pos / 4 - Math.round(pos / 4)) > 1e-6) throw new Error(`MML: 小節の長さが合わない（${(pos / 4).toFixed(3)} 小節目の |）: ${src.slice(Math.max(0, i - 40), i)}`); continue; }
     if (c === 't') tempo = num();
     else if (c === 'o') oct = num();
     else if (c === 'l') len = num();

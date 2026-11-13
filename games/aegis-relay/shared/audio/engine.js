@@ -1,215 +1,306 @@
-// AEGIS RELAY — 音源（Web Audio）
-// 想定した制約: 矩形波 3 声（デューティ 12.5/25/50%）＋ ノイズ 1 声、効果音用に矩形波 1・ノイズ 1。
-// 効果音が鳴っている間、曲の ch2（内声）と ch3（打楽器）は効果音に譲る（1984 年ごろの基板によくあった声の取り合いを模した独自設計）。
-// ・曲の発音時刻は AudioContext の時計で先読み予約する → 描画レートやフレーム落ちでテンポが変わらない
-// ・ポーズ・タブ非表示・VR の非表示では ctx.suspend()。再開すると同じ位置から続く（二重再生しない）
-// ・リバーブ・ステレオ拡張・ドップラー・距離減衰は使わない（モノラル。3D 版でも同じ音）
-import { parseMML } from './mml.js';
-import { SONGS } from './songs.js';
-import { SFX } from './sfx.js';
+// AEGIS RELAY — 音源（Web Audio）。2D 版・3D 版で同じものを使う。
+// ■ モダン音源（初期値）
+//   曲: 減算式シンセ・スーパーソー・FM ベル・サブ入りベース・パッド・アルペジオ ＋ 計算で作ったドラム（instruments.js / drums.js）
+//   空間: 計算で作った残響（コンボルバー 1 個を共用）、テンポに合ったディレイ、声部ごとの定位、キックに合わせたサイドチェイン（fx.js）
+//   効果音: 起動時に波形を計算 → 再生は「音源 → 音量 → 定位」の 3 ノード。発音数の上限・優先度・最短間隔・曲のダッキング（sfx.js）
+//   マスター: コンプレッサー → リミッター → ソフトクリップ（出力は必ず ±0.93 以内 → 音割れしない）
+// ■ 旧チップ音源（設定「サウンド: クラシック」）: chip.js（矩形波 3 声＋ノイズ。モノラル・エフェクトなし）
+// ■ 共通の約束
+//   ・発音時刻は AudioContext の時計で先読み予約する → 描画レートやフレーム落ちでテンポが変わらない
+//   ・ポーズ・タブ非表示・VR の非表示では ctx.suspend()。再開すると同じ位置から続く（予約を取り直さない → 二重再生しない）
+//   ・曲の切り替えは「世代」ごとの出口を短くフェードして切る → 先読み済みの音が残らない
+//   ・状況で足す層（合体中・残り 1 機）とコアの曲への切り替えは、小節の頭でそろえる
+//   ・AudioWorklet は使わない。録音・音声ファイル・外部 URL も使わない
+import { SONGS, CHIP_SONG } from './songs.js';
+import { compileSong } from './arrange.js';
+import { SFX, CHIP_NAME } from './sfx.js';
+import { DRUMS } from './drums.js';
+import { SR } from './dsp.js';
+import { superSawTable, SAW_BASES, createInstruments } from './instruments.js';
+import { reverbIR, createMaster, createReverb, createDelay, pan } from './fx.js';
+import { createChip } from './chip.js';
+export { compileSong };
 
-const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
-const volGain = (v) => (v <= 0 ? 0 : 10 ** ((v - 15) * 1.5 / 20)); // 1 段 1.5dB（16 段）
-
-function pulseWave(ctx, duty) {
-  const N = 64, re = new Float32Array(N), im = new Float32Array(N);
-  for (let n = 1; n < N; n++) {
-    re[n] = (2 / (n * Math.PI)) * Math.sin(2 * Math.PI * n * duty);
-    im[n] = (2 / (n * Math.PI)) * (1 - Math.cos(2 * Math.PI * n * duty));
-  }
-  return ctx.createPeriodicWave(re, im, { disableNormalization: false });
+// ── 波形の事前計算（ページで 1 回。AudioContext が無くても進められるので、最初の操作の前に少しずつ済ませる）──
+const raw = { drums: {}, sfx: {}, saws: [], ir: null };
+const jobs = [
+  ...Object.keys(DRUMS).map((k) => () => { raw.drums[k] = DRUMS[k](); }),
+  ...SAW_BASES.map((b) => () => { raw.saws.push(superSawTable(b)); }),
+  () => { raw.ir = reverbIR(); },
+  ...Object.keys(SFX).map((k) => () => { raw.sfx[k] = Array.from({ length: SFX[k].vary || 1 }, (_, v) => SFX[k].make(v)); }),
+];
+let jobI = 0;
+export function precompute(maxMs = Infinity) { // 残りがあれば true
+  const t0 = Date.now();
+  while (jobI < jobs.length) { jobs[jobI++](); if (Date.now() - t0 >= maxMs) break; }
+  return jobI < jobs.length;
 }
 
-// 15 bit LFSR のノイズ（長周期 = 白っぽい / 短周期 = 金属的）。録音ではなく計算で作る
-function lfsrBuffer(ctx, short) {
-  const sr = ctx.sampleRate, len = sr; const buf = ctx.createBuffer(1, len, sr); const d = buf.getChannelData(0);
-  let reg = 0x7fff; const clock = 22000; let acc = 0, out = 1;
-  for (let i = 0; i < len; i++) {
-    acc += clock / sr;
-    while (acc >= 1) { acc -= 1; const bit = (reg ^ (reg >> (short ? 6 : 1))) & 1; reg = (reg >> 1) | (bit << 14); out = reg & 1 ? 1 : -1; }
-    d[i] = out * 0.5;
-  }
-  return buf;
-}
+// 声部ごとの音量・定位（S13）・残響とディレイへ送る量・ローパス・サイドチェインの深さ（S14）
+const TRACKS = {
+  lead:   { vol: 1.25, pan: 0, rev: 0.16, dly: 0.2, lp: 7500 },
+  harm:   { vol: 0.8, pan: 0.35, rev: 0.2, dly: 0.1, lp: 5500 },
+  bell:   { vol: 0.8, pan: -0.3, rev: 0.35, dly: 0.25 },
+  spark:  { vol: 0.6, pan: 0.35, rev: 0.4, dly: 0.3 },
+  bass:   { vol: 0.6, pan: 0, lp: 1900, sc: 0.4 },
+  pad:    { vol: 0.56, pan: 0, rev: 0.3, lp: 2600, sc: 0.55 },
+  arp:    { vol: 0.8, pan: -0.45, rev: 0.15, dly: 0.3, lp: 6000 },
+  stab:   { vol: 1.0, pan: 0.45, rev: 0.2, lp: 4500, sc: 0.25 },
+  danger: { vol: 1.0, pan: 0.2, rev: 0.1, dly: 0.2, lp: 5000 },
+  kick:   { vol: 0.55, pan: 0 },
+  snare:  { vol: 0.75, pan: 0, rev: 0.13 },
+  hat:    { vol: 1.0, pan: 0.28, rev: 0.03 },
+  cym:    { vol: 1.0, pan: -0.25, rev: 0.2 },
+  tom:    { vol: 0.5, pan: 0, rev: 0.15 },
+};
+const DRUM_PAN = { tomH: -0.35, tomM: 0.05, tomL: 0.4, ride: 0.5, clap: 0.1 };
+const AHEAD = 0.5;        // 先読みする秒数（画面の処理が一瞬止まっても曲が欠けないよう長め。効果音は先読みしない）
+const MAX_SE = 10;        // 効果音の同時発音数の上限（S29）
+const LAYER = { dock: 1, danger: 2 };
 
-// 曲を「拍 → 秒」の音符列に変換し、ループ情報をそろえる
-export function compileSong(song) {
-  const spb = 60 / song.tempo;
-  const tracks = song.tracks.map((tr) => {
-    const p = parseMML(tr.mml);
-    return { ch: tr.ch, notes: p.notes.map((n) => ({ ...n, t: n.t * spb, dur: n.dur * spb })), len: p.length * spb, loopAt: (p.loopAt ?? 0) * spb };
-  });
-  const drumNotes = []; const pat = song.drums?.loop || ''; const step16 = spb / 4;
-  for (let i = 0; i < pat.length; i++) if (pat[i] !== '.') drumNotes.push({ t: i * step16, k: pat[i] });
-  const len = Math.max(...tracks.map((t) => t.len), pat.length * step16);
-  const loopAt = song.once ? null : Math.min(...tracks.map((t) => t.loopAt));
-  return { tracks, drums: drumNotes, len, loopAt, once: !!song.once, spb };
-}
-
-export function createAudio() {
-  let ctx = null, out = null, busMusic = null, busSe = null, waves = null, noiseL = null, noiseS = null;
-  const chGain = []; // 曲の各声部の音量（効果音に譲るときに 0）
+export function createAudio(opt = {}) {
+  let ctx = null, master = null, reverb = null, inst = null, chip = null, timer = null;
+  let busMusic = null, duck = null, musicRev = null, busSe = null, busSeWet = null, seRev = null, seOut = null, chipMusic = null, chipSe = null;
+  const drumBuf = {}, sfxBuf = {};
   const vol = { master: 0.8, bgm: 0.7, se: 0.8, mute: false };
-  let music = null; // 再生中の曲 { name, comp, t0, nextIdx..., loopN }
-  let timer = null;
-  const seBusy = { tone: { until: 0, pri: -1, nodes: [] }, noise: { until: 0, pri: -1, nodes: [] } };
-  const lastSe = {};
+  let style = 'modern', failed = false;
+  let music = null, prev = null;        // 再生中の曲と、小節の頭まで鳴らし終える途中の前の曲
+  let cur = null;                       // { name, onEnd }（音源の種類によらない「いまの曲」）
+  let chainAt = null;                   // ジングルの終わりにぴったり続けて次の曲を始めるための時刻
+  const dying = [];                     // 片づけ待ちの世代 { gen, at }
+  const want = { 1: false, 2: false };  // 層の希望（合体中・緊張）
+  const voices = [];                    // 鳴っている効果音
+  const lastSe = {}, variantI = {};
+  const stats = { notes: 0, nodes: 0, se: 0, seDropped: 0, seStolen: 0, songs: 0 };
+  const compiled = {};
+  const comp = (name) => compiled[name] || (compiled[name] = compileSong(SONGS[name]));
+  const offline = !!opt.context;
+
+  // 最初の操作の前から、手のあいた時間に波形を計算しておく
+  if (!offline && typeof setTimeout === 'function') { const step = () => { if (precompute(6)) setTimeout(step, 30); }; setTimeout(step, 300); }
 
   function ensure() {
     if (ctx) return ctx;
-    const AC = globalThis.AudioContext || globalThis.webkitAudioContext; if (!AC) return null;
-    ctx = new AC({ latencyHint: 'interactive' });
-    out = ctx.createGain(); out.connect(ctx.destination);
-    busMusic = ctx.createGain(); busMusic.connect(out);
-    busSe = ctx.createGain(); busSe.connect(out);
-    for (let c = 0; c < 4; c++) { const g = ctx.createGain(); g.connect(busMusic); chGain.push(g); }
-    waves = [0.125, 0.25, 0.5, 0.375].map((d) => pulseWave(ctx, d));
-    noiseL = lfsrBuffer(ctx, false); noiseS = lfsrBuffer(ctx, true);
-    applyVol();
+    if (failed) return null;
+    let c = opt.context;
+    if (!c) { const AC = globalThis.AudioContext || globalThis.webkitAudioContext; if (!AC) return null; c = new AC({ latencyHint: 'interactive' }); }
+    // 配線の途中で失敗したら、音なしで遊べるようにする（半端な状態を残さない）
+    try { ctx = c; build(); } catch (e) { ctx = null; failed = true; try { if (!opt.context) c.close(); } catch { /* 済 */ } console.warn('[audio] 初期化に失敗（音なしで続行）', e); return null; }
     return ctx;
   }
+  function build() {
+    precompute();
+    master = createMaster(ctx, !!opt.bypassMaster);
+    reverb = createReverb(ctx, master.input, raw.ir);
+    // 曲: 世代の出口 → 曲の音量 → ダッキング → マスター。残響へ送る分にも同じ音量を掛ける
+    busMusic = ctx.createGain(); duck = ctx.createGain(); musicRev = ctx.createGain();
+    busMusic.connect(duck); duck.connect(master.input); musicRev.connect(reverb.input);
+    // 効果音: 乾いた音（残響少し）と、ボーナスなどの響かせる音（残響多め）
+    seOut = ctx.createGain(); seRev = ctx.createGain(); busSe = ctx.createGain(); busSeWet = ctx.createGain();
+    seOut.connect(master.input); seRev.connect(reverb.input);
+    busSe.connect(seOut); busSeWet.connect(seOut);
+    const s1 = ctx.createGain(), s2 = ctx.createGain(); s1.gain.value = 0.07; s2.gain.value = 0.3; busSe.connect(s1); s1.connect(seRev); busSeWet.connect(s2); s2.connect(seRev);
+    // 旧チップ音源はコンプレッサーを通さず、最終段（ソフトクリップ）の手前へ
+    chipMusic = ctx.createGain(); chipSe = ctx.createGain(); chipMusic.connect(master.pre); chipSe.connect(master.pre);
+    for (const [k, x] of Object.entries(raw.drums)) drumBuf[k] = toBuf(x);
+    for (const [k, list] of Object.entries(raw.sfx)) sfxBuf[k] = list.map(toBuf);
+    inst = createInstruments(ctx, raw.saws);
+    chip = createChip(ctx, chipMusic, chipSe, { offline });
+    applyVol();
+    if (!offline && !timer) timer = setInterval(pump, 25);
+  }
+  function toBuf(x) { const b = ctx.createBuffer(1, x.length, SR); b.getChannelData(0).set(x); return b; }
   function applyVol() {
     if (!ctx) return;
-    const m = vol.mute ? 0 : vol.master;
-    out.gain.setTargetAtTime(m * 0.55, ctx.currentTime, 0.01);
-    busMusic.gain.setTargetAtTime(vol.bgm, ctx.currentTime, 0.01);
-    busSe.gain.setTargetAtTime(vol.se, ctx.currentTime, 0.01);
+    const t = ctx.currentTime, set = (p, v) => p.setTargetAtTime(v, t, 0.01);
+    set(master.out.gain, vol.mute ? 0 : vol.master);
+    set(busMusic.gain, vol.bgm); set(musicRev.gain, vol.bgm); set(seOut.gain, vol.se); set(seRev.gain, vol.se);
+    set(chipMusic.gain, vol.bgm * 0.85); set(chipSe.gain, vol.se * 0.85); // 旧音源は元の 0.55 倍だとモダンより 10dB 小さいので、少し上げてそろえる
   }
+  const running = () => ctx && (offline || ctx.state === 'running');
 
-  // 1 音（矩形波）。アタック 2ms・リリース 12ms でクリックを防ぐ
-  function tone(dest, t, dur, hz, gain, duty, opts = {}) {
-    const o = ctx.createOscillator(); o.setPeriodicWave(waves[duty] || waves[1]);
-    const g = ctx.createGain(); o.connect(g); g.connect(dest);
-    o.frequency.setValueAtTime(hz, t);
-    if (opts.sweepTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, opts.sweepTo), t + dur);
-    if (opts.vib) { const l = ctx.createOscillator(), lg = ctx.createGain(); l.frequency.value = opts.vib[0]; lg.gain.value = hz * opts.vib[1]; l.connect(lg); lg.connect(o.frequency); l.start(t); l.stop(t + dur + 0.05); }
-    const decay = opts.decay ?? 0;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(gain, t + 0.002);
-    if (decay > 0) g.gain.setTargetAtTime(gain * (opts.sustain ?? 0.5), t + 0.002, decay);
-    g.gain.setValueAtTime(decay > 0 ? gain * (opts.sustain ?? 0.5) : gain, t + Math.max(0.004, dur - 0.012));
-    g.gain.linearRampToValueAtTime(0, t + dur);
-    o.start(t); o.stop(t + dur + 0.02);
-    return o;
+  // ── 曲の「世代」: 1 回の再生ぶんの配線（声部ごとの入口 → ローパス → サイドチェイン → 定位 → 出口・送り）──
+  function makeGen(c) {
+    const dry = ctx.createGain(), rev = ctx.createGain(), dly = ctx.createGain();
+    dry.connect(busMusic); rev.connect(musicRev);
+    const delay = createDelay(ctx, busMusic, c.spb); dly.connect(delay.input);
+    const tracks = {}, nodes = [dry, rev, dly];
+    const used = new Set(c.events.map((e) => e.tr));
+    for (const name of used) {
+      const d = { ...TRACKS[name], ...(c.mix[name] || {}) };
+      const input = ctx.createGain(); input.gain.value = d.vol; let tail = input; nodes.push(input);
+      if (d.lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = d.lp; f.Q.value = 0.7; tail.connect(f); tail = f; nodes.push(f); }
+      let sc = null; if (d.sc) { sc = ctx.createGain(); tail.connect(sc); tail = sc; nodes.push(sc); }
+      const p = pan(ctx, d.pan || 0); tail.connect(p); p.connect(dry); nodes.push(p);
+      if (d.rev) { const g = ctx.createGain(); g.gain.value = d.rev; p.connect(g); g.connect(rev); nodes.push(g); }
+      if (d.dly) { const g = ctx.createGain(); g.gain.value = d.dly; p.connect(g); g.connect(dly); nodes.push(g); }
+      tracks[name] = { input, sc, depth: d.sc || 0 };
+    }
+    return { dry, rev, dly, tracks, delay, nodes };
   }
-  function noise(dest, t, dur, rate, gain, short, opts = {}) {
-    const s = ctx.createBufferSource(); s.buffer = short ? noiseS : noiseL; s.loop = true;
-    s.playbackRate.setValueAtTime(rate, t);
-    if (opts.rateTo) s.playbackRate.exponentialRampToValueAtTime(Math.max(0.01, opts.rateTo), t + dur);
-    const g = ctx.createGain(); s.connect(g); g.connect(dest);
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.002);
-    g.gain.setTargetAtTime(0, t + 0.002, opts.decay ?? dur / 3);
-    g.gain.setValueAtTime(0.0001, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + 0.01);
-    s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
-    return s;
+  // 世代を at で切る（短いフェード）。先読み済みの音も一緒に消える。残響とディレイの余韻は残り、あとで片づける
+  function retire(gen, at, fade = 0.012) {
+    const t = Math.max(at, ctx.currentTime);
+    for (const g of [gen.dry, gen.rev, gen.dly]) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(1, t); g.gain.linearRampToValueAtTime(0, t + fade); }
+    dying.push({ gen, at: t + fade + 5 });
   }
-
-  // ── 曲 ──
-  const AHEAD = 0.18;
-  function schedule() {
-    if (!music || !ctx) return;
-    const until = ctx.currentTime + AHEAD;
-    const c = music.comp;
-    for (;;) {
-      // ループ n 回目の基準時刻
-      // 0 回目は先頭から。k 回目（k≥1）はループ位置以降を t0 + len + (k-1)(len-loopAt) から鳴らす
-      const base = music.loopN === 0 ? music.t0 : music.t0 + c.len + (music.loopN - 1) * (c.len - c.loopAt) - c.loopAt;
-      let pending = false;
-      for (const tr of c.tracks) {
-        const idxKey = 'i' + tr.ch;
-        while (music[idxKey] < tr.notes.length) {
-          const n = tr.notes[music[idxKey]];
-          const at = base + n.t;
-          if (at > until) { pending = true; break; }
-          if (at + n.dur > ctx.currentTime) {
-            const g = n.gate / 8;
-            tone(chGain[tr.ch], Math.max(at, ctx.currentTime), n.dur * g, midiHz(n.midi), volGain(n.vol) * 0.32, n.duty, { decay: tr.ch === 1 ? 0.12 : 0.25, sustain: tr.ch === 0 ? 0.75 : 0.55 });
-          }
-          music[idxKey]++;
-        }
-        if (music[idxKey] < tr.notes.length) pending = true;
-      }
-      while (music.iD < c.drums.length) {
-        const d = c.drums[music.iD]; const at = base + d.t;
-        if (at > until) { pending = true; break; }
-        if (at > ctx.currentTime - 0.01) {
-          const t = Math.max(at, ctx.currentTime);
-          if (d.k === 'k') noise(chGain[3], t, 0.09, 0.25, 0.3, false, { rateTo: 0.08, decay: 0.03 });
-          else if (d.k === 's') noise(chGain[3], t, 0.12, 1.0, 0.22, false, { decay: 0.04 });
-          else noise(chGain[3], t, 0.03, 2.2, 0.08, true, { decay: 0.01 });
-        }
-        music.iD++;
-      }
-      if (music.iD < c.drums.length) pending = true;
-      if (pending) return;
-      const endAt = base + c.len;
-      if (c.once) { if (ctx.currentTime > endAt) { const cb = music.onEnd; music = null; cb && cb(); } return; }
-      // 次のループへ: ループ位置より後の音符から
-      music.loopN++;
-      for (const tr of c.tracks) music['i' + tr.ch] = tr.notes.findIndex((n) => n.t >= c.loopAt - 1e-6);
-      music.iD = Math.max(0, c.drums.findIndex((n) => n.t >= c.loopAt - 1e-6));
-      if (endAt > until) return;
+  function sweep() {
+    for (let i = dying.length - 1; i >= 0; i--) if (ctx.currentTime > dying[i].at) {
+      const { gen } = dying[i]; for (const n of gen.nodes) { try { n.disconnect(); } catch { /* 済 */ } } gen.delay.dispose(); dying.splice(i, 1);
     }
   }
-  const compiled = {};
-  function playMusic(name, onEnd) {
-    if (!ensure()) return;
-    if (music && music.name === name && !SONGS[name].once) return; // 同じ曲は二重に始めない
-    stopMusic();
-    const comp = compiled[name] || (compiled[name] = compileSong(SONGS[name]));
-    music = { name, comp, t0: ctx.currentTime + 0.05, loopN: 0, iD: 0, onEnd };
-    for (const tr of comp.tracks) music['i' + tr.ch] = 0;
-    for (const g of chGain) { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(1, ctx.currentTime); }
-    schedule();
-    if (!timer) timer = setInterval(schedule, 40);
+
+  // ── 予約 ──
+  function fire(M, e, at, dur) {
+    const tk = M.gen.tracks[e.tr]; if (!tk || (opt.solo && !opt.solo.includes(e.tr))) return; // opt.solo は検証用（声部を単独で録る）
+    stats.notes++; opt.onNote?.(e, at, M);
+    if (e.k) {
+      const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = drumBuf[e.k]; g.gain.value = e.v; s.connect(g);
+      if (DRUM_PAN[e.k] && ctx.createStereoPanner) { const p = pan(ctx, DRUM_PAN[e.k]); g.connect(p); p.connect(tk.input); } else g.connect(tk.input);
+      s.start(at); stats.nodes++;
+      if (e.k === 'kick') for (const t of Object.values(M.gen.tracks)) if (t.sc) { // サイドチェイン: キックの瞬間に沈めて、すぐ戻す
+        const p = t.sc.gain; p.setTargetAtTime(1 - t.depth * e.v, Math.max(ctx.currentTime, at - 0.004), 0.004); p.setTargetAtTime(1, at + 0.035, 0.085);
+      }
+    } else stats.nodes += inst.play(e.inst, tk.input, at, dur, e.m, e.v);
   }
-  function stopMusic() {
-    music = null;
+  const layerOn = (M, L, at) => { let on = false; for (const s of M.layers[L]) if (s.t <= at + 1e-6) on = s.on; return on; };
+  const baseOf = (M) => (M.loopN === 0 ? M.t0 : M.t0 + M.comp.len + (M.loopN - 1) * (M.comp.len - M.comp.loopAt) - M.comp.loopAt);
+  function run(M, until) {
+    const c = M.comp, ev = c.events, now = ctx.currentTime;
+    for (;;) {
+      // ループ k 回目（k≥1）は、ループ位置より後ろを t0 + len + (k-1)(len-loopAt) から鳴らす
+      const base = baseOf(M);
+      while (M.idx < ev.length) {
+        const e = ev[M.idx], at = base + e.t;
+        if (M.endAt != null && at >= M.endAt - 1e-4) { M.done = true; return; }
+        if (at > until) return;
+        M.idx++;
+        if (e.L && !layerOn(M, e.L, at)) continue;
+        const late = now - at;
+        if (late > 0.05 && !(e.d > late + 0.12)) continue; // 間に合わなかった短い音は鳴らさない（長い音は残りを鳴らす）
+        fire(M, e, Math.max(at, now), late > 0 ? e.d - late : e.d);
+      }
+      const endAt = base + c.len;
+      if (c.once) {
+        if (!M.ended && now >= endAt - 0.12) { // ジングルの終わり: 続きの曲を「ちょうど終わりの時刻」から始められるようにして知らせる
+          M.ended = true;
+          if (music === M) { music = null; cur = null; dying.push({ gen: M.gen, at: endAt + 4 }); chainAt = endAt; try { M.onEnd?.(); } finally { chainAt = null; } }
+        }
+        return;
+      }
+      M.loopN++; M.idx = c.loopIdx;
+    }
+  }
+  let lastPump = 0;
+  function pump() {
     if (!ctx) return;
-    // 予約済みの音は短くフェードして止める（声部の音量を一瞬 0 → 次の曲の頭で 1）
-    for (const g of chGain) { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(0, ctx.currentTime, 0.008); }
-    // 先読み分（最大 AHEAD 秒）を確実に切るため、声部ゲインを差し替える
-    for (let c = 0; c < 4; c++) { const old = chGain[c]; setTimeout(() => old.disconnect(), 80); const g = ctx.createGain(); g.connect(busMusic); chGain[c] = g; }
+    lastPump = ctx.currentTime;
+    sweep();
+    if (style === 'chip') { chip.pump(); return; }
+    const until = ctx.currentTime + AHEAD;
+    if (prev) { run(prev, until); if (prev.done || ctx.currentTime > prev.endAt) prev = null; }
+    if (music) run(music, until);
+  }
+
+  function nextBar(M, t) { const bar = M.comp.bar; return M.t0 + Math.ceil((t - M.t0) / bar - 1e-9) * bar; }
+  // 曲を始める。o.sync: 'bar' = いまの曲の次の小節の頭で切り替える / o.skipIntro: イントロを飛ばしてループの頭から
+  function playMusic(name, onEnd, o = {}) {
+    if (!SONGS[name] || !ensure()) return;
+    if (cur && cur.name === name && !SONGS[name].once) return; // 同じ曲は二重に始めない
+    if (style === 'chip') {
+      stopMusic(); cur = { name, onEnd }; stats.songs++;
+      chip.playMusic(CHIP_SONG[name], () => { cur = null; onEnd?.(); });
+      return;
+    }
+    const c = comp(name); if (c.loopIdx == null) c.loopIdx = c.once ? 0 : Math.max(0, c.events.findIndex((e) => e.t >= c.loopAt - 1e-6));
+    let start = ctx.currentTime + 0.06;
+    if (chainAt != null) start = Math.max(chainAt, ctx.currentTime + 0.02); // ジングルに続けて（前の曲の余韻は切らない）
+    else if (o.sync === 'bar' && music && !music.comp.once) {
+      start = nextBar(music, ctx.currentTime + 0.05);
+      const old = music; old.endAt = start; prev = old; retire(old.gen, start - 0.006); music = null;
+    } else stopMusic();
+    const M = { name, comp: c, gen: makeGen(c), t0: start, idx: 0, loopN: 0, onEnd, endAt: null, layers: { 1: [{ t: -Infinity, on: want[1] }], 2: [{ t: -Infinity, on: want[2] }] } };
+    if (o.skipIntro && !c.once && c.loopAt > 0) { M.t0 = start - c.len; M.loopN = 1; M.idx = c.loopIdx; }
+    music = M; cur = { name, onEnd }; stats.songs++;
+    pump();
+  }
+  function stopMusic(fade = 0.012) {
+    cur = null;
+    if (!ctx) return;
+    if (chip.musicName) chip.stopMusic();
+    if (prev) { retire(prev.gen, ctx.currentTime, fade); prev = null; }
+    if (music) { retire(music.gen, ctx.currentTime, fade); music = null; }
+  }
+  // 層の出し入れ（合体中・残り 1 機）。次の小節の頭から効く。全部の層が同じ時間軸なのでずれない
+  function setLayers(o) {
+    if (ctx && !offline && ctx.currentTime - lastPump > 0.02) pump(); // 毎フレーム呼ばれるので、タイマーが遅れたときの補充も兼ねる
+    for (const [k, L] of Object.entries(LAYER)) {
+      if (o[k] == null || want[L] === !!o[k]) continue;
+      want[L] = !!o[k];
+      if (music && ctx) { const list = music.layers[L]; list.push({ t: nextBar(music, ctx.currentTime + AHEAD + 0.03), on: want[L] }); if (list.length > 6) list.splice(0, list.length - 6); }
+    }
   }
 
   // ── 効果音 ──
-  // SFX[name] = { lane: 'tone'|'noise'|'both', pri, minGap(ms), play(api, t) }
+  // arg: 数値（鎖の枚数 n）または { n, x }。x は盤面の横位置 0〜240 → 左右の定位（S28）
   function se(name, arg) {
-    if (!ensure() || ctx.state !== 'running') return;
+    if (!ensure() || !running()) return;
+    if (style === 'chip') { const n = name in CHIP_NAME ? CHIP_NAME[name] : name; if (n) chip.se(n, typeof arg === 'object' && arg ? arg.n : arg); return; }
     const d = SFX[name]; if (!d) return;
-    const now = ctx.currentTime, nowMs = now * 1000;
-    if (lastSe[name] != null && nowMs - lastSe[name] < (d.minGap ?? 30)) return; // 同じ音の二重発音を防ぐ
-    const lanes = d.lane === 'both' ? ['tone', 'noise'] : [d.lane];
-    for (const ln of lanes) { const L = seBusy[ln]; if (now < L.until && d.pri < L.pri) return; } // 優先度の低い音は鳴らさない
-    lastSe[name] = nowMs;
-    for (const ln of lanes) { const L = seBusy[ln]; for (const n of L.nodes) { try { n.stop(); } catch { /* 済 */ } } L.nodes = []; }
-    const api = {
-      tone: (t, dur, hz, g, duty, o) => { const n = tone(busSe, now + t, dur, hz, g * 0.32, duty, o); seBusy.tone.nodes.push(n); },
-      noise: (t, dur, rate, g, short, o) => { const n = noise(busSe, now + t, dur, rate, g * 0.4, short, o); seBusy.noise.nodes.push(n); },
-    };
-    d.play(api, arg);
-    const len = d.len;
-    for (const ln of lanes) { seBusy[ln].until = now + len; seBusy[ln].pri = d.pri; }
-    // 曲の声部を譲る（ch2 ← 矩形波の効果音、ch3 ← ノイズの効果音）
-    const duck = (ch) => { const g = chGain[ch].gain; g.cancelScheduledValues(now); g.setTargetAtTime(0, now, 0.004); g.setTargetAtTime(1, now + len, 0.01); };
-    if (lanes.includes('tone')) duck(2);
-    if (lanes.includes('noise')) duck(3);
+    const now = ctx.currentTime, a = typeof arg === 'object' && arg ? arg : { n: arg };
+    if (lastSe[name] != null && (now - lastSe[name]) * 1000 < d.gap) { stats.seDropped++; return; } // 同じ音の連打を間引く
+    for (let i = voices.length - 1; i >= 0; i--) if (voices[i].end <= now) voices.splice(i, 1);
+    const steal = (v) => { v.g.gain.cancelScheduledValues(now); v.g.gain.setTargetAtTime(0, now, 0.004); try { v.src.stop(now + 0.03); } catch { /* 済 */ } voices.splice(voices.indexOf(v), 1); stats.seStolen++; };
+    const same = voices.filter((v) => v.name === name);
+    if (same.length >= d.voices) steal(same[0]);
+    if (voices.length >= MAX_SE) { // 上限: いちばん優先度の低い（同じなら古い）音を止める。新しい音のほうが低ければ鳴らさない
+      let lo = voices[0]; for (const v of voices) if (v.pri < lo.pri) lo = v;
+      if (lo.pri > d.pri) { stats.seDropped++; return; }
+      steal(lo);
+    }
+    lastSe[name] = now;
+    const list = sfxBuf[name], vi = (variantI[name] = ((variantI[name] ?? -1) + 1 + (list.length > 2 && Math.random() < 0.5 ? 1 : 0)) % list.length);
+    const semis = (d.rnd ? (Math.random() * 2 - 1) * d.rnd : 0) + (name === 'chainStep' ? (Math.max(1, Math.min(9, a.n || 1)) - 1) * 2 : 0);
+    const src = ctx.createBufferSource(), g = ctx.createGain(), rate = 2 ** (semis / 12);
+    src.buffer = list[vi]; src.playbackRate.value = rate;
+    g.gain.value = d.gain * (d.rnd ? 0.88 + Math.random() * 0.24 : 1);
+    const p = pan(ctx, d.ui || a.x == null ? 0 : (a.x / 240 * 2 - 1) * 0.8);
+    src.connect(g); g.connect(p); p.connect(d.wet ? busSeWet : busSe);
+    src.start(now);
+    voices.push({ name, pri: d.pri, end: now + list[vi].duration / rate, src, g }); stats.se++;
+    if (d.duck) { const q = duck.gain; q.cancelScheduledValues(now); q.setTargetAtTime(1 - d.duck[0], now, 0.015); q.setTargetAtTime(1, now + d.duck[1], 0.22); } // 大きな音の間だけ曲を下げる
+  }
+
+  function setStyle(s) {
+    s = s === 'chip' ? 'chip' : 'modern';
+    if (s === style) return;
+    if (!ctx) { style = s; return; }
+    const keep = cur; stopMusic(0.03); style = s;
+    if (keep) playMusic(keep.name, keep.onEnd, { skipIntro: false });
   }
 
   return {
-    unlock() { const c = ensure(); if (c && c.state !== 'running') c.resume(); return c; },
-    get ready() { return !!ctx && ctx.state === 'running'; },
+    unlock() { const c = ensure(); if (c && !offline && c.state !== 'running') c.resume(); return c; },
+    get ready() { return !!running(); },
     get ctx() { return ctx; },
-    playMusic, stopMusic, se,
-    get musicName() { return music?.name || null; },
+    playMusic, stopMusic, se, setLayers, setStyle, pump,
+    get style() { return style; },
+    get musicName() { return cur?.name || null; },
     setVolumes(v) { Object.assign(vol, v); applyVol(); },
-    // 検証用: 実際の出力（全体の音量の後）を n 秒ぶん PCM で取り出す
+    // 検証・デバッグ用の内部状態
+    get stats() { return { ...stats, voices: voices.length, dying: dying.length, loopN: music?.loopN ?? null, layers: { ...want } }; },
+    // 検証用: 実際の最終出力（リミッター・全体の音量の後）を seconds 秒ぶん録る。{ sr, l, r, pcm（左右の平均）}
     tap(seconds) {
       if (!ensure()) return Promise.resolve(null);
       return new Promise((res) => {
-        const n = Math.round(ctx.sampleRate * seconds); const buf = new Float32Array(n); let i = 0;
-        const sp = ctx.createScriptProcessor(4096, 1, 1); out.connect(sp); sp.connect(ctx.destination);
-        sp.onaudioprocess = (e) => { const d = e.inputBuffer.getChannelData(0); const k = Math.min(d.length, n - i); buf.set(d.subarray(0, k), i); i += k; e.outputBuffer.getChannelData(0).fill(0); if (i >= n) { out.disconnect(sp); sp.disconnect(); res({ sr: ctx.sampleRate, pcm: buf }); } };
+        const n = Math.round(ctx.sampleRate * seconds), l = new Float32Array(n), r = new Float32Array(n); let i = 0;
+        const sp = ctx.createScriptProcessor(4096, 2, 2); master.out.connect(sp); sp.connect(ctx.destination);
+        sp.onaudioprocess = (e) => {
+          const a = e.inputBuffer.getChannelData(0), b = e.inputBuffer.getChannelData(1), k = Math.min(a.length, n - i);
+          l.set(a.subarray(0, k), i); r.set(b.subarray(0, k), i); i += k;
+          e.outputBuffer.getChannelData(0).fill(0); e.outputBuffer.getChannelData(1).fill(0);
+          if (i >= n) { sp.onaudioprocess = null; master.out.disconnect(sp); sp.disconnect(); const pcm = new Float32Array(n); for (let j = 0; j < n; j++) pcm[j] = (l[j] + r[j]) / 2; res({ sr: ctx.sampleRate, l, r, pcm }); }
+        };
       });
     },
     suspend() { if (ctx && ctx.state === 'running') return ctx.suspend(); },

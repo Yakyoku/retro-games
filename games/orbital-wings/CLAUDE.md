@@ -38,12 +38,19 @@ games/orbital-wings/
 - 2026-11-12 Playwright のリクエスト差し替えは AudioWorklet の読み込みを拾えない（ScriptProcessor に落ちる）。公開版の HTTPS では worklet で鳴ることを確認
 - 2026-11-12 3D 版はフォーク（同じ文脈を持つ並行作業）で制作し、統合した
 
-## 現在地（2026-11-12）
-- 2D・3D/VR とも全 7 面が公開版で動作（ビルド 8caad0d7e05c）。自動テスト 34 件合格。詳細は TEST_REPORT.md
+- 2026-11-13 依頼「背景・サウンド・キャラクターを現代のアーケード水準へ、各 30 項目」。IMPROVEMENTS.md に 90 項目を定義し、
+  5 つの並行作業（音／2D キャラ／2D 背景／3D キャラ／3D 環境）で実装。描画は mixin（background2d.js・env3d.js）に分けて衝突を避けた
+- 2026-11-13 ルールと当たり判定は変えない方針。例外は音の合図名の変更・追加のみ（game.js・enemies.js・bosses.js、乱数・時間は不変）
+- 2026-11-13 音はモダン音源（FM＋仮想アナログ、ステレオ、残響）を既定に。従来の PSG 風は設定「音源: レトロ音源」で残した
+- 2026-11-13 stages.js の pal を調整（第 3・4・5 面の色。敵弾の赤紫と衝突させない）。設定「画面の揺れ・閃光」（fx: full/weak/off）を追加
+
+## 現在地（2026-11-13）
+- 2D・3D/VR とも全 7 面が動作。自動テスト 57 件合格。90 項目の状態は IMPROVEMENTS.md、検証は TEST_REPORT.md
+- 追加ファイル: 2d/{background2d,bgUtil2d,bgStages2d,bgTerrain2d,kit2d,fx2d,sprites2d,bosses2d}.js、3d/{env3d,envKit3d,envTextures3d,envStages3d,bosses3d,chars3d,fx3d,materials3d}.js、shared/audio/{modern,patches,songs2,sfx2,core}.js、tools/audio-metrics.js
 - 3D の「立体音響」設定は未実装のため外した（save.js の既定値 spatial は互換のため残っている）
 
 ## 次の作業（優先順）
 1. 依頼者の実機確認の結果を反映: Quest 3（読みやすさ・72/90Hz・コントローラー）、iPad（タッチ・Safari の音）、50 インチ 4K
-2. 人の耳での音の確認 → 音量比・音色の調整（shared/audio/songs.js・sfx.js）
+2. 人の耳での音の確認 → 音量比・音色の調整（shared/audio/songs2.js・sfx2.js・patches.js）
 3. 通常プレイでの難易度調整（shared/stages.js の出現、config.js の DIFFICULTY）
-4. 3D モデルの造形の作り込み（3d/models.js）
+4. 実 GPU・Quest 3 での描画負荷の実測（2D は全画面の重ね描きが増えた。重ければ画質の自動調整の下限と lite 条件を見直す）

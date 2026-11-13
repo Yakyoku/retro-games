@@ -7,11 +7,12 @@
 export const FM_CH = 6, PSG_CH = 3, PCM_CH = 3, TPQ = 48; // 4 分音符 = 48 tick
 // 矩形波の音色: 減衰（dB/秒）・持続の大きさ（0〜1）・離したあとの減衰・ビブラート（cent）・デューティ比
 export const PSG_PATCHES = [
-  { name: 'SQ LEAD', decay: 6, sus: 0.75, rel: 40, vib: 10, duty: 0.5 },
+  { name: 'SQ LEAD', decay: 6, sus: 0.75, rel: 40, vib: 12, duty: 0.5, uni: 7 },
   { name: 'SQ PLUCK', decay: 38, sus: 0.0, rel: 60, vib: 0, duty: 0.5 },
   { name: 'SQ ORGAN', decay: 0, sus: 1, rel: 50, vib: 4, duty: 0.5 },
   { name: 'SQ ECHO', decay: 18, sus: 0.25, rel: 30, vib: 0, duty: 0.5 },
-  { name: 'SQ THIN', decay: 10, sus: 0.6, rel: 40, vib: 14, duty: 0.25 },
+  { name: 'SQ THIN', decay: 10, sus: 0.6, rel: 40, vib: 14, duty: 0.25, uni: 5 },
+  { name: 'SQ NARROW', decay: 22, sus: 0.3, rel: 50, vib: 0, duty: 0.125 },
 ];
 const SINE_BITS = 12, SINE_N = 1 << SINE_BITS, SINE_MASK = SINE_N - 1;
 const SINE = new Float32Array(SINE_N);
@@ -63,7 +64,7 @@ export class FMSynth {
     this.master = 1.4; this.musicVol = 1; this.sfxVol = 1;
     // エコー（宇宙の残響。当時の基板には無いが、静けさのために薄く足す）
     this.dlen = Math.floor(sr * 0.75); this.dL = new Float32Array(this.dlen); this.dR = new Float32Array(this.dlen); this.dpos = 0;
-    this.dtime = Math.floor(sr * 0.33); this.dfb = 0; this.dmix = 0; // 残響なし
+    this.dtime = Math.floor(sr * 0.33); this.dfb = 0.28; this.dmix = 0.22; // 旋律だけに付ける拍に合った短い反復（当時の作曲で使われた「チャンネルのエコー」の再現。全体の残響は付けない）
     this.lpL = 0; this.lpR = 0; this.lpK = 1 - Math.exp(-2 * Math.PI * 11500 / sr); // 出力の低域通過（基板の DAC 後段のこもり）
     this.seq = null; this.sfx = []; this.idleFade = 1;
     this.meter = new Float32Array(FM_CH + PCM_CH + PSG_CH);
@@ -101,7 +102,7 @@ export class FMSynth {
   keyOff(ch) { const c = this.fm[ch]; c.on = false; for (const o of c.ops) if (o.state < 3) { if (o.state === 0) o.att = o.lin > 0 ? -20 * Math.log10(o.lin) : 140; o.state = 3; } }
 
   psgOn(ch, note, patch, vol) {
-    const v = this.psg[ch]; v.p = PSG_PATCHES[patch] || PSG_PATCHES[0]; v.note = note; v.bend = 0; v.on = true; v.vol = vol; v.lvl = 1; v.stage = 1;
+    const v = this.psg[ch]; v.p = PSG_PATCHES[patch] || PSG_PATCHES[0]; v.note = note; v.bend = 0; v.on = true; v.vol = vol; v.lvl = 1; v.stage = 1; v.age = 0; v.ph2 = v.ph2 || 0.37;
     v.dMul = Math.pow(10, -v.p.decay / 20 / this.sr); v.rMul = Math.pow(10, -v.p.rel / 20 / this.sr);
   }
   psgOff(ch) { const v = this.psg[ch]; v.on = false; if (v.stage !== 0) v.stage = 2; }
@@ -119,8 +120,8 @@ export class FMSynth {
     if (!song) { this.seq = null; return; }
     const tracks = song.tracks.map((t) => ({ ...t, i: 0, tick: 0, base: 0, done: false, offAt: -1, vol: 12, pan: 3, gate: 7, patch: 0, echo: 0, detune: 0, vib: -1 }));
     this.seq = { song, tracks, tick: 0, acc: 0, spt: this.sr * 60 / (song.tempo * TPQ), fade: 1, fadeStep: 0 };
-    this.dtime = Math.max(1, Math.min(this.dlen - 1, Math.floor(this.sr * (song.echoBeats ? song.echoBeats * 60 / song.tempo : 0.33))));
-    this.dfb = 0;
+    this.dtime = Math.max(1, Math.min(this.dlen - 1, Math.floor(this.sr * ((song.echoBeats ?? 0.75) * 60 / song.tempo))));
+    this.dfb = song.echoFb ?? 0.28;
     if (opts.fadeIn) { this.seq.fade = 0; this.seq.fadeStep = 1 / (this.sr * opts.fadeIn); }
   }
   fadeOut(sec = 1.5) { if (this.seq) this.seq.fadeStep = -1 / (this.sr * sec); }
@@ -156,7 +157,7 @@ export class FMSynth {
       case 'n': // ノート: a = MIDI, b = 長さ tick, c2 = ゲート長 tick
         if (t.kind === 'psg') {
           if (!own) break;
-          this.psgOn(t.ch, a, t.patch, volCurve(t.vol) * 0.9); const v = this.psg[t.ch]; v.panL = t.pan & 1 ? 1 : 0; v.panR = t.pan & 2 ? 1 : 0; v.detune = t.detune;
+          this.psgOn(t.ch, a, t.patch, volCurve(t.vol) * 0.9); const v = this.psg[t.ch]; v.panL = t.pan & 1 ? 1 : 0.55; v.panR = t.pan & 2 ? 1 : 0.55; v.detune = t.detune; v.echo = t.echo;
           t.offAt = t.tick + c2;
         } else if (fm) {
           if (!own) break;
@@ -182,7 +183,7 @@ export class FMSynth {
 
   // ---------- 効果音 ----------
   // prog: { ch: 'fm' | 'pcm', steps: [[tick, kind, ...]], prio }
-  playSfx(prog, slot) {
+  playSfx(prog, slot, tr = 0) {
     if (!prog) return;
     const chs = prog.ch === 'pcm' ? [2] : prog.ch === 'psg' ? [2] : [5, 4];
     let ch = slot ?? null;
@@ -196,7 +197,7 @@ export class FMSynth {
         ch = victim.ch; this.sfx.splice(this.sfx.indexOf(victim), 1);
       }
     }
-    const v = { prog, ch, kind: prog.ch, i: 0, t: 0, acc: 0, spt: this.sr / 120, start: this.sfxClock = (this.sfxClock || 0) + 1 };
+    const v = { prog, ch, kind: prog.ch, i: 0, t: 0, acc: 0, spt: this.sr / 120, start: this.sfxClock = (this.sfxClock || 0) + 1, tr };
     if (prog.ch === 'fm') { const c = this.fm[ch]; c.owner = 'sfx'; this.keyOff(ch); } else if (prog.ch === 'psg') { this.psg[ch].owner = 'sfx'; this.psgOff(ch); } else this.pcm[ch].owner = 'sfx';
     this.sfx.push(v);
   }
@@ -206,12 +207,12 @@ export class FMSynth {
       const s = steps[v.i++];
       if (v.kind === 'fm') {
         const c = this.fm[v.ch];
-        if (s[1] === 'on') { this.programChannel(c, this.patches[s[3]]); c.vol = (s[4] ?? 1) * this.sfxVol; c.panL = c.panR = 1; c.echo = s[6] || 0; c.detune = 0; c.slide = (s[5] || 0) / this.sr; this.keyOn(v.ch, s[2], 1); }
+        if (s[1] === 'on') { this.programChannel(c, this.patches[s[3]]); c.vol = (s[4] ?? 1) * this.sfxVol; c.panL = c.panR = 1; c.echo = s[6] || 0; c.detune = 0; c.slide = (s[5] || 0) / this.sr; this.keyOn(v.ch, s[2] + (v.tr || 0), 1); }
         else if (s[1] === 'off') this.keyOff(v.ch);
         else if (s[1] === 'slide') c.slide = s[2] / this.sr;
       } else if (v.kind === 'psg') {
         const q = this.psg[v.ch];
-        if (s[1] === 'on') { this.psgOn(v.ch, s[2], s[3] || 0, (s[4] ?? 1) * this.sfxVol * 0.9); q.slide = (s[5] || 0) / this.sr; q.panL = q.panR = 1; }
+        if (s[1] === 'on') { this.psgOn(v.ch, s[2] + (v.tr || 0), s[3] || 0, (s[4] ?? 1) * this.sfxVol * 0.9); q.slide = (s[5] || 0) / this.sr; q.panL = q.panR = 1; q.echo = 0; }
         else if (s[1] === 'off') this.psgOff(v.ch);
         else if (s[1] === 'slide') q.slide = s[2] / this.sr;
       } else if (s[1] === 'pcm') { this.pcmPlay(v.ch, s[2], s[3] || 0, (s[4] ?? 1) * this.sfxVol, 3); this.pcm[v.ch].echo = s[5] || 0; }
@@ -293,11 +294,17 @@ export class FMSynth {
         if (v.stage === 1) { if (v.lvl > v.p.sus) { v.lvl *= v.dMul; if (v.lvl < v.p.sus) v.lvl = v.p.sus; } }
         else { v.lvl *= v.rMul; if (v.lvl < 0.0005) { v.lvl = 0; v.stage = 0; continue; } }
         if (v.slide) v.bend += v.slide;
-        const f = 440 * Math.pow(2, (v.note + v.bend - 69) / 12 + (v.detune + v.p.vib * lfo) / 1200);
-        v.ph += f / sr; if (v.ph >= 1) v.ph -= Math.floor(v.ph);
-        // 矩形波（4bit 相当の音量段階に丸める）
-        const amp = Math.round(v.lvl * 15) / 15;
-        const g = (v.ph < v.p.duty ? 1 : -1) * amp * v.vol * 0.75 * (v.owner === 'music' ? mfade : 1);
+        // ビブラートは音の出だしから 0.25 秒かけて深くなる（長い音だけ揺れる）
+        v.age++; const vd = Math.min(1, v.age / (sr * 0.25));
+        const f = 440 * Math.pow(2, (v.note + v.bend - 69) / 12 + (v.detune + v.p.vib * vd * lfo) / 1200);
+        const dt1 = f / sr; v.ph += dt1; if (v.ph >= 1) v.ph -= Math.floor(v.ph);
+        // 帯域制限した矩形波（PolyBLEP）: 高い音の折り返しノイズを抑え、耳に刺さる硬さを取る
+        const D = v.p.duty;
+        let sq = (v.ph < D ? 1 : -1) + blep(v.ph, dt1) - blep((v.ph - D + 1) % 1, dt1);
+        if (v.p.uni) { const dt2 = dt1 * Math.pow(2, v.p.uni / 1200); v.ph2 += dt2; if (v.ph2 >= 1) v.ph2 -= Math.floor(v.ph2); sq = (sq + (v.ph2 < D ? 1 : -1) + blep(v.ph2, dt2) - blep((v.ph2 - D + 1) % 1, dt2)) * 0.62; } // 少しずらした 2 本目（厚み）
+        const amp = Math.round(v.lvl * 15) / 15; // 4bit 相当の音量段階
+        const g = sq * amp * v.vol * 0.75 * (v.owner === 'music' ? mfade : 1);
+        if (v.echo) { el += g * v.panL * v.echo; er += g * v.panR * v.echo; }
         this.meter[FM_CH + PCM_CH + si] = Math.max(this.meter[FM_CH + PCM_CH + si] * 0.9995, Math.abs(g));
         sl += g * v.panL; sr2 += g * v.panR;
       }
@@ -324,5 +331,6 @@ export class FMSynth {
   }
 }
 
+function blep(t, dt) { if (t < dt) { t /= dt; return t + t - t * t - 1; } if (t > 1 - dt) { t = (t - 1) / dt; return t * t + t + t + 1; } return 0; }
 function softclip(x) { return x > 1.2 ? 1 : x < -1.2 ? -1 : x - (x * x * x) / 4.32 * (Math.abs(x) > 0.6 ? 1 : 0.35); }
 export const volCurve = (v) => (v <= 0 ? 0 : Math.pow(10, -(15 - Math.min(15, v)) * 2.4 / 20));

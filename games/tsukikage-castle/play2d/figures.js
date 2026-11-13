@@ -11,7 +11,8 @@ function mix(a, b, t) { const A = rgb(a), B = rgb(b); return `rgb(${Math.round(A
 const lite = (c, t) => mix(c, '#ffffff', t), dark = (c, t) => mix(c, '#05060c', t);
 export const OUT = '#0a0d18';                 // 輪郭
 const RIM = 'rgba(170,205,255,0.85)';          // 月光の縁
-const LW = 0.032;                              // 輪郭の太さ（u）
+let LW = 0.032;                                // 輪郭の太さ（u）。ドット表示では最低 1 ドット
+export function setOutlinePx(u) { LW = Math.max(0.032, u || 0); }
 // 明るい側（上・前）から暗い側への 3 段の塗り
 function lit(ctx, x0, y0, x1, y1, base, hi = 0.5, lo = 0.55) {
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
@@ -153,7 +154,7 @@ function arm(ctx, sh, A, armor, back) {
 function pauldron(ctx, sh, P) {
   // 3 枚重ねの肩当て（上の板ほど大きい）
   for (let i = 2; i >= 0; i--) {
-    const r = 0.17 - i * 0.025, y = sh[1] - 0.02 - i * 0.055;
+    const r = 0.195 - i * 0.028, y = sh[1] - 0.02 - i * 0.06;
     ctx.beginPath(); ctx.ellipse(sh[0] + 0.02, y, r, r * 0.62, -0.25 - P.lean * 0.5, Math.PI * 1.02, Math.PI * 2.05, true); ctx.closePath();
     finish(ctx, lit(ctx, sh[0], y + r, sh[0], y - r * 0.6, i ? STEEL_D : STEEL, 0.7, 0.5), 0.025);
   }
@@ -161,7 +162,7 @@ function pauldron(ctx, sh, P) {
 }
 function head(ctx, J, P, armor, opt) {
   const [hx, hy] = J.head;
-  ctx.save(); ctx.translate(hx, hy); ctx.rotate(-(P.lean + P.head) * 0.6); ctx.scale(1.18, 1.18);
+  ctx.save(); ctx.translate(hx, hy); ctx.rotate(-(P.lean + P.head) * 0.6); ctx.scale(1.27, 1.27); // アーケードらしく頭を大きめに（小さな表示でも兜と向きが読める）
   if (armor) {
     // 羽根（3 本、ばねで揺れる）
     const pl = opt.plume ?? 0;
@@ -183,7 +184,8 @@ function head(ctx, J, P, armor, opt) {
     // のぞき穴（2 本）と中の青い光
     ctx.fillStyle = '#05070d';
     for (const y of [0.02, -0.035]) { ctx.beginPath(); ctx.moveTo(0.1, y + 0.012); ctx.lineTo(0.31, y + 0.004); ctx.lineTo(0.3, y - 0.012); ctx.lineTo(0.1, y - 0.008); ctx.closePath(); ctx.fill(); }
-    ctx.fillStyle = 'rgba(140,210,255,0.95)'; ctx.fillRect(0.2, 0.012, 0.05, 0.012);
+    const eg = 0.6 + 0.4 * Math.sin((opt.time ?? performance.now() / 1000) * 3); // のぞき穴の奥の光がゆっくり脈打つ
+    glowDot(ctx, 0.235, 0.018, 0.012 + eg * 0.008, `rgba(140,210,255,${0.6 + eg * 0.4})`);
     // 鋲・縁取り・鏡面
     for (const [x, y] of [[-0.12, -0.02], [-0.03, -0.05], [0.07, -0.11]]) ell(ctx, x, y, 0.018, 0.018, '#e8eef8');
     ctx.strokeStyle = RIM; ctx.lineWidth = 0.025; ctx.beginPath(); ctx.moveTo(-0.2, -0.08); ctx.bezierCurveTo(-0.24, 0.12, -0.12, 0.25, 0.0, 0.26); ctx.stroke();
@@ -259,8 +261,21 @@ export function drawEnemy(ctx, e, time) {
   if (A.flash > 0 && !e.dead) { const h = Math.min(e.h || 1, 1.5) * 0.5; ctx.translate(0, h); ctx.rotate(-0.22 * A.flash); ctx.translate(-0.08 * A.flash, -h); } // 当たった瞬間にのけぞる
   const fn = ENEMY[e.type];
   fn && fn(ctx, e, A, time);
-  if (A.flash > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = `rgba(255,255,255,${A.flash * 0.85})`; ctx.fillRect(-3, -2, 6, 6); ctx.globalCompositeOperation = 'source-over'; }
+  if (A.flash > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = A.flash > 0.5 ? `rgba(255,255,255,${A.flash * 0.9})` : `rgba(255,90,70,${A.flash * 1.2})`; ctx.fillRect(-3, -2, 6, 6); ctx.globalCompositeOperation = 'source-over'; } // 白く光ってから赤く引く
   ctx.globalAlpha = 1;
+  if (!e.dead) enemyExtras(ctx, e, A, time);
+}
+// 種類ごとの細かな生気: 牙獣の鼻息・術者の魔法陣・跳ね鬼の喉袋・鉄塊鬼の呼吸の湯気・石像の煙・夜魔のまばたき
+function enemyExtras(ctx, e, A, time) {
+  if (e.type === 'beast' && (e.st === 'idle' || e.st === 'windup')) { for (let i = 0; i < 2; i++) { const q = ((time * (e.st === 'windup' ? 2.5 : 0.9) + i * 0.5 + e.phase) % 1); ell(ctx, 1.25 + q * 0.5, 0.72 + q * 0.12, 0.05 + q * 0.12, 0.04 + q * 0.08, `rgba(220,225,235,${0.45 * (1 - q)})`); } }
+  if (e.type === 'caster' && e.st === 'cast') { const k = Math.min(1, e.t / 0.85); ctx.save(); ctx.translate(0, 0.02); ctx.scale(1, 0.28); ctx.rotate(time * 1.5); ctx.strokeStyle = `rgba(200,140,255,${0.8 * k})`; ctx.lineWidth = 0.05; ctx.beginPath(); ctx.arc(0, 0, 0.9, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, 0.7, 0, TAU); ctx.stroke(); for (let i = 0; i < 6; i++) { const a = i * 1.047; ctx.beginPath(); ctx.moveTo(Math.cos(a) * 0.7, Math.sin(a) * 0.7); ctx.lineTo(Math.cos(a + 2.09) * 0.7, Math.sin(a + 2.09) * 0.7); ctx.stroke(); } ctx.restore(); }
+  if (e.type === 'hopper' && e.st === 'wait') { const k = 0.5 + 0.5 * Math.sin(time * 7 + e.phase); ctx.beginPath(); ctx.ellipse(0.28, 0.22, 0.14 + k * 0.08, 0.1 + k * 0.06, 0, 0, TAU); finish(ctx, lit(ctx, 0.3, 0.35, 0.3, 0.1, '#f0dc90', 0.3, 0.4), 0.02); }
+  if (e.type === 'brute' && e.st !== 'smash') { const q = (time * 0.6 + e.phase) % 1; ell(ctx, 0.62 + q * 0.3, 2.0 + q * 0.4, 0.06 + q * 0.12, 0.05 + q * 0.09, `rgba(220,220,230,${0.35 * (1 - q)})`); }
+  if (e.type === 'turret' && !e.down) { for (let i = 0; i < 2; i++) { const q = (time * 0.5 + i * 0.5 + e.phase) % 1; ell(ctx, 0.36 + Math.sin(time + i) * 0.05, 1.0 + q * 0.8, 0.05 + q * 0.1, 0.05 + q * 0.1, `rgba(120,110,120,${0.4 * (1 - q)})`); } }
+  if (e.type === 'imp' && (time * 0.7 + e.phase) % 3 < 0.1) ell(ctx, 0.11, 0.47, 0.05, 0.012, '#d24458');
+  if (e.type === 'ghoul' && e.st === 'walk' && Math.sin(time * 13 + e.phase * 5) > 0.95) ell(ctx, 0.4, 1.55, 0.05, 0.012, '#98b38c');
+  // 魔物の呼吸（ゆっくり膨らむ。鎧の騎士と同じ拍子にならないよう個体ごとにずらす）
+  void A;
 }
 const ENEMY = {
   // 亡者: 前かがみ・腐った緑の肌・浮いたあばら・ぼろ布・顎が動く。土の盛り上がりから這い出す

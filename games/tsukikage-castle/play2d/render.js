@@ -5,6 +5,8 @@ import { QUALITY } from '../shared/config.js';
 import { setView, surfaceBelow } from '../shared/core.js';
 import { knightPose, knightJoints, STRIDE } from '../shared/anim.js';
 import { UI } from '../shared/ui.js';
+import { setOutlinePx } from './figures.js';
+import { skyExtras, lightning, backExtras, frontExtras, bossTint } from './ambience.js';
 import { drawKnight, drawShot, drawBurn, drawEnemy, drawEShot, drawItem, drawBoss, fireBlob, PAL } from './art.js';
 
 const TAU = Math.PI * 2;
@@ -31,7 +33,7 @@ export class Renderer2D {
   constructor(canvas, app) {
     this.cv = canvas; this.ctx = canvas.getContext('2d', { alpha: false }); this.app = app; this.ui = new UI();
     this.parts = []; this.shake = 0; this.time = 0; this.quality = app.save.quality; this.reserve = { bottom: 0, right: 0 };
-    this.fps = 60; this.frameMs = []; this.tiles = null; this.def = null; this.trails = new WeakMap();
+    this.fps = 60; this.frameMs = []; this.tiles = null; this.def = null; this.trails = new WeakMap(); this.faceAnim = new WeakMap(); this.born = new WeakMap();
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -50,9 +52,22 @@ export class Renderer2D {
     let T = Math.min(W / (VW * zoom), H / (VH * zoom));
     if (W / T > 32) T = W / 32;
     if (H / T > 18) T = H / 18;
-    this.T = T; this.viewW = W / T; this.viewH = H / T;
-    this.field = { x: 0, y: 0, w: W, h: H };
-    this.info = { css: `${cw}×${ch}`, dpr, internal: `${W}×${H}`, field: `${this.viewW.toFixed(1)}×${this.viewH.toFixed(1)}u`, tilePx: this.T.toFixed(1), quality: q };
+    this.viewW = W / T; this.viewH = H / T;
+    this.MW = W; this.MH = H;
+    // アーケードのドット表示: 世界を「1 タイル ≒ 24 ドット」の低い解像度で描き、整数倍に拡大する（ドットがにじまない）
+    this.pixel = (this.app.save.display || 'pixel') === 'pixel';
+    const S = this.pixel ? Math.max(1, Math.round(T / 24)) : 1;
+    this.S = S;
+    const lw = Math.ceil(W / S), lh = Math.ceil(H / S);
+    if (S > 1) {
+      if (!this.lowCv) { this.lowCv = document.createElement('canvas'); this.lowCtx = this.lowCv.getContext('2d', { willReadFrequently: true }); }
+      if (this.lowCv.width !== lw || this.lowCv.height !== lh) { this.lowCv.width = lw; this.lowCv.height = lh; }
+      this.wctx = this.lowCtx;
+    } else this.wctx = this.ctx;
+    this.T = T / S; this.W = lw; this.H = lh;
+    this.field = { x: 0, y: 0, w: lw, h: lh };
+    setOutlinePx(this.pixel && S > 1 ? 1.05 / this.T : 0); // ドット表示では輪郭を最低 1 ドットに
+    this.info = { css: `${cw}×${ch}`, dpr, internal: `${W}×${H}${S > 1 ? `（世界 ${lw}×${lh}×${S}）` : ''}`, field: `${this.viewW.toFixed(1)}×${this.viewH.toFixed(1)}u`, tilePx: this.T.toFixed(1), quality: q };
     if (this.def) this.buildStage(this.def);
   }
   setStage(g) { if (this.def !== g.def || !this.tiles) { this.def = g.def; this.buildStage(g.def); } this.parts = []; }
@@ -145,6 +160,13 @@ export class Renderer2D {
         }
       });
     });
+    // 遠景・中景の影絵の上の縁に月光（上に何もない画素だけを細く明るく）
+    for (const [cv, a] of [[far, 0.35], [mid, 0.5]]) {
+      const rim = document.createElement('canvas'); rim.width = W; rim.height = H; const x = rim.getContext('2d');
+      x.drawImage(cv, 0, 0); x.globalCompositeOperation = 'destination-out'; x.drawImage(cv, 0, Math.max(2, Math.round(this.T * 0.08)));
+      x.globalCompositeOperation = 'source-in'; x.fillStyle = `rgba(175,200,255,${a})`; x.fillRect(0, 0, W, H);
+      cv.getContext('2d').drawImage(rim, 0, 0);
+    }
     // 近景の層: 中景を 1.4 倍にして、霧の色で暗く塗り直す（大気の遠近: 近いほど濃く暗い）
     const near = document.createElement('canvas'); near.width = W; near.height = H;
     { const x = near.getContext('2d'); x.save(); x.translate(0, H); x.scale(1.4, 1.4); x.translate(0, -H); x.drawImage(mid, 0, 0); x.drawImage(mid, -W / 1.4 * 0.6, 0); x.restore();
@@ -156,28 +178,59 @@ export class Renderer2D {
   render(g, alpha, dt) {
     const t0 = performance.now();
     this.time += dt; this.lastDt = dt;
-    const ctx = this.ctx, F = this.field;
+    const ctx = this.wctx, F = this.field;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#05050a'; ctx.fillRect(0, 0, this.W, this.H);
     if (!g || !this.def) { this.drawTitleBack(ctx); }
     else {
       if (!g.view || Math.abs(g.view.w - this.viewW) > 0.01 || Math.abs(g.view.h - this.viewH) > 0.01) setView(g, this.viewW, this.viewH);
-      const cx = g.pcam.x + (g.cam.x - g.pcam.x) * alpha, cy = g.pcam.y + (g.cam.y - g.pcam.y) * alpha;
+      let cx = g.pcam.x + (g.cam.x - g.pcam.x) * alpha, cy = g.pcam.y + (g.cam.y - g.pcam.y) * alpha;
+      // カメラのばね（臨界減衰）: 論理カメラを追うが、急な動きは丸める。プレイヤーが画面外に出ない範囲で
+      if (!this.cam || Math.hypot(this.cam.x - cx, this.cam.y - cy) > 6) this.cam = { x: cx, y: cy, vx: 0, vy: 0 };
+      { const w = 11, c = this.cam, d = Math.min(0.05, dt); c.vx += (-(c.x - cx) * w * w - 2 * w * c.vx) * d; c.vy += (-(c.y - cy) * w * w - 2 * w * c.vy) * d; c.x += c.vx * d; c.y += c.vy * d; cx = Math.min(cx + 1.2, Math.max(cx - 1.2, c.x)); cy = Math.min(cy + 0.8, Math.max(cy - 0.8, c.y)); }
       this.shake = Math.max(0, this.shake - dt);
-      const sh = this.shake > 0 ? this.shake * 0.5 : 0;
+      const sh = this.shake > 0 ? Math.pow(this.shake, 1.5) * 0.7 : 0;
       const T = this.T;
       ctx.save(); ctx.beginPath(); ctx.rect(F.x, F.y, F.w, F.h); ctx.clip();
       this.drawSky(ctx, cx, cy);
-      const ox = Math.round(F.x + F.w / 2 - cx * T + Math.sin(this.time * 70) * sh * T * 0.3), oy = Math.round(F.y + F.h / 2 + cy * T + Math.cos(this.time * 63) * sh * T * 0.3);
+      const nz = (a) => Math.sin(this.time * a) * 0.6 + Math.sin(this.time * a * 1.73 + 1.3) * 0.4; // 揺れは周期の違う正弦の和（ガタつかない）
+      const ox = Math.round(F.x + F.w / 2 - cx * T + nz(47) * sh * T * 0.3), oy = Math.round(F.y + F.h / 2 + cy * T + nz(53) * sh * T * 0.3);
       this.view = { ox, oy, T, x0: cx - this.viewW / 2 - 1, x1: cx + this.viewW / 2 + 1, y0: cy - this.viewH / 2 - 1, y1: cy + this.viewH / 2 + 1 };
       this.drawWorld(ctx, g, alpha);
       ctx.restore();
     }
-    // HUD・メニュー（盤面の範囲に描く。タッチ操作の範囲は避ける）
-    const rect = this.app.screen === 'play' || this.app.screen === 'paused' || this.app.screen === 'gameover' ? F : { x: 0, y: 0, w: this.W, h: this.H };
-    this.ui.draw(ctx, this.app, rect, { reserveBottom: this.reserve.bottom * this.pxScale, reserveRight: (this.reserve.right || 0) * this.pxScale, debugText: this.debugText(g) });
+    // ドット表示: 色を段階に丸め（4×4 の網点で中間色を表す）、整数倍で画面へ拡大
+    const mctx = this.ctx;
+    if (this.wctx !== this.ctx) {
+      if (this.app.save.dither !== false) this.quantize(this.lowCtx, this.W, this.H);
+      mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.imageSmoothingEnabled = false;
+      mctx.drawImage(this.lowCv, 0, 0, this.W * this.S, this.H * this.S);
+      if (this.app.save.scanlines) this.scanlines(mctx);
+    }
+    // HUD・メニュー（実画素の画面に描く。文字はにじまない）
+    const rect = { x: 0, y: 0, w: this.MW, h: this.MH };
+    this.ui.draw(mctx, this.app, rect, { reserveBottom: this.reserve.bottom * this.pxScale, reserveRight: (this.reserve.right || 0) * this.pxScale, debugText: this.debugText(g) });
     const ms = performance.now() - t0;
     this.frameMs.push(ms); if (this.frameMs.length > 120) this.frameMs.shift();
+  }
+  // 各色を 11 段階へ丸める。4×4 の Bayer 網点で境目をならす（当時の基板の限られた色数の質感）
+  quantize(ctx, w, h) {
+    if (!this.qLut) {
+      const L = 11, B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 11 段階・網点は弱め（画面全体のざらつきを抑える）
+      this.qLut = new Uint8Array(256 * 16);
+      for (let t = 0; t < 16; t++) for (let v = 0; v < 256; v++) { const d = (B[t] / 16 - 0.5) * (255 / (L - 1)) * 0.7; this.qLut[t * 256 + v] = Math.round(Math.min(L - 1, Math.max(0, Math.round(((v + d) / 255) * (L - 1))))) * (255 / (L - 1)); }
+    }
+    const img = ctx.getImageData(0, 0, w, h), a = img.data, lut = this.qLut;
+    for (let y = 0; y < h; y++) {
+      const row = (y & 3) << 2;
+      for (let x = 0, i = y * w * 4; x < w; x++, i += 4) { const o = (row | (x & 3)) << 8; a[i] = lut[o | a[i]]; a[i + 1] = lut[o | a[i + 1]]; a[i + 2] = lut[o | a[i + 2]]; }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  // 走査線（任意）: 拡大後のドットの段ごとに薄い暗い線
+  scanlines(ctx) {
+    if (!this.scanPat || this.scanS !== this.S) { const c = document.createElement('canvas'); c.width = 1; c.height = this.S; const x = c.getContext('2d'); x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(0, this.S - 1, 1, 1); this.scanPat = ctx.createPattern(c, 'repeat'); this.scanS = this.S; }
+    ctx.fillStyle = this.scanPat; ctx.fillRect(0, 0, this.MW, this.MH);
   }
   debugText(g) {
     if (!this.app.debug) return '';
@@ -214,6 +267,7 @@ export class Renderer2D {
     const F = this.field, th = this.th, bg = this.bg;
     if (!this.skyImg || this.skyImg.width !== F.w || this.skyTheme !== th) { this.bakeSky(); this.skyTheme = th; }
     ctx.drawImage(this.skyImg, F.x, F.y);
+    skyExtras(this, ctx, cx, cy);
     // 雲（ゆっくり流れる）
     ctx.fillStyle = 'rgba(160,170,210,0.07)';
     for (let i = 0; i < 5; i++) { const w = F.w * 0.4, x = F.x + ((((i * 0.31 + this.time * 0.004 - cx * 0.002) % 1) + 1) % 1) * (F.w + w) - w, y = F.y + F.h * (0.12 + i * 0.07); ctx.beginPath(); ctx.ellipse(x + w / 2, y, w / 2, F.h * 0.02, 0, 0, TAU); ctx.fill(); }
@@ -247,6 +301,7 @@ export class Renderer2D {
     const lerpP = (o) => [o.px + (o.x - o.px) * alpha, o.py + (o.y - o.py) * alpha];
     // 背景側の飾り（地下墓所の壁・塔の柱など）
     for (const d of def.deco) if (d.x + (d.w || 3) > v.x0 - 3 && d.x < v.x1 + 3) this.decoBack(ctx, d, g);
+    backExtras(this, ctx, g);
     this.drawTiles(ctx, g);
     this.drawLiquids(ctx, g);
     for (const d of def.deco) if (d.x + (d.w || 3) > v.x0 - 3 && d.x < v.x1 + 3) this.decoFront(ctx, d, g);
@@ -255,7 +310,7 @@ export class Renderer2D {
     // 炎の柱
     for (const j of g.jets) this.jetArt(ctx, j, time);
     // アイテム
-    for (const it of g.items) { this.at(ctx, it.x, it.y); drawItem(ctx, it, time); }
+    for (const it of g.items) { const q = Math.min(1, (it.t || 1) / 0.3), pop = q < 1 ? 1 + Math.sin(q * Math.PI) * 0.35 : 1; this.at(ctx, it.x, it.y); ctx.scale(pop, pop); drawItem(ctx, it, time); }
     // 燃える火
     for (const f of g.burns) { this.at(ctx, f.x, f.y); drawBurn(ctx, f, time); }
     // 接地の影（キャラクターの足元。空中にいると小さく薄く）
@@ -266,7 +321,11 @@ export class Renderer2D {
     for (const e of g.enemies) {
       const [x, y] = lerpP(e);
       if (e.type === 'hopper' && e.st === 'hop' && e.landX != null) { this.at(ctx, e.landX, Math.round(e.home ? e.home.y : y)); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(0, 0.02, 0.5, 0.1, 0, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(255,120,80,0.6)'; ctx.lineWidth = 0.03; ctx.stroke(); }
-      this.at(ctx, x, y, e.face || 1); drawEnemy(ctx, e, time);
+      // 出現は小さく弾むように（0.25 秒の行き過ぎて戻る拡大）、振り向きは横幅をつぶして返す
+      let fa = this.faceAnim.get(e); fa = fa == null ? (e.face || 1) : fa + ((e.face || 1) - fa) * Math.min(1, (this.lastDt || 0.016) * 18); this.faceAnim.set(e, fa);
+      const born = this.born.get(e) ?? (this.born.set(e, this.time), this.time), age = this.time - born;
+      const pop = age < 0.25 && e.type !== 'ghoul' ? (() => { const q = age / 0.25; return 1 + 2.2 * Math.pow(q - 1, 3) + 1.2 * Math.pow(q - 1, 2); })() : 1;
+      this.at(ctx, x, y, Math.sign(fa) || 1); ctx.scale(Math.max(0.2, Math.abs(fa)) * pop, pop); drawEnemy(ctx, e, time);
     }
     // ボス
     const b = g.boss;
@@ -282,7 +341,10 @@ export class Renderer2D {
       if (!(p.inv > 0 && g.mode === 'play' && Math.floor(time * 20) % 2 === 0)) {
         const up = p.state === 'jump' ? Math.min(1, p.vy / 9) : 0, land = p.landT > 0 ? p.landT / 0.12 : 0;
         const sy = 1 + up * 0.07 - land * 0.08, sx = 1 / Math.sqrt(sy);
-        this.at(ctx, x, y, p.face); ctx.scale(sx, sy); drawKnight(ctx, p, time, { weapon: g.weapon, ...fx });
+        // 振り向きは一瞬で反転せず、横幅をつぶして返す（0.08 秒）
+        this.kf = this.kf == null ? p.face : this.kf + (p.face - this.kf) * Math.min(1, (this.lastDt || 0.016) * 26);
+        const fs = Math.abs(this.kf) < 0.2 ? 0.2 : Math.abs(this.kf);
+        this.at(ctx, x, y, Math.sign(this.kf) || p.face); ctx.scale(sx * fs, sy); drawKnight(ctx, p, time, { weapon: g.weapon, time, ...fx });
       }
     }
     // 弾
@@ -296,8 +358,9 @@ export class Renderer2D {
     for (const s of g.eshots) { const [x, y] = lerpP(s); this.at(ctx, x, y, s.kind === 'beam' || s.kind === 'wave' ? 1 : 1); drawEShot(ctx, s, time); }
     // 粒子と得点
     this.drawParticles(ctx, alpha);
-    for (const f of g.fx) if (f.kind === 'score') { this.at(ctx, f.x, f.y + (0.9 - f.t) * 0.8); ctx.scale(1, -1); ctx.globalAlpha = Math.min(1, f.t * 3); ctx.font = '700 0.42px ui-monospace,Consolas,monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText(f.n, 0.03, 0.03); ctx.fillStyle = '#ffe9a0'; ctx.fillText(f.n, 0, 0); ctx.globalAlpha = 1; }
+    for (const f of g.fx) if (f.kind === 'score') { const q = 1 - f.t / 0.9, up = 1 - Math.pow(1 - q, 3), sc = q < 0.15 ? 0.6 + (q / 0.15) * 0.7 : 1.3 - Math.min(0.3, (q - 0.15) * 1.5); this.at(ctx, f.x, f.y + up * 1.0); ctx.scale(sc, -sc); ctx.globalAlpha = Math.min(1, f.t * 3); ctx.font = '700 0.42px ui-monospace,Consolas,monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText(f.n, 0.03, 0.03); ctx.fillStyle = '#ffe9a0'; ctx.fillText(f.n, 0, 0); ctx.globalAlpha = 1; }
     else if (f.kind === 'shake') this.shake = Math.max(this.shake, f.t);
+    frontExtras(this, ctx, g);
     this.drawLights(ctx, g);
     this.drawAmbient(ctx, g);
     this.drawForeground(ctx, g);
@@ -305,7 +368,11 @@ export class Renderer2D {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const F = this.field;
     ctx.drawImage(this.tintImg, F.x, F.y);
-    if (g.mode === 'dying' && g.player.deadT > 0.5) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (g.player.deadT - 0.5) * 1.2)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
+    bossTint(this, ctx, g); lightning(this, ctx);
+    if (g.mode === 'dying' && g.player.deadT > 0.5) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.85, (g.player.deadT - 0.5) * 1.8)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
+    // 暗転からの明転（ステージ開始・復活）と、クリア後の暗転
+    if (g.mode === 'ready') { const k = Math.max(0, Math.min(1, (g.modeT - (g.cp >= 0 ? 0.6 : 2.0)) / 0.4)); if (k > 0) { ctx.fillStyle = `rgba(0,0,0,${k})`; ctx.fillRect(F.x, F.y, F.w, F.h); } }
+    if (g.mode === 'clear' && g.tally && g.tally.doneT && g.tally.phase > g.tally.doneT + 1.6) { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, (g.tally.phase - g.tally.doneT - 1.6) / 0.6)})`; ctx.fillRect(F.x, F.y, F.w, F.h); }
   }
   // ---------------------------------------------------------------- 地形（6×6 タイルの区画ごとに「描いた地面」を焼いて使い回す）
   drawTiles(ctx, g) {
@@ -610,6 +677,11 @@ export class Renderer2D {
       else if (typeof v === 'number' && key !== 'throwK' && key !== 'dead') P[key] += (v - P[key]) * k;
       else P[key] = v;
     }
+    // 走り出しは前へ、急に止まると後ろへ傾く（勢いの表現）
+    const run = p.state === 'run';
+    if (run && !this.wasRun) this.startT = 0.16; if (!run && this.wasRun && p.ground) this.skidT = 0.18; this.wasRun = run;
+    this.startT = Math.max(0, (this.startT || 0) - dt); this.skidT = Math.max(0, (this.skidT || 0) - dt);
+    P.lean += 0.22 * (this.startT / 0.16) - 0.28 * (this.skidT / 0.18);
     // 羽根: 速度に引かれて後ろへなびき、ばねで戻る（少し揺れが残る）
     const want = -(p.vx * p.face) * 0.05 - p.vy * 0.025;
     this.plV = (this.plV || 0) + ((want - (this.plA || 0)) * 160 - (this.plV || 0) * 9) * dt; this.plA = (this.plA || 0) + this.plV * dt;
@@ -621,7 +693,7 @@ export class Renderer2D {
     C[0].x = ax; C[0].y = ay; C[0].px = ax; C[0].py = ay;
     const wind = Math.sin(this.time * 1.7) * 0.6;
     for (let i = 1; i < C.length; i++) { const c = C[i]; const vx = (c.x - c.px) * 0.94, vy = (c.y - c.py) * 0.94; c.px = c.x; c.py = c.y; c.x += vx + wind * dt * dt * 6; c.y += vy - 16 * dt * dt; }
-    for (let it = 0; it < 4; it++) for (let i = 1; i < C.length; i++) {
+    for (let it = 0; it < 6; it++) for (let i = 1; i < C.length; i++) {
       const a = C[i - 1], b = C[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-6, diff = (d - 0.14) / d;
       if (i === 1) { b.x -= dx * diff; b.y -= dy * diff; } else { a.x += dx * diff * 0.5; a.y += dy * diff * 0.5; b.x -= dx * diff * 0.5; b.y -= dy * diff * 0.5; }
       const lx = (b.x - x) * face; if (lx > J.sh[0] - 0.05) b.x = x + (J.sh[0] - 0.05) * face; // 体の前に回らない
@@ -739,7 +811,7 @@ export class Renderer2D {
       q.t += dt * (this.app.screen === 'play' ? 1 : 0);
       const grav = q.kind === 'soul' ? -0.5 : q.kind === 'puff' || q.kind === 'ring' ? -1 : q.kind === 'spark' ? 6 : 18;
       q.vy -= grav * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.vr * dt;
-      if (q.kind === 'puff') { q.vx *= 0.94; q.vy *= 0.94; }
+      if (q.kind === 'puff') { q.vx *= 0.94; q.vy *= 0.94; } else if (q.kind === 'spark') { q.vx *= 0.96; q.vy *= 0.96; } // 粒子は減速しながら散る
       const k = 1 - q.t / q.life;
       this.at(ctx, q.x, q.y);
       ctx.globalAlpha = Math.max(0, k);

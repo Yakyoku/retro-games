@@ -21,6 +21,8 @@ export class UI {
     if (g && app.screen === 'play') this.banners(ctx, app, rect, s);
     if (app.screen === 'title') this.title(ctx, app, rect, s, opt);
     if (app.screen === 'ending') this.ending(ctx, app, rect, s);
+    // ポーズ・ゲームオーバーの暗幕はふわっとかかる
+    if (app.g && (app.screen === 'paused' || app.screen === 'gameover')) { this.dim = Math.min(1, (this.dim || 0) + 0.12); ctx.fillStyle = `rgba(0,0,8,${0.45 * this.dim})`; ctx.fillRect(0, 0, rect.w, rect.h); } else this.dim = 0;
     if (app.menu && app.screen !== 'play') this.menu(ctx, app, rect, s, opt);
     if (app.toast) this.toast(ctx, app, rect, s);
     if (app.debug && opt.debugText) { ctx.font = `${14 * s}px ui-monospace,monospace`; ctx.fillStyle = '#9f9'; ctx.textAlign = 'left'; opt.debugText.split('\n').forEach((l, i) => ctx.fillText(l, 20 * s, rect.h - (120 - i * 20) * s)); }
@@ -80,6 +82,9 @@ export class UI {
       this.text(ctx, BOSSES[b.type].name, bx, by - 16 * s, 22 * s, C.ink);
       const k = Math.max(0, b.hp / b.max);
       ctx.fillStyle = '#2a0c10'; ctx.fillRect(bx, by, bw, 14 * s);
+      // 減った分は白い帯がゆっくり追いかけて縮む
+      if (this.lagB !== b) { this.lagB = b; this.lag = k; } this.lag = Math.max(k, this.lag - 0.006);
+      ctx.fillStyle = 'rgba(255,240,220,0.85)'; ctx.fillRect(bx, by, bw * this.lag, 14 * s);
       const hg = ctx.createLinearGradient(bx, 0, bx + bw, 0); hg.addColorStop(0, '#ff5a3c'); hg.addColorStop(1, '#ffb347');
       ctx.fillStyle = hg; ctx.fillRect(bx, by, bw * k, 14 * s);
       ctx.strokeStyle = C.line; ctx.lineWidth = 2 * s; ctx.strokeRect(bx, by, bw, 14 * s);
@@ -120,14 +125,14 @@ export class UI {
     const g = app.g, W = rect.w, H = rect.h;
     if (app.notice && app.notice.t > 0) {
       const n = app.notice, a = Math.min(1, n.t * 3, (2.2 - n.t) * 5);
-      ctx.save(); ctx.globalAlpha = Math.max(0, a);
+      ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.translate(0, -(1 - Math.max(0, Math.min(1, (2.2 - n.t) * 5))) * 30 * s); // 上から降りてくる
       ctx.font = `700 ${30 * s}px ${FONT}`; const w = ctx.measureText(n.msg).width + 90 * s, y = 150 * s;
       this.panel(ctx, W / 2 - w / 2, y - 26 * s, w, 52 * s, s);
       this.text(ctx, n.msg, W / 2, y, 30 * s, n.col || C.gold, 'center', FONT, 700);
       ctx.restore();
     }
     const card = (l1, l2, a = 1) => {
-      ctx.save(); ctx.globalAlpha = a;
+      ctx.save(); ctx.globalAlpha = a; ctx.translate((1 - Math.min(1, a)) * W * 0.08, 0); // 横から滑り込む
       ctx.fillStyle = 'rgba(4,6,16,0.72)'; ctx.fillRect(0, H / 2 - 90 * s, W, 180 * s);
       ctx.strokeStyle = C.line; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(0, H / 2 - 90 * s); ctx.lineTo(W, H / 2 - 90 * s); ctx.moveTo(0, H / 2 + 90 * s); ctx.lineTo(W, H / 2 + 90 * s); ctx.stroke();
       this.text(ctx, l1, W / 2, H / 2 - 28 * s, 34 * s, C.gold, 'center', FONT, 700);
@@ -204,7 +209,8 @@ export class UI {
         if (it.info) { this.text(ctx, label, x + 40 * s, yy + h / 2, 22 * s, C.dim, 'left', SANS, 500, false); }
         else {
           const sel = i === mn.sel;
-          if (sel) { ctx.fillStyle = 'rgba(243,200,106,0.16)'; roundRect(ctx, x + 18 * s, yy + 4 * s, pw - 36 * s, h - 8 * s, 10 * s); ctx.fill(); ctx.fillStyle = C.gold; ctx.beginPath(); ctx.moveTo(x + 36 * s, yy + h / 2 - 12 * s); ctx.lineTo(x + 54 * s, yy + h / 2); ctx.lineTo(x + 36 * s, yy + h / 2 + 12 * s); ctx.fill(); }
+          if (sel) { this.selY = this.selY == null || this.selMenu !== mn ? yy : this.selY + (yy - this.selY) * 0.3; this.selMenu = mn; // 選択の帯は滑って移る
+            ctx.fillStyle = 'rgba(243,200,106,0.16)'; roundRect(ctx, x + 18 * s, this.selY + 4 * s, pw - 36 * s, h - 8 * s, 10 * s); ctx.fill(); ctx.fillStyle = C.gold; ctx.beginPath(); ctx.moveTo(x + 36 * s, yy + h / 2 - 12 * s); ctx.lineTo(x + 54 * s, yy + h / 2); ctx.lineTo(x + 36 * s, yy + h / 2 + 12 * s); ctx.fill(); }
           this.text(ctx, label, isTitle ? W / 2 : x + 70 * s, yy + h / 2, 30 * s, it.disabled ? '#6d6a63' : sel ? '#fff8e6' : C.ink, isTitle ? 'center' : 'left', SANS, sel ? 700 : 500);
           if (it.adj && sel) this.text(ctx, '◀ ▶', x + pw - 40 * s, yy + h / 2, 24 * s, C.gold, 'right');
           if (!it.disabled) this.hits.push({ i, x: rect.x + x, y: rect.y + yy, w: pw, h, adj: !!it.adj });

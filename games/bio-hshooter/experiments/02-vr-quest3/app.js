@@ -201,9 +201,12 @@ function drawHUD(s, fps) {
     // 溜め
     const bx = 620, bw = 800, by = 82, bh = 56;
     g.fillStyle = '#7fd7ff'; g.font = `600 40px ${MONO}`; g.fillText('BEAM', bx, by - 34 + 4);
-    g.strokeStyle = '#5fa8c8'; g.lineWidth = 4; g.strokeRect(bx, by, bw, bh);
+    // 溜めの計器: 両端の丸いカプセル
+    g.strokeStyle = '#5fa8c8'; g.lineWidth = 4; g.beginPath(); g.roundRect(bx, by, bw, bh, bh / 2); g.stroke(); g.save(); g.beginPath(); g.roundRect(bx + 4, by + 4, bw - 8, bh - 8, (bh - 8) / 2); g.clip();
     const ch = s.player.charge; const grd = g.createLinearGradient(bx, 0, bx + bw, 0); grd.addColorStop(0, '#1a6fa0'); grd.addColorStop(0.7, '#4fe3ff'); grd.addColorStop(1, '#ffffff');
-    g.fillStyle = ch >= 1 ? '#e6fbff' : grd; g.fillRect(bx + 4, by + 4, (bw - 8) * ch, bh - 8);
+    g.fillStyle = ch >= 1 ? '#e6fbff' : grd; g.fillRect(bx + 4, by + 4, (bw - 8) * ch, bh - 8); g.restore();
+    // 上辺の流線
+    { const gr2 = g.createLinearGradient(0, 0, W, 0); gr2.addColorStop(0, 'rgba(79,227,255,0)'); gr2.addColorStop(0.3, 'rgba(79,227,255,.7)'); gr2.addColorStop(0.7, 'rgba(192,107,255,.7)'); gr2.addColorStop(1, 'rgba(192,107,255,0)'); g.strokeStyle = gr2; g.lineWidth = 3; g.beginPath(); g.moveTo(30, 40); g.bezierCurveTo(W * 0.3, 40, W * 0.38, 18, W / 2, 18); g.bezierCurveTo(W * 0.62, 18, W * 0.7, 40, W - 30, 40); g.stroke(); }
     // 装備
     g.textAlign = 'right'; g.font = `700 46px ${MONO}`;
     const cname = { C: 'LANCE', M: 'RICOCHET', A: 'CRAWLER' }, ccol = { C: '#4fe3ff', M: '#ff4fb4', A: '#ffb347' };
@@ -227,6 +230,7 @@ function drawMsg(lines, key, opts = {}) {
   msgP.mesh.visible = true;
   msgP.draw(key, (g, W, H) => {
     if (opts.dim) { g.fillStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.roundRect(0, 0, W, H, 40); g.fill(); }
+    if (opts.swoosh) swooshLine(g, W, opts.swoosh);
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = '#000'; g.shadowBlur = 18;
     let y = opts.top ?? H / 2 - (lines.length - 1) * 40;
     for (const L of lines) {
@@ -237,6 +241,7 @@ function drawMsg(lines, key, opts = {}) {
     }
   });
 }
+function swooshLine(g, W, y) { const gr = g.createLinearGradient(W * 0.1, 0, W * 0.9, 0); gr.addColorStop(0, 'rgba(143,230,255,0)'); gr.addColorStop(0.35, '#8fe6ff'); gr.addColorStop(0.7, '#ff8fd0'); gr.addColorStop(1, 'rgba(255,207,143,0)'); g.strokeStyle = gr; g.lineCap = 'round'; for (const [o, w, a] of [[0, 4, 1], [16, 2, 0.6], [-14, 1.2, 0.45]]) { g.globalAlpha = a; g.lineWidth = w; g.beginPath(); g.moveTo(W * 0.12, y + o); g.bezierCurveTo(W * 0.35, y - 40 + o, W * 0.5, y + 40 + o, W * 0.66, y + o); g.bezierCurveTo(W * 0.78, y - 20 + o, W * 0.84, y + o, W * 0.88, y + 10 + o); g.stroke(); } g.globalAlpha = 1; }
 function menuLines(items) { return items.map((it, k) => [(k === menuIdx ? '▶ ' : '  ') + it.t, 52, k === menuIdx ? '#ffffff' : '#7d8b99', k === menuIdx ? 700 : 500]); }
 function menuNav(inp, items) {
   if (inp.pressed.up) { menuIdx = (menuIdx - 1 + items.length) % items.length; audio.sfx('select'); }
@@ -261,7 +266,7 @@ renderer.setAnimationLoop((now) => {
 
   if (screen === 'title') {
     if (active) menuNav(inp, menu());
-    drawMsg([['VOIDBLOOM', 150, 'logo', 800], ['虚空に咲いた金属の花を焼き払え', 40, '#9fb2c4'], ['', 30], ...menuLines(menu()), ['', 20], ['左スティック 選ぶ ／ トリガー 決定', 34, '#7d8b99'], [`HI-SCORE ${fmt(hi)}     MADE WITH CLAUDE`, 30, '#c9b6ff']], 'title' + menuIdx + practice + vol.music + hi, { top: 150 });
+    drawMsg([['VOIDBLOOM', 150, 'logo', 800], ['虚空に咲いた金属の花を焼き払え', 40, '#9fb2c4'], ['', 30], ...menuLines(menu()), ['', 20], ['左スティック 選ぶ ／ トリガー 決定', 34, '#7d8b99'], [`HI-SCORE ${fmt(hi)}     MADE WITH CLAUDE`, 30, '#c9b6ff']], 'title' + menuIdx + practice + vol.music + hi, { top: 150, swoosh: 248 });
   } else if (screen === 'play') {
     if (inp.pressed.pause) { screen = 'pause'; menuIdx = 0; audio.sfx('pause'); }
     else { acc += dt; let n = 0; while (acc >= DT && n++ < 6) { step(game, inp); acc -= DT; onEvents(game); } if (acc > DT * 6) acc = 0; }
